@@ -1,6 +1,6 @@
 [versions]
 collection = "1.6.0"
-core = "8d244bb31c"
+core = "e6c452ac6d"
 kotlin = "2.2.10"
 ksp = "2.2.10-2.0.2"
 coroutines = "1.10.2"

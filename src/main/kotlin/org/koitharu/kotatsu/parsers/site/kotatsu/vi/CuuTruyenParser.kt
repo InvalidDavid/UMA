@@ -73,11 +73,12 @@ internal class CuuTruyenParser(context: MangaLoaderContext) :
 
 	override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
         // Move to urlBuilder
+		val query = filter.query
 		val url = buildString {
-            if (!filter.query.isNullOrEmpty() || filter.tags.isNotEmpty() || filter.states.isNotEmpty()) {
+            if (!query.isNullOrEmpty() || filter.tags.isNotEmpty() || filter.states.isNotEmpty()) {
                 append("/mangas/search?q=")
-                if (!filter.query.isNullOrEmpty()) {
-                    append((filter.query?.urlEncoded() ?: ""))
+                if (!query.isNullOrEmpty()) {
+                    append(query.urlEncoded())
                 }
 
                 // Bug from API: Select both ONGOING + FINISHED will return empty list for all case
