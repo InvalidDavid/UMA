@@ -63,8 +63,10 @@ open class TachiyomiSourceAdapter(
             } else {
                 Injekt.addSingleton<Application>(Application())
             }
+            Injekt.addSingleton<MangaLoaderContext>(context)
         }.onFailure {
             Injekt.addSingleton<Application>(Application())
+            Injekt.addSingleton<MangaLoaderContext>(context)
         }
 
         /** Setup intercepted client for domain and User-Agent swapping */
