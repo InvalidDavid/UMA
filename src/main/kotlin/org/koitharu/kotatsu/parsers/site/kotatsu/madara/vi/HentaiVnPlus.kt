@@ -14,9 +14,9 @@ import org.koitharu.kotatsu.parsers.util.oneOrThrowIfMany
 import org.koitharu.kotatsu.parsers.util.parseHtml
 import org.koitharu.kotatsu.parsers.util.urlEncoded
 
-@MangaSourceParser("HENTAIVNPLUS", "HentaiVN.plus", "vi", ContentType.HENTAI)
+@MangaSourceParser("HENTAIVNPLUS", "QManga", "vi", ContentType.HENTAI)
 internal class HentaiVnPlus(context: MangaLoaderContext) :
-	MadaraParser(context, MangaParserSource.HENTAIVNPLUS, "hentaivn.show", 24) {
+	MadaraParser(context, MangaParserSource.HENTAIVNPLUS, "qmanga.art", 24) {
 	override val listUrl = "truyen-hentai/"
 	override val tagPrefix = "the-loai/"
 	override val datePattern = "dd/MM/yyyy"

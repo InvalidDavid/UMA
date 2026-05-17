@@ -8,4 +8,4 @@ import org.koitharu.kotatsu.parsers.site.kotatsu.manhwaz.ManhwaZ
 
 @MangaSourceParser("SAYHENTAI", "SayHentai", "vi", ContentType.HENTAI)
 internal class SayHentai(context: MangaLoaderContext) :
-	ManhwaZ(context, MangaParserSource.SAYHENTAI, "sayhentai.live")
+	ManhwaZ(context, MangaParserSource.SAYHENTAI, "sayhentai.sh")

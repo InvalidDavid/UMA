@@ -3,6 +3,7 @@ package org.koitharu.kotatsu.parsers.site.kotatsu.vi
 import okhttp3.Interceptor
 import okhttp3.Response
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
+import org.koitharu.kotatsu.parsers.MangaParserAuthProvider
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.PagedMangaParser
@@ -16,7 +17,7 @@ import kotlin.time.Duration.Companion.seconds
 
 @MangaSourceParser("KURONEKO", "Kuro Neko / vi-Hentai", "vi", type = ContentType.HENTAI)
 internal class KuroNeko(context: MangaLoaderContext):
-	PagedMangaParser(context, MangaParserSource.KURONEKO, 30) {
+	PagedMangaParser(context, MangaParserSource.KURONEKO, 30), MangaParserAuthProvider {
 
 	override val configKeyDomain = ConfigKey.Domain("vi-hentai.moe", "vi-hentai.pro")
 
@@ -53,6 +54,19 @@ internal class KuroNeko(context: MangaLoaderContext):
 		availableTags = availableTags(),
 		availableStates = EnumSet.of(MangaState.ONGOING, MangaState.FINISHED),
 	)
+
+	override val authUrl: String
+		get() = domain
+
+	override suspend fun isAuthorized(): Boolean {
+		return context.cookieJar.getCookies(domain).any {
+			it.name.contains("viet_hentai_kuro_neko_meo_den_session")
+		}
+	}
+
+	override suspend fun getUsername(): String {
+		return "Guest"
+	}
 
 	override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
 		val url = buildString {

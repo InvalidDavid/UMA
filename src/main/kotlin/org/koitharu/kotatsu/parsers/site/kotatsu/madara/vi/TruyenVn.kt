@@ -8,7 +8,7 @@ import org.koitharu.kotatsu.parsers.site.kotatsu.madara.MadaraParser
 
 @MangaSourceParser("TRUYENVN", "KhoTruyen", "vi", ContentType.HENTAI)
 internal class TruyenVn(context: MangaLoaderContext) :
-	MadaraParser(context, MangaParserSource.TRUYENVN, "truyenvn.shop", 20) {
+	MadaraParser(context, MangaParserSource.TRUYENVN, "truyenvn.sbs", 20) {
 	override val listUrl = "truyen-tranh/"
 	override val tagPrefix = "the-loai/"
 	override val datePattern = "dd/MM/yyyy"

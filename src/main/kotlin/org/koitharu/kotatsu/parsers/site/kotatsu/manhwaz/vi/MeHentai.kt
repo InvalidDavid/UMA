@@ -8,7 +8,7 @@ import org.koitharu.kotatsu.parsers.site.kotatsu.manhwaz.ManhwaZ
 
 @MangaSourceParser("MEHENTAI", "MeHentai", "vi", ContentType.HENTAI)
 internal class MeHentai(context: MangaLoaderContext) :
-	ManhwaZ(context, MangaParserSource.MEHENTAI, "mehentai.tv") {
+	ManhwaZ(context, MangaParserSource.MEHENTAI, "mehentai.blog") {
 
 	override val searchPath = "tim-kiem"
 	override val tagPath = "the-loai"
