@@ -119,12 +119,21 @@ open class TachiyomiSourceAdapter(
         }
     }
 
+    /**
+     * Lazily computed: true if the source's filter list contains any Filter.Text entry,
+     * which typically means author/artist/year text inputs are supported.
+     */
+    private val hasTextFilter: Boolean by lazy {
+        tachiyomiSource.getFilterList().any { it is eu.kanade.tachiyomi.source.model.Filter.Text }
+    }
+
     /** Mapping filters, allow to search + use all filters through tags */
     @InternalParsersApi
     override val filterCapabilities: MangaListFilterCapabilities
         get() = MangaListFilterCapabilities(
             isSearchSupported = true,
             isMultipleTagsSupported = true,
+            isAuthorSearchSupported = hasTextFilter,
         )
 
 
@@ -137,7 +146,8 @@ open class TachiyomiSourceAdapter(
             when {
                 !query.isNullOrEmpty() || filter.hasNonSearchOptions() -> {
                     val tachiyomiFilters = tachiyomiSource.getFilterList()
-                    // Map Kotatsu filters back to Tachiyomi filters
+
+                    // --- Map Kotatsu tag filters → Tachiyomi CheckBox / Group<CheckBox> ---
                     filter.tags.forEach { tag ->
                         tachiyomiFilters.forEach { f ->
                             if (f is eu.kanade.tachiyomi.source.model.Filter.CheckBox && f.name == tag.title) {
@@ -148,9 +158,45 @@ open class TachiyomiSourceAdapter(
                                         sub.state = true
                                     }
                                 }
+                            } else if (f is eu.kanade.tachiyomi.source.model.Filter.Select<*> && !isStatusFilterSelect(f)) {
+                                // For generic Select filters, select the matching option by name
+                                val idx = f.values.indexOfFirst { it.toString() == tag.title }
+                                if (idx >= 0) f.state = idx
                             }
                         }
                     }
+
+                    // --- Map Kotatsu state filters → Tachiyomi StatusFilter (Group or Select) ---
+                    val states = filter.states
+                    if (states.isNotEmpty()) {
+                        tachiyomiFilters.forEach { f ->
+                            when {
+                                f is eu.kanade.tachiyomi.source.model.Filter.Group<*> && isStatusFilterGroup(f) -> {
+                                    f.state.forEach { sub ->
+                                        if (sub is eu.kanade.tachiyomi.source.model.Filter.CheckBox) {
+                                            val mappedState = mapNameToState(sub.name)
+                                            if (mappedState != null && mappedState in states) {
+                                                sub.state = true
+                                            }
+                                        }
+                                    }
+                                }
+                                f is eu.kanade.tachiyomi.source.model.Filter.Select<*> && isStatusFilterSelect(f) -> {
+                                    // Pick the first matching option for single-select status
+                                    val values = f.values
+                                    for (i in 1 until values.size) {
+                                        val mappedState = mapNameToState(values[i].toString())
+                                        if (mappedState != null && mappedState in states) {
+                                            f.state = i
+                                            break
+                                        }
+                                    }
+                                }
+                                else -> {}
+                            }
+                        }
+                    }
+
                     tachiyomiSource.fetchSearchManga(page, query ?: "", tachiyomiFilters)
                         .toBlocking().single()
                 }
@@ -253,24 +299,101 @@ open class TachiyomiSourceAdapter(
     open override suspend fun getFilterOptions(): MangaListFilterOptions = withContext(Dispatchers.IO) {
         val tachiyomiFilters = tachiyomiSource.getFilterList()
         val tags = mutableSetOf<MangaTag>()
+        val states = mutableSetOf<MangaState>()
 
         tachiyomiFilters.forEach { filter ->
             when (filter) {
                 is eu.kanade.tachiyomi.source.model.Filter.CheckBox -> {
                     tags.add(MangaTag(title = filter.name, key = filter.name.lowercase(), source = source))
                 }
+
+                // --- Group (multi-checkbox list, e.g. GenreList or StatusFilter) ---
                 is eu.kanade.tachiyomi.source.model.Filter.Group<*> -> {
-                    filter.state.forEach { sub ->
-                        if (sub is eu.kanade.tachiyomi.source.model.Filter.CheckBox) {
-                            tags.add(MangaTag(title = sub.name, key = sub.name.lowercase(), source = source))
+                    if (isStatusFilterGroup(filter)) {
+                        // Map each child checkbox to a MangaState
+                        filter.state.forEach { sub ->
+                            if (sub is eu.kanade.tachiyomi.source.model.Filter.CheckBox) {
+                                mapNameToState(sub.name)?.let { states.add(it) }
+                            }
+                        }
+                    } else {
+                        // Generic group → flatten children as tags
+                        filter.state.forEach { sub ->
+                            when (sub) {
+                                is eu.kanade.tachiyomi.source.model.Filter.CheckBox -> {
+                                    tags.add(
+                                        MangaTag(
+                                            title = sub.name,
+                                            key = sub.name.lowercase(),
+                                            source = source,
+                                        ),
+                                    )
+                                }
+
+                                else -> {} // ignore nested selects / text inside groups
+                            }
                         }
                     }
                 }
+
+                // --- Select (single-choice dropdown, e.g. GenreFilter / StatusFilter in fastscan) ---
+                is eu.kanade.tachiyomi.source.model.Filter.Select<*> -> {
+                    if (isStatusFilterSelect(filter)) {
+                        // Map each option to MangaState (skip index 0 which is usually "All")
+                        val values = filter.values
+                        for (i in 1 until values.size) {
+                            mapNameToState(values[i].toString())?.let { states.add(it) }
+                        }
+                    } else {
+                        // Generic select → extract non-"All" options as tags
+                        val values = filter.values
+                        for (i in 1 until values.size) {
+                            val name = values[i].toString()
+                            if (name.isNotBlank()) {
+                                tags.add(MangaTag(title = name, key = name.lowercase(), source = source))
+                            }
+                        }
+                    }
+                }
+
+                // Filter.Text / Header / Separator — intentionally ignored for tag/state population
                 else -> {}
             }
         }
 
-        MangaListFilterOptions(availableTags = tags)
+        MangaListFilterOptions(availableTags = tags, availableStates = states)
+    }
+
+    /**
+     * Heuristic: returns true when a [eu.kanade.tachiyomi.source.model.Filter.Group] represents a status/state selector.
+     * Matches group names containing words like "status", "tình trạng", "trang thai", etc.
+     */
+    private fun isStatusFilterGroup(filter: eu.kanade.tachiyomi.source.model.Filter.Group<*>): Boolean {
+        val name = filter.name.lowercase()
+        return STATUS_KEYWORDS.any { name.contains(it) }
+    }
+
+    /**
+     * Heuristic: returns true when a [eu.kanade.tachiyomi.source.model.Filter.Select] represents a status/state selector.
+     */
+    private fun isStatusFilterSelect(filter: eu.kanade.tachiyomi.source.model.Filter.Select<*>): Boolean {
+        val name = filter.name.lowercase()
+        return STATUS_KEYWORDS.any { name.contains(it) }
+    }
+
+    /**
+     * Maps common status label strings (in multiple languages) to a [MangaState].
+     * Returns null if no mapping is found.
+     */
+    protected open fun mapNameToState(name: String): MangaState? {
+        val lower = name.lowercase()
+        return when {
+            ONGOING_KEYWORDS.any { lower.contains(it) } -> MangaState.ONGOING
+            FINISHED_KEYWORDS.any { lower.contains(it) } -> MangaState.FINISHED
+            PAUSED_KEYWORDS.any { lower.contains(it) } -> MangaState.PAUSED
+            ABANDONED_KEYWORDS.any { lower.contains(it) } -> MangaState.ABANDONED
+            else -> null
+        }
     }
 
     // ============================== Headers ================================
@@ -357,6 +480,81 @@ open class TachiyomiSourceAdapter(
 
     companion object {
         const val DEFAULT_PAGE_SIZE = 20
+
+        /** Filter names (lowercased) that indicate a status/state filter. */
+        private val STATUS_KEYWORDS = listOf(
+            "status",
+            "tình trạng",
+            "tinh trang",
+            "trạng thái",
+            "trang thai",
+            "durum",
+            "état",
+            "estado",
+            "zustand",
+        )
+
+        /** Label fragments (lowercased) that map to [MangaState.ONGOING]. */
+        private val ONGOING_KEYWORDS = listOf(
+            "ongoing",
+            "on-going",
+            "on going",
+            "updating",
+            "publishing",
+            "airing",
+            "đang",          // Vietnamese "đang tiến hành"
+            "dang tien hanh",
+            "devam",         // Turkish
+            "en cours",      // French
+            "en curso",      // Spanish
+            "lançando",      // Portuguese
+            "выходит",       // Russian
+            "продолжается",
+        )
+
+        /** Label fragments (lowercased) that map to [MangaState.FINISHED]. */
+        private val FINISHED_KEYWORDS = listOf(
+            "completed",
+            "complete",
+            "finished",
+            "end",
+            "full",
+            "hoàn",          // Vietnamese "hoàn thành" / "hoàn tất"
+            "hoan thanh",
+            "trọn bộ",
+            "tron bo",
+            "tamamland",     // Turkish
+            "achevé",
+            "terminé",
+            "завершено",     // Russian
+        )
+
+        /** Label fragments (lowercased) that map to [MangaState.PAUSED]. */
+        private val PAUSED_KEYWORDS = listOf(
+            "hiatus",
+            "on hold",
+            "on-hold",
+            "paused",
+            "beklemede",     // Turkish
+            "durduruldu",
+            "en pause",
+            "заморожено",    // Russian
+        )
+
+        /** Label fragments (lowercased) that map to [MangaState.ABANDONED]. */
+        private val ABANDONED_KEYWORDS = listOf(
+            "canceled",
+            "cancelled",
+            "dropped",
+            "drop",
+            "abandoned",
+            "discontinued",
+            "iptal",         // Turkish
+            "đã hủy",
+            "da huy",
+            "abandonné",
+            "заброшено",     // Russian
+        )
     }
 }
 
