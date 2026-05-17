@@ -1,15 +1,34 @@
 package org.koitharu.kotatsu.parsers.site.kotatsu.madara.vi
 
+import okhttp3.Headers
 import org.jsoup.nodes.Element
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
-import org.koitharu.kotatsu.parsers.exception.ParseException
-import org.koitharu.kotatsu.parsers.model.*
+import org.koitharu.kotatsu.parsers.model.ContentRating
+import org.koitharu.kotatsu.parsers.model.ContentType
+import org.koitharu.kotatsu.parsers.model.Manga
+import org.koitharu.kotatsu.parsers.model.MangaChapter
+import org.koitharu.kotatsu.parsers.model.MangaListFilter
+import org.koitharu.kotatsu.parsers.model.MangaListFilterOptions
+import org.koitharu.kotatsu.parsers.model.MangaPage
+import org.koitharu.kotatsu.parsers.model.MangaParserSource
+import org.koitharu.kotatsu.parsers.model.MangaState
+import org.koitharu.kotatsu.parsers.model.MangaTag
+import org.koitharu.kotatsu.parsers.model.SortOrder
 import org.koitharu.kotatsu.parsers.network.CommonHeaders
+import org.koitharu.kotatsu.parsers.network.UserAgents
 import org.koitharu.kotatsu.parsers.site.kotatsu.madara.MadaraParser
-import org.koitharu.kotatsu.parsers.util.*
+import org.koitharu.kotatsu.parsers.util.generateUid
+import org.koitharu.kotatsu.parsers.util.json.asTypedList
+import org.koitharu.kotatsu.parsers.util.mapToSet
+import org.koitharu.kotatsu.parsers.util.oneOrThrowIfMany
+import org.koitharu.kotatsu.parsers.util.parseHtml
+import org.koitharu.kotatsu.parsers.util.parseJson
 import org.koitharu.kotatsu.parsers.util.suspendlazy.getOrNull
 import org.koitharu.kotatsu.parsers.util.suspendlazy.suspendLazy
+import org.koitharu.kotatsu.parsers.util.toAbsoluteUrl
+import org.koitharu.kotatsu.parsers.util.urlBuilder
+import org.koitharu.kotatsu.parsers.util.urlEncoded
 
 // Do not use "hentaicb.sbs" domain, may cause duplicate tags!
 @MangaSourceParser("HENTAICUBE", "CBHentai", "vi", ContentType.HENTAI)
@@ -68,7 +87,7 @@ internal class HentaiCube(context: MangaLoaderContext) :
 			}
 
 			append("/?s=")
-            append(filter.query?.urlEncoded() ?: "")
+            append(filter.query?.urlEncoded())
 
 			append("&post_type=wp-manga")
 
@@ -140,18 +159,15 @@ internal class HentaiCube(context: MangaLoaderContext) :
 	}
 
 	override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
-		val fullUrl = chapter.url.toAbsoluteUrl(domain)
-		val doc = webClient.httpGet(fullUrl).parseHtml()
-		val root = doc.body().selectFirst("div.main-col-inner")?.selectFirst("div.reading-content")
-			?: throw ParseException("Root not found", fullUrl)
-		return root.select("img").map { img ->
-			val url = img.requireSrc().toRelativeUrl(domain)
-			MangaPage(
-				id = generateUid(url),
-				url = url,
-				preview = null,
-				source = source,
-			)
+		val headers = Headers.Builder()
+			.add(CommonHeaders.REFERER, chapter.url.toAbsoluteUrl(domain))
+			.add(CommonHeaders.USER_AGENT, UserAgents.CHROME_DESKTOP)
+			.build()
+
+		val jsonUrl = urlBuilder().addPathSegments("wp-json/manga-reader/v1/images")
+		val json = webClient.httpGet(jsonUrl.build(), headers).parseJson()
+		return json.getJSONArray("images").asTypedList<String>().map {
+			MangaPage(generateUid(it), it, null, source)
 		}
 	}
 
