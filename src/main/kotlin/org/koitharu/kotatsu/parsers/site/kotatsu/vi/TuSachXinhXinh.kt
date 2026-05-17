@@ -25,7 +25,7 @@ internal class TuSachXinhXinh(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.TUSACHXINHXINH, 20) {
 
 	override val configKeyDomain: ConfigKey.Domain
-		get() = ConfigKey.Domain("tusachxinhxinh12.online")
+		get() = ConfigKey.Domain("tusachxinhxinh12.online", "tsxx4.online")
 
 	override val availableSortOrders: Set<SortOrder>
 		get() = EnumSet.of(SortOrder.UPDATED)

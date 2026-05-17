@@ -16,7 +16,7 @@ import java.util.*
 internal class TruyenHentai18(context: MangaLoaderContext):
 	PagedMangaParser(context, MangaParserSource.TRUYENHENTAI18, 18) {
 
-	override val configKeyDomain = ConfigKey.Domain("truyenhentai18.app")
+	override val configKeyDomain = ConfigKey.Domain("truyenhentai18.net")
 
 	private val apiSuffix = "api.th18.app"
 	private val cdnSuffix = "vi-api.th18.app"

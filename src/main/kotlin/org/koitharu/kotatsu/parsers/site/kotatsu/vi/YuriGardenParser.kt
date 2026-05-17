@@ -12,6 +12,7 @@ import okhttp3.Response
 import okio.IOException
 import org.json.JSONArray
 import org.json.JSONObject
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.bitmap.Bitmap
 import org.koitharu.kotatsu.parsers.bitmap.Rect
@@ -27,6 +28,7 @@ import org.koitharu.kotatsu.parsers.util.suspendlazy.suspendLazy
 import java.util.*
 import kotlin.time.Duration.Companion.seconds
 
+@Broken("Tạm đóng web")
 internal abstract class YuriGardenParser(
 	context: MangaLoaderContext,
 	source: MangaParserSource,

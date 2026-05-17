@@ -11,7 +11,7 @@ import org.koitharu.kotatsu.parsers.util.suspendlazy.suspendLazy
 import java.text.SimpleDateFormat
 import java.util.*
 
-@MangaSourceParser("TRUYENHENTAIVN", "TruyenHentaiVN", "vi", type = ContentType.HENTAI)
+@MangaSourceParser("TRUYENHENTAIVN", "TruyenHentaiVN", "vi", ContentType.HENTAI)
 internal class TruyenHentaiVN(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.TRUYENHENTAIVN, 30) {
 
