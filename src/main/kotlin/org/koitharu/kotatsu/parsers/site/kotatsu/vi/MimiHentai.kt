@@ -19,9 +19,9 @@ import java.util.*
 
 @MangaSourceParser("MIMIHENTAI", "MimiHentai", "vi", type = ContentType.HENTAI)
 internal class MimiHentai(context: MangaLoaderContext) :
-	PagedMangaParser(context, MangaParserSource.MIMIHENTAI, 18) {
+	PagedMangaParser(context, MangaParserSource.MIMIHENTAI, 24) {
 
-	private val apiSuffix = "api/v2/manga"
+	private val apiSuffix = "api"
 	override val configKeyDomain = ConfigKey.Domain("mimimoe.moe")
 	override val userAgentKey = ConfigKey.UserAgent(UserAgents.KOTATSU)
 
@@ -46,9 +46,6 @@ internal class MimiHentai(context: MangaLoaderContext) :
 		SortOrder.UPDATED,
 		SortOrder.ALPHABETICAL,
 		SortOrder.POPULARITY,
-		SortOrder.POPULARITY_TODAY,
-		SortOrder.POPULARITY_WEEK,
-		SortOrder.POPULARITY_MONTH,
 		SortOrder.RATING,
 	)
 
@@ -62,32 +59,33 @@ internal class MimiHentai(context: MangaLoaderContext) :
 		)
 
 	init {
-		setFirstPage(0)
+		setFirstPage(1)
 	}
 
 	override suspend fun getFilterOptions() = MangaListFilterOptions(availableTags = fetchTags())
 
+	// https://mimimoe.moe/api/manga/advanced-search?title=hello&author=3789&genre=186,303,288,417&exclude_genre=196&page=1&page_size=24
 	override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
 		val url = buildString {
 			append("https://")
-			append("$domain/$apiSuffix")
+			append("$domain/$apiSuffix/manga")
 
 			if (!filter.query.isNullOrEmpty() ||
                 !filter.author.isNullOrEmpty() ||
 				filter.tags.isNotEmpty()
 			) {
-				append("/advance-search?page=")
+				append("/advanced-search?page=")
 				append(page)
-				append("&max=$pageSize") // page size, avoid rate limit
+				append("&page_size=$pageSize") // page size, avoid rate limit
 
 				if (!filter.query.isNullOrEmpty()) {
-					append("&name=")
-					append((filter.query?.urlEncoded() ?: ""))
+					append("&title=")
+					append((filter.query?.urlEncoded()))
 				}
 
 				if (!filter.author.isNullOrEmpty()) {
 					append("&author=")
-					append((filter.author?.urlEncoded() ?: ""))
+					append(filter.author?.substringAfter("(")?.substringBefore(")"))
 				}
 
 				if (filter.tags.isNotEmpty()) {
@@ -96,64 +94,40 @@ internal class MimiHentai(context: MangaLoaderContext) :
 				}
 
 				if (filter.tagsExclude.isNotEmpty()) {
-					append("&ex=")
+					append("&exclude_genre=")
 					append(filter.tagsExclude.joinToString(",") { it.key })
 				}
-
-				append("&sort=")
-				append(
-					when (order) {
-						SortOrder.UPDATED -> "updated_at"
-						SortOrder.ALPHABETICAL -> "title"
-						SortOrder.POPULARITY -> "follows"
-						SortOrder.POPULARITY_TODAY,
-						SortOrder.POPULARITY_WEEK,
-						SortOrder.POPULARITY_MONTH -> "views"
-						SortOrder.RATING -> "likes"
-						else -> ""
-					}
-				)
 			}
 
 			else {
 				append(
 					when (order) {
-						SortOrder.UPDATED -> "/tatcatruyen?page=$page&sort=updated_at"
-						SortOrder.ALPHABETICAL -> "/tatcatruyen?page=$page&sort=title"
-						SortOrder.POPULARITY -> "/tatcatruyen?page=$page&sort=follows"
-						SortOrder.POPULARITY_TODAY -> "/tatcatruyen?page=$page&sort=views"
-						SortOrder.POPULARITY_WEEK -> "/top-manga?page=$page&timeType=1&limit=18"
-						SortOrder.POPULARITY_MONTH -> "/top-manga?page=$page&timeType=2&limit=18"
-						SortOrder.RATING -> "/tatcatruyen?page=$page&sort=likes"
-						else -> "/tatcatruyen?page=$page&sort=updated_at" // default
+						SortOrder.ALPHABETICAL -> "?sort=title&page=$page&page_size=$pageSize"
+						SortOrder.POPULARITY -> "?sort=views&page=$page&page_size=$pageSize"
+						SortOrder.RATING -> "?sort=likes&page=$page&page_size=$pageSize"
+						else -> "?sort=updated_at&page=$page&page_size=$pageSize" // default, updated
 					}
 				)
 
 				if (filter.tagsExclude.isNotEmpty()) {
-					append("&ex=")
+					append("&exclude_genre=")
 					append(filter.tagsExclude.joinToString(",") { it.key })
 				}
 			}
 		}
 
-		val raw = webClient.httpGet(url)
-		return if (url.contains("/top-manga")) {
-			val data = raw.parseJsonArray()
-			parseTopMangaList(data)
-		} else {
-			val data = raw.parseJson().getJSONArray("data")
-			parseMangaList(data)
-		}
+		val raw = webClient.httpGet(url).parseJson()
+		return parseMangaList(raw.getJSONArray("items"))
 	}
 
-	private fun parseTopMangaList(data: JSONArray): List<Manga> {
+	private fun parseMangaList(data: JSONArray): List<Manga> {
 		return data.mapJSON { jo ->
 			val id = jo.getLong("id")
 			val title = jo.getString("title").takeIf { it.isNotEmpty() } ?: "Web chưa đặt tên"
 			val description = jo.getStringOrNull("description")
 
 			val differentNames = mutableSetOf<String>().apply {
-				jo.optJSONArray("differentNames")?.let { namesArray ->
+				jo.optJSONArray("alt_names")?.let { namesArray ->
 					for (i in 0 until namesArray.length()) {
 						namesArray.optString(i)?.takeIf { it.isNotEmpty() }?.let { name ->
 							add(name)
@@ -163,7 +137,7 @@ internal class MimiHentai(context: MangaLoaderContext) :
 			}
 
 			val authors = jo.optJSONArray("authors")?.mapJSON {
-				it.getString("name")
+				it.getString("name") + " (${it.getInt("id")})"
 			}?.toSet() ?: emptySet()
 
 			val tags = jo.optJSONArray("genres")?.mapJSON { genre ->
@@ -178,57 +152,11 @@ internal class MimiHentai(context: MangaLoaderContext) :
 				id = generateUid(id),
 				title = title,
 				altTitles = differentNames,
-				url = "/$apiSuffix/info/$id",
+				url = "/$apiSuffix/manga/$id",
 				publicUrl = "https://$domain/g/$id",
 				rating = RATING_UNKNOWN,
 				contentRating = ContentRating.ADULT,
-				coverUrl = jo.getString("coverUrl"),
-				state = null,
-				description = description,
-				tags = tags,
-				authors = authors,
-				source = source,
-			)
-		}
-	}
-
-	private fun parseMangaList(data: JSONArray): List<Manga> {
-		return data.mapJSON { jo ->
-			val id = jo.getLong("id")
-			val title = jo.getString("title").takeIf { it.isNotEmpty() } ?: "Web chưa đặt tên"
-			val description = jo.getStringOrNull("description")
-
-			val differentNames = mutableSetOf<String>().apply {
-				jo.optJSONArray("differentNames")?.let { namesArray ->
-					for (i in 0 until namesArray.length()) {
-						namesArray.optString(i)?.takeIf { it.isNotEmpty() }?.let { name ->
-							add(name)
-						}
-					}
-				}
-			}
-
-			val authors = jo.getJSONArray("authors").mapJSON {
-				it.getString("name")
-			}.toSet()
-
-			val tags = jo.getJSONArray("genres").mapJSON { genre ->
-				MangaTag(
-					key = genre.getLong("id").toString(),
-					title = genre.getString("name"),
-					source = source
-				)
-			}.toSet()
-
-			Manga(
-				id = generateUid(id),
-				title = title,
-				altTitles = differentNames,
-				url = "/$apiSuffix/info/$id",
-				publicUrl = "https://$domain/g/$id",
-				rating = RATING_UNKNOWN,
-				contentRating = ContentRating.ADULT,
-				coverUrl = jo.getString("coverUrl"),
+				coverUrl = jo.getString("cover_url"),
 				state = null,
 				tags = tags,
 				description = description,
@@ -243,26 +171,27 @@ internal class MimiHentai(context: MangaLoaderContext) :
 		val json = webClient.httpGet(url).parseJson()
 		val id = json.getLong("id")
 		val description = json.getStringOrNull("description")
-		val uploaderName = json.getJSONObject("uploader").getString("displayName")
+		val uploaderName = json.optJSONObject("uploader")?.optString("displayName") ?: "MimiHentai"
 
-		val tags = json.getJSONArray("genres").mapJSONToSet { jo ->
+		val tags = json.optJSONArray("genres")?.mapJSONToSet { jo ->
 			MangaTag(
 				title = jo.getString("name").toTitleCase(sourceLocale),
 				key = jo.getLong("id").toString(),
 				source = source,
 			)
-		}
+		} ?: manga.tags
 
-		val urlChaps = "https://$domain/$apiSuffix/gallery/$id"
+		val urlChaps = "https://$domain/$apiSuffix/manga/$id/chapters?limit=999"
 		val parsedChapters = webClient.httpGet(urlChaps).parseJsonArray()
 		val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSSSS", Locale.US)
 		val chapters = parsedChapters.mapJSON { jo ->
+			val id = jo.getLong("id")
 			MangaChapter(
-				id = generateUid(jo.getLong("id")),
+				id = generateUid(id),
 				title = jo.getStringOrNull("title"),
 				number = jo.getFloatOrDefault("order", 0f),
-				url = "/$apiSuffix/chapter?id=${jo.getLong("id")}",
-				uploadDate = dateFormat.parse(jo.getString("createdAt"))?.time ?: 0L,
+				url = "/$apiSuffix/chapters/$id",
+				uploadDate = dateFormat.parse(jo.getString("created_at"))?.time ?: 0L,
 				source = source,
 				scanlator = uploaderName,
 				branch = null,
@@ -280,7 +209,7 @@ internal class MimiHentai(context: MangaLoaderContext) :
 	override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
 		val json = webClient.httpGet(chapter.url.toAbsoluteUrl(domain)).parseJson()
 		return json.getJSONArray("pages").mapJSON { jo ->
-			val imageUrl = jo.getString("imageUrl")
+			val imageUrl = jo.getString("image_url")
 			val gt = jo.getStringOrNull("drm")
 			MangaPage(
 				id = generateUid(imageUrl),
