@@ -1,12 +1,9 @@
 package org.koitharu.kotatsu.parsers.site.kotatsu.vi
 
-import org.jsoup.nodes.Document
-import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.PagedMangaParser
-import org.koitharu.kotatsu.parsers.model.ContentRating
 import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaChapter
 import org.koitharu.kotatsu.parsers.model.MangaListFilter
@@ -18,28 +15,62 @@ import org.koitharu.kotatsu.parsers.model.MangaState
 import org.koitharu.kotatsu.parsers.model.MangaTag
 import org.koitharu.kotatsu.parsers.model.RATING_UNKNOWN
 import org.koitharu.kotatsu.parsers.model.SortOrder
-import org.koitharu.kotatsu.parsers.util.attrAsRelativeUrl
+import org.koitharu.kotatsu.parsers.network.CommonHeaders
+import org.koitharu.kotatsu.parsers.network.OkHttpWebClient
 import org.koitharu.kotatsu.parsers.util.generateUid
+import org.koitharu.kotatsu.parsers.util.json.asTypedList
+import org.koitharu.kotatsu.parsers.util.json.getFloatOrDefault
+import org.koitharu.kotatsu.parsers.util.json.getStringOrNull
+import org.koitharu.kotatsu.parsers.util.json.mapJSON
+import org.koitharu.kotatsu.parsers.util.json.mapJSONNotNull
 import org.koitharu.kotatsu.parsers.util.mapChapters
-import org.koitharu.kotatsu.parsers.util.parseHtml
+import org.koitharu.kotatsu.parsers.util.mapToSet
+import org.koitharu.kotatsu.parsers.util.oneOrThrowIfMany
+import org.koitharu.kotatsu.parsers.util.parseJson
 import org.koitharu.kotatsu.parsers.util.parseSafe
-import org.koitharu.kotatsu.parsers.util.selectFirstOrThrow
-import org.koitharu.kotatsu.parsers.util.splitByWhitespace
-import org.koitharu.kotatsu.parsers.util.toAbsoluteUrl
+import org.koitharu.kotatsu.parsers.util.rateLimit
 import org.koitharu.kotatsu.parsers.util.urlBuilder
-import org.koitharu.kotatsu.parsers.util.urlEncoded
 import java.text.SimpleDateFormat
 import java.util.EnumSet
 import java.util.Locale
+import java.util.TimeZone
+import kotlin.time.Duration.Companion.seconds
 
-@Broken("Remake this parser, use public API from SuiCaoDex")
 @MangaSourceParser("BFANGTEAM", "Moè Truyện", "vi")
 internal class BFANGTeam (context: MangaLoaderContext) :
-	PagedMangaParser(context, MangaParserSource.BFANGTEAM, 24) {
+	PagedMangaParser(context, MangaParserSource.BFANGTEAM, 100) {
 
 	override val configKeyDomain = ConfigKey.Domain("moetruyen.net")
 
-	override val availableSortOrders: Set<SortOrder> = EnumSet.of(SortOrder.UPDATED)
+	/**
+	 * Public API by SuiCaoDex
+	 * This API uses the same database with MoeTruyen source
+	**/
+	private val apiSuffix = "v2"
+	private val apiDomain = "moe.suicaodex.com"
+
+	override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
+		super.onCreateConfig(keys)
+		keys.remove(userAgentKey)
+	}
+
+	override val webClient = OkHttpWebClient(
+		context.httpClient.newBuilder()
+			.rateLimit(7, 1.seconds)
+			.build(), source)
+
+	override fun getRequestHeaders() = super.getRequestHeaders().newBuilder()
+		.add(CommonHeaders.ORIGIN, "https://$domain")
+		.build()
+
+	override val availableSortOrders: Set<SortOrder> = EnumSet.of(
+		SortOrder.UPDATED, // updated_at
+		SortOrder.ALPHABETICAL, // title
+		SortOrder.POPULARITY, // popular
+		SortOrder.POPULARITY_TODAY, // views, 24h
+		SortOrder.POPULARITY_WEEK, // views, 1w
+		SortOrder.POPULARITY_MONTH, // views, 1m
+	)
 
 	override val filterCapabilities: MangaListFilterCapabilities
 		get() = MangaListFilterCapabilities(
@@ -47,68 +78,110 @@ internal class BFANGTeam (context: MangaLoaderContext) :
 			isSearchWithFiltersSupported = true,
 			isMultipleTagsSupported = true,
 			isTagsExclusionSupported = true,
-			isAuthorSearchSupported = true,
 		)
 
 	override suspend fun getFilterOptions(): MangaListFilterOptions {
 		return MangaListFilterOptions(
 			availableTags = availableTags(),
+			availableStates = EnumSet.of(
+				MangaState.ONGOING,
+				MangaState.FINISHED,
+				MangaState.PAUSED,
+				MangaState.ABANDONED,
+			),
 		)
 	}
 
 	override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
-		val url = urlBuilder().addPathSegment("manga")
+		val url = urlBuilder().host(apiDomain).addPathSegments("$apiSuffix/manga").apply {
+			// default values, fixed
+			addQueryParameter("page", page.toString())
+			addQueryParameter("limit", pageSize.toString())
 
-		if (!filter.query.isNullOrEmpty()) {
-			url.addEncodedQueryParameter("q", filter.query)
-		}
+			if (!filter.query.isNullOrEmpty() || filter.tags.isNotEmpty() ||
+				filter.states.isNotEmpty() || filter.tagsExclude.isNotEmpty()) {
 
-		// todo: need to use data-genre (num) instead of genre name
-		if (filter.tags.isNotEmpty()) {
-			filter.tags.forEach {
-				url.addQueryParameter("include", it.key)
+				// keyword
+				if (!filter.query.isNullOrEmpty()) {
+					addEncodedQueryParameter("q", filter.query)
+				}
+
+				// genre
+				if (filter.tags.isNotEmpty()) {
+					addEncodedQueryParameter("genre", filter.tags.joinToString(",") { it.key })
+				}
+
+				// status
+				if (filter.states.isNotEmpty()) {
+					filter.states.oneOrThrowIfMany()?.let {
+						when (it) {
+							MangaState.ONGOING -> addQueryParameter("status", "ongoing")
+							MangaState.FINISHED -> addQueryParameter("status", "completed")
+							MangaState.PAUSED -> addQueryParameter("status", "hiatus")
+							MangaState.ABANDONED -> addQueryParameter("status", "cancelled")
+							else -> addQueryParameter("status", "unknown")
+						}
+					}
+				}
+
+				// exclude genre
+				if (filter.tagsExclude.isNotEmpty()) {
+					addEncodedQueryParameter("genrex", filter.tagsExclude.joinToString(",") { it.key })
+				}
+
+				// order
+				when (order) {
+					SortOrder.POPULARITY, SortOrder.POPULARITY_TODAY,
+					SortOrder.POPULARITY_WEEK, SortOrder.POPULARITY_MONTH -> addQueryParameter("sort", "popular")
+					SortOrder.ALPHABETICAL -> addQueryParameter("sort", "title")
+					else -> addQueryParameter("sort", "updated_at") // default, updated
+				}
+			} else {
+				// top manga for 3 special orders
+				addPathSegment("top")
+				addQueryParameter("include", "")
+				when (order) {
+					SortOrder.POPULARITY_TODAY -> {
+						addQueryParameter("sort_by", "views")
+						addQueryParameter("time", "24h")
+					}
+					SortOrder.POPULARITY_WEEK -> {
+						addQueryParameter("sort_by", "views")
+						addQueryParameter("time", "7d")
+					}
+					SortOrder.POPULARITY_MONTH -> {
+						addQueryParameter("sort_by", "views")
+						addQueryParameter("time", "30d")
+					}
+					else -> {
+						addQueryParameter("sort_by", "views")
+						addQueryParameter("time", "all_time")
+					}
+				}
 			}
 		}
 
-		// todo: need to use data-genre (num) instead of genre name
-		if (filter.tagsExclude.isNotEmpty()) {
-			filter.tagsExclude.forEach {
-				url.addQueryParameter("exclude", it.key)
-			}
-		}
-
-		val author = filter.author
-		if (!author.isNullOrEmpty()) {
-			url.addQueryParameter("q",
-				author.splitByWhitespace().joinToString(separator = "+") { it }
-			)
-		}
-
-		// paging
-		if (page > 1) {
-			url.addQueryParameter("page", page.toString())
-		}
-
-		val request = webClient.httpGet(url.build()).parseHtml()
-		return request.select("article.manga-card").map { ar ->
-			val href = ar.selectFirstOrThrow("a").attrAsRelativeUrl("href")
+		val request = webClient.httpGet(url.build()).parseJson()
+		return request.getJSONArray("data").mapJSONNotNull { jo ->
+			val id = jo.getLong("id")
 			Manga(
-				id = generateUid(href),
-				url = href,
-				publicUrl = href.toAbsoluteUrl(domain),
-				title = ar.select(".manga-body h3").text(),
-				altTitles = emptySet(),
-				coverUrl = ar.select(".cover img").attr("src").toAbsoluteUrl(domain),
+				id = generateUid(id),
+				url = id.toString(),
+				publicUrl = "https://$domain/manga/${jo.getString("slug")}",
+				title = jo.getString("title"),
+				altTitles = jo.getJSONArray("altTitles").asTypedList<String>().mapToSet { it },
+				coverUrl = jo.getString("coverUrl"),
 				largeCoverUrl = null,
-				authors = emptySet(),
+				authors = setOf(jo.getString("author")),
 				tags = emptySet(),
-				state = when (ar.select(".meta-row span.tag").text()) {
-					"Hoàn thành" -> MangaState.FINISHED
-					"Còn tiếp" -> MangaState.ONGOING
-					"Tạm dừng" -> MangaState.PAUSED
+				state = when (jo.getString("status")) {
+					"ongoing" -> MangaState.ONGOING
+					"completed" -> MangaState.FINISHED
+					"hiatus" -> MangaState.PAUSED
+					"cancelled" -> MangaState.ABANDONED
 					else -> null
 				},
-				description = null,
+				description = jo.getString("description"),
 				contentRating = null,
 				source = source,
 				rating = RATING_UNKNOWN,
@@ -117,121 +190,75 @@ internal class BFANGTeam (context: MangaLoaderContext) :
 	}
 
 	override suspend fun getDetails(manga: Manga): Manga {
-		val doc = webClient.httpGet(manga.url.toAbsoluteUrl(domain)).parseHtml()
-		val div = doc.select(".detail-info.reveal")
-		val isNsfw = div.select(".chips a.chip").any { it.text() == "Adult" }
+		val chapterDateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.ROOT).apply {
+			timeZone = TimeZone.getTimeZone("UTC+7")
+		}
 
-		return manga.copy(
-			authors = div.select("p.manga-author a.inline-link").map { it.text() }.toSet(),
-			altTitles = div.select("p.note").map { it.text().substringAfter("Tên khác: ") }.toSet(),
-			description = div.select(".manga-description p span").text(),
-			contentRating = if (isNsfw) ContentRating.ADULT else null,
-			tags = div.select(".chips a.chip").map {
-				MangaTag(title = it.text(), key = it.text().urlEncoded(), source = source)
-			}.toSet(),
-			chapters = fetchAllChapters(manga.url.toAbsoluteUrl(domain), doc),
-		)
-	}
-
-	private suspend fun fetchAllChapters(startUrl: String, firstPage: Document): List<MangaChapter> {
 		val chapters = mutableListOf<MangaChapter>()
-		val visited = mutableSetOf(startUrl)
-		var doc = firstPage
+		var chapPage = 1
+		var nextPage = true
 
-		while (true) {
-			chapters += parseChapters(doc)
-			val nextUrl = doc.selectFirst("nav[aria-label*='Phân trang chương'] a[aria-label='Trang chương sau']:not(.is-disabled)")
-				?.absUrl("href")?.takeIf { it.isNotEmpty() && it != "#" && visited.add(it) }
-				?: break
-			doc = webClient.httpGet(nextUrl).parseHtml()
-		}
+		do {
+			val url = urlBuilder().host(apiDomain)
+				.addEncodedPathSegments("$apiSuffix/manga/${manga.url}/chapters")
+				.addQueryParameter("page", chapPage.toString())
+				.addQueryParameter("limit", pageSize.toString())
 
-		return chapters.sortedBy { it.number }
+			val response = webClient.httpGet(url.build()).parseJson()
+			val pageChapters = response.getJSONObject("data").getJSONArray("chapters").mapChapters(true) { i, jo ->
+				val id = jo.getLong("id")
+				MangaChapter(
+					id = generateUid(id),
+					title = jo.getStringOrNull("title"),
+					number = jo.getFloatOrDefault("number", ((chapPage - 1) * 100 + i + 1).toFloat()),
+					volume = 0,
+					url = id.toString(),
+					scanlator = jo.getJSONArray("groups").mapJSON { scan ->
+						scan.getString("name")
+					}.joinToString(", ") { it },
+					uploadDate = chapterDateFormat.parseSafe(jo.getString("date")),
+					branch = null,
+					source = source,
+				)
+			}
+
+			chapters.addAll(pageChapters)
+			val metaObj = response.optJSONObject("meta")
+			if (metaObj != null) {
+				val pagination = metaObj.getJSONObject("pagination")
+				val totalPages = pagination.getInt("totalPages")
+				val page = pagination.getInt("page")
+				if (page < totalPages) { chapPage++ } else { nextPage = false }
+			} else { nextPage = false }
+		} while (nextPage)
+
+		val allChaps = chapters.sortedBy { it.number }
+		return manga.copy(chapters = allChaps)
 	}
-
-	private fun parseChapters(doc: Document): List<MangaChapter> =
-		doc.select("li.chapter").mapChapters(true) { i, li ->
-			val row = li.select("a .chapter-main .chapter-title-row")
-			val title = row.select("span.chapter-title").text()
-			MangaChapter(
-				id = generateUid(title),
-				title = title,
-				number = row.select("span.chapter-num").text().substringAfter("Ch. ").toFloatOrNull() ?: (i + 1).toFloat(),
-				volume = 0,
-				url = li.select("a").attr("href").toAbsoluteUrl(domain),
-				scanlator = li.selectFirst("span.chapter-sub-text")?.text(),
-				uploadDate = parseChapterDate(li.select("span.chapter-time").text()),
-				branch = null,
-				source = source,
-			)
-		}
 
 	override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
-		val response = webClient.httpGet(chapter.url).parseHtml()
-		return response.select(".page-card img").mapNotNull { div ->
-			val img = div.attr("src").takeIf { it.isNotBlank() && !it.startsWith("data:") }
-				?: div.attr("data-src").takeIf { it.isNotBlank() && !it.startsWith("data:") }
-				?: return@mapNotNull null
-
-			val url = if (img.startsWith("http")) img else "https://i.$domain$img"
+		val url = urlBuilder().host(apiDomain)
+			.addEncodedPathSegments("$apiSuffix/chapters/${chapter.url}")
+		val response = webClient.httpGet(url.build()).parseJson()
+		val data = response.getJSONObject("data")
+		return data.getJSONArray("pageUrls").asTypedList<String>().map {
 			MangaPage(
-				id = generateUid(url),
-				url = url,
+				id = generateUid(it),
+				url = it,
 				preview = null,
 				source = source,
 			)
 		}
 	}
 
-	private fun parseChapterDate(dateText: String?): Long {
-		if (dateText == null) return 0
-
-		val relativeTimePattern = Regex("(\\d+)\\s*(phút|giờ|ngày|tuần) trước")
-		val absoluteTimePattern = Regex("(\\d{2}-\\d{2}-\\d{4})")
-
-		return when {
-			dateText.contains("phút trước") -> {
-				val match = relativeTimePattern.find(dateText)
-				val minutes = match?.groups?.get(1)?.value?.toIntOrNull() ?: 0
-				System.currentTimeMillis() - minutes * 60_000L
-			}
-
-			dateText.contains("giờ trước") -> {
-				val match = relativeTimePattern.find(dateText)
-				val hours = match?.groups?.get(1)?.value?.toIntOrNull() ?: 0
-				System.currentTimeMillis() - hours * 3_600_000L
-			}
-
-			dateText.contains("ngày trước") -> {
-				val match = relativeTimePattern.find(dateText)
-				val days = match?.groups?.get(1)?.value?.toIntOrNull() ?: 0
-				System.currentTimeMillis() - days * 86_400_000L
-			}
-
-			dateText.contains("tuần trước") -> {
-				val match = relativeTimePattern.find(dateText)
-				val weeks = match?.groups?.get(1)?.value?.toIntOrNull() ?: 0
-				System.currentTimeMillis() - weeks * 604_800_000L
-			}
-
-			absoluteTimePattern.matches(dateText) -> {
-				val formatter = SimpleDateFormat("dd-MM-yyyy", Locale.getDefault())
-				formatter.parseSafe(dateText)
-			}
-
-			else -> 0L
-		}
-	}
-
 	private suspend fun availableTags(): Set<MangaTag> {
-		val url = urlBuilder().addPathSegment("manga").build()
-		val response = webClient.httpGet(url).parseHtml()
-		return response.select(".filter-options button").map {
-			val span = it.select("span.filter-name")
-			val title = span.text()
+		val url = urlBuilder().host(apiDomain)
+			.addEncodedPathSegments("$apiSuffix/genres").build()
+		val response = webClient.httpGet(url).parseJson()
+		return response.getJSONArray("data").mapJSON {
 			MangaTag(
-				title = title,
-				key = title.urlEncoded(),
+				title = it.getString("name"),
+				key = it.getInt("id").toString(),
 				source = source,
 			)
 		}.toSet()
