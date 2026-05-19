@@ -171,46 +171,33 @@ internal class TruyenHentai18(context: MangaLoaderContext):
 	}
 
 	override suspend fun getDetails(manga: Manga): Manga {
-        val fullUrl = "https://$domain/vi/" + manga.url + ".html"
+        val fullUrl = "https://$domain/" + manga.url + ".html"
 		val doc = webClient.httpGet(fullUrl).parseHtml()
 		return manga.copy(
-			chapters = doc.select("div.grid.grid-cols-1.md\\:grid-cols-2.gap-4 a.block")
-				.mapChapters(reversed = false) { i, e ->
-					val name = e.selectFirst("span.truncate")?.text() ?: e.attr("title")
-					val href = e.selectFirst("a")?.attrAsRelativeUrl("href") ?: ""
-					val dateText = e.selectFirst("div.text-xs.text-gray-500")?.text()
-					MangaChapter(
-						id = generateUid(href),
-						title = name,
-						url = href,
-						number = i + 1f,
-						volume = 0,
-						uploadDate = parseChapterDate(dateText),
-						scanlator = null,
-						branch = null,
-						source = source,
-					)
-				}
-			)
+			chapters = doc.select(".chapter-list .chapter-item").mapChapters(true) { i, e ->
+				val a = e.selectFirst("a")
+				val name = a?.text() ?: e.select("div a").attr("title")
+				val href = a?.attrAsRelativeUrl("href") ?: ""
+				val dateText = e.selectFirst("div.chapter-date")?.text()?.substringAfter("•")?.trim()
+				MangaChapter(
+					id = generateUid(href),
+					title = name,
+					url = href,
+					number = i + 1f,
+					volume = 0,
+					uploadDate = parseChapterDate(dateText),
+					scanlator = null,
+					branch = null,
+					source = source,
+				)
+			}
+		)
 	}
 
 	override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
 		val doc = webClient.httpGet(chapter.url.toAbsoluteUrl(domain)).parseHtml()
-		val scriptContent = doc.select("script")
-			.firstOrNull { it.data().contains("img src") }
-			?.data()
-			?: return emptyList()
-
-		val decoded = scriptContent
-			.replace("\\u003c", "<")
-			.replace("\\u003e", ">")
-			.replace("\\\"", "\"")
-			.replace("\\/", "/")
-
-		val regex = Regex("""img\s+src=["'](https?://[^"']+)["']""")
-		val imageUrls = regex.findAll(decoded).map { it.groupValues[1] }.toList()
-
-		return imageUrls.map { url ->
+		return doc.select(".chapter-container p img").map {
+			val url = it.requireSrc()
 			MangaPage(
 				id = generateUid(url),
 				url = url,
