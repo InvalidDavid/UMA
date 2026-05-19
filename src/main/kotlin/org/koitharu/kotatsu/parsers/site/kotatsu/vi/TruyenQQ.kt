@@ -8,6 +8,8 @@ import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.PagedMangaParser
 import org.koitharu.kotatsu.parsers.model.*
+import org.koitharu.kotatsu.parsers.network.OkHttpWebClient
+import org.koitharu.kotatsu.parsers.network.WebClient
 import org.koitharu.kotatsu.parsers.util.*
 import java.text.SimpleDateFormat
 import java.util.*
@@ -15,6 +17,28 @@ import java.util.*
 @MangaSourceParser("TRUYENQQ", "TruyenQQ", "vi")
 internal class TruyenQQ(context: MangaLoaderContext):
 	PagedMangaParser(context, MangaParserSource.TRUYENQQ, 42) {
+
+	private val noProxyClient: okhttp3.OkHttpClient
+		get() = context.httpClient.newBuilder()
+			.apply {
+				interceptors().clear()
+				networkInterceptors().clear()
+			}
+			.proxy(java.net.Proxy.NO_PROXY)
+			.build()
+
+	override val webClient: WebClient
+		get() = OkHttpWebClient(noProxyClient, source)
+
+	override fun intercept(chain: okhttp3.Interceptor.Chain): okhttp3.Response {
+		val request = chain.request()
+		val host = request.url.host
+		if (host.contains("truyenqq", true) ||
+			host.contains("docqq", true)) {
+			return noProxyClient.newCall(request).execute()
+		}
+		return super.intercept(chain)
+	}
 
 	override val configKeyDomain = ConfigKey.Domain("truyenqqko.com")
 
