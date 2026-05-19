@@ -4,6 +4,7 @@ import org.json.JSONObject
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -18,6 +19,7 @@ import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
+@Broken("Closed the web server")
 @MangaSourceParser("VCOMYCS", "Vcomycs", "vi", ContentType.MANGA)
 internal class VcomycsParser(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.VCOMYCS, 36) {

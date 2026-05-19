@@ -38,7 +38,11 @@ internal class DamCoNuong(context: MangaLoaderContext) :
 		SortOrder.ALPHABETICAL_DESC,
 		SortOrder.UPDATED,
 		SortOrder.NEWEST,
+		SortOrder.NEWEST_ASC,
 		SortOrder.POPULARITY,
+		SortOrder.POPULARITY_TODAY,
+		SortOrder.POPULARITY_WEEK,
+		SortOrder.RATING,
 	)
 
 	override val filterCapabilities: MangaListFilterCapabilities
@@ -47,6 +51,7 @@ internal class DamCoNuong(context: MangaLoaderContext) :
 			isTagsExclusionSupported = true,
 			isSearchSupported = true,
 			isSearchWithFiltersSupported = true,
+			isAuthorSearchSupported = true,
 		)
 
 	override suspend fun getFilterOptions() = MangaListFilterOptions(
@@ -65,7 +70,11 @@ internal class DamCoNuong(context: MangaLoaderContext) :
 				when (order) {
 					SortOrder.UPDATED -> "-updated_at"
 					SortOrder.NEWEST -> "-created_at"
+					SortOrder.NEWEST_ASC -> "created_at"
 					SortOrder.POPULARITY -> "-views"
+					SortOrder.POPULARITY_TODAY -> "-views_day"
+					SortOrder.POPULARITY_WEEK -> "-views_week"
+					SortOrder.RATING -> "-average_rating"
 					SortOrder.ALPHABETICAL -> "name"
 					SortOrder.ALPHABETICAL_DESC -> "-name"
 					else -> "-updated_at"
@@ -92,12 +101,17 @@ internal class DamCoNuong(context: MangaLoaderContext) :
 
 			if (!filter.query.isNullOrEmpty()) {
 				append("&filter[name]=")
-				append((filter.query?.urlEncoded() ?: ""))
+				append(filter.query?.urlEncoded() ?: "")
 			}
 
 			if (filter.tagsExclude.isNotEmpty()) {
 				append("&filter[reject_genres]=")
 				append(filter.tagsExclude.joinTo(this, ",") { it.key })
+			}
+
+			if (!filter.author.isNullOrEmpty()) {
+				append("&filter[author]=")
+				append(filter.author!!.urlEncoded())
 			}
 
 			append("&page=$page")
@@ -109,7 +123,7 @@ internal class DamCoNuong(context: MangaLoaderContext) :
 
 	private fun parseMangaList(doc: Document): List<Manga> {
 		return doc.select(
-			"div.border.rounded-xl.border-gray-300.dark\\:border-dark-blue.bg-white.dark\\:bg-fire-blue"
+			"div.border.rounded-lg.border-gray-300.dark\\:border-dark-blue.bg-white.dark\\:bg-fire-blue"
 		).map { element ->
 			val mainA = element.selectFirstOrThrow("div.relative a")
 			val href = mainA.attrAsRelativeUrl("href")
