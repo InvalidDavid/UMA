@@ -43,7 +43,7 @@ jobs:
       -   name: Upload to GitHub Release 📤
           uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631 # v2.2.2
           with:
-            tag_name: r${{ steps.meta.outputs.sha_short }}
+            tag_name: ${{ steps.meta.outputs.sha_short }}
             name: "${{ steps.meta.outputs.sha_short }}"
             files: build/libs/vn.jar
             token: ${{ secrets.GITHUB_TOKEN }}
