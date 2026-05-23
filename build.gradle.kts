@@ -82,7 +82,7 @@ tasks.register("buildJar") {
 tasks.register<DexPluginTask>("dexJar") {
     dependsOn(tasks.jar)
     inputJar.set(tasks.jar.flatMap { it.archiveFile })
-    outputJar.set(layout.projectDirectory.file("build/libs/plugin.jar"))
+    outputJar.set(layout.projectDirectory.file("build/libs/vn.jar"))
     classpath.from(configurations.runtimeClasspath)
 }
 

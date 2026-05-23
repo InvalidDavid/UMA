@@ -8,9 +8,6 @@ on:
     paths:
       - 'src/main/kotlin/org/koitharu/kotatsu/parsers/**'
 
-env:
-  D8_PATH: build/libs/plugin.jar
-
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -40,28 +37,8 @@ jobs:
       -   name: Setup Android SDK 🚀
           uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
 
-      -   name: Run assemble tasks 🚀
-          run: ./gradlew assemble --rerun-tasks
-
-      -   name: Process library with d8 🚀
-          env:
-            LIB_PATH: build/libs/raw.jar
-          run: |
-            ## Dex classes after build...
-            if [ -f ${{ env.LIB_PATH }} ]; then
-                d8 --release ${{ env.LIB_PATH }} --output ${{ env.D8_PATH }}
-            else
-                echo "ℹ️ Pre-compiled library not found, skipping D8 step..."
-            fi
-          continue-on-error: true
-
-      -   name: Rename artifact 📝
-          run: |
-            if [ -f ${{ env.D8_PATH }} ]; then
-                cp ${{ env.D8_PATH }} build/libs/vn.jar
-            else
-                echo "⚠️ ${{ env.D8_PATH }} not found, skipping..."
-            fi
+      -   name: Run buildJar task 🚀
+          run: ./gradlew buildJar --rerun-tasks
 
       -   name: Upload to GitHub Release 📤
           uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631 # v2.2.2
