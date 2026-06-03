@@ -34,14 +34,14 @@ import java.util.EnumSet
 import java.util.Locale
 import java.util.TimeZone
 
-@MangaSourceParser("BFANGTEAM", "Moè Truyện", "vi")
+@MangaSourceParser("MOETRUYENUNOFFICIAL", "Moè Truyện (Unofficial)", "vi")
 internal class BFANGTeam (context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.BFANGTEAM, 100) {
 
 	override val configKeyDomain = ConfigKey.Domain("moetruyen.net")
 
 	/**
-	 * Public API by SuiCaoDex
+	 * Public API by SuiCaoDex (Unofficial)
 	 * This API uses the same database with MoeTruyen source
 	**/
 	private val apiSuffix = "v2"
