@@ -34,8 +34,8 @@ import java.util.EnumSet
 import java.util.Locale
 import java.util.TimeZone
 
-@MangaSourceParser("MOETRUYENUNOFFICIAL", "Moè Truyện (Unofficial)", "vi")
-internal class BFANGTeam (context: MangaLoaderContext) :
+@MangaSourceParser("BFANGTEAM", "Moè Truyện (Unofficial)", "vi")
+internal class MoeTruyenUnofficial (context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.BFANGTEAM, 100) {
 
 	override val configKeyDomain = ConfigKey.Domain("moetruyen.net")
