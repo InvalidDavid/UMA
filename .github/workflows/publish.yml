@@ -45,5 +45,5 @@ jobs:
           with:
             tag_name: ${{ steps.meta.outputs.sha_short }}
             name: "${{ steps.meta.outputs.sha_short }}"
-            files: build/libs/vn.jar
+            files: build/libs/uma.jar
             token: ${{ secrets.GITHUB_TOKEN }}
