@@ -1,11 +1,7 @@
 package org.koitharu.kotatsu.parsers.site.tachiyomi.en.mangak
 
-import android.content.SharedPreferences
-import androidx.preference.MultiSelectListPreference
-import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.asObservable
-import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.Filter
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
@@ -13,15 +9,14 @@ import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
-import keiyoushi.utils.extractNextJs
 import keiyoushi.utils.firstInstanceOrNull
-import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
-import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
 import okhttp3.Request
 import okhttp3.Response
+import org.jsoup.Jsoup
 import org.koitharu.kotatsu.parsers.TachiyomiSource
 import rx.Observable
 import java.text.SimpleDateFormat
@@ -29,17 +24,22 @@ import java.util.Locale
 import java.util.TimeZone
 
 @TachiyomiSource("MANGAK", "MangaK", "en")
-class MangaK : HttpSource(), ConfigurableSource {
+class MangaK : HttpSource() {
+
     override val name = "MangaK"
     override val baseUrl = "https://mangak.io"
     override val lang = "en"
     override val supportsLatest = true
+
     private val apiUrl = "https://api.mangak.io"
 
-    // migration from MangaBuddy.
+    // migration from MangaBuddy
     override val id: Long = 5020395055978987501L
 
-    private val preferences: SharedPreferences by getPreferencesLazy()
+    private val json = Json {
+        ignoreUnknownKeys = true
+        coerceInputValues = true
+    }
 
     override fun headersBuilder() = super.headersBuilder()
         .add("Origin", baseUrl)
@@ -49,13 +49,11 @@ class MangaK : HttpSource(), ConfigurableSource {
     private val imageFallbackInterceptor = Interceptor { chain ->
         val request = chain.request()
         val response = chain.proceed(request)
-
         if (!response.isSuccessful && request.url.host.matches(IMAGE_FALLBACK_REGEX)) {
             response.close()
             val newUrl = request.url.newBuilder().host("rx.rzyn.net").build()
             return@Interceptor chain.proceed(request.newBuilder().url(newUrl).build())
         }
-
         response
     }
 
@@ -75,13 +73,7 @@ class MangaK : HttpSource(), ConfigurableSource {
             addQueryParameter("window", "week")
             addQueryParameter("page", page.toString())
             addQueryParameter("limit", "24")
-
-            val blacklist = getBlacklist()
-            if (blacklist.isNotEmpty()) {
-                addQueryParameter("exclude", blacklist.joinToString(","))
-            }
         }.build()
-
         return GET(url, headers)
     }
 
@@ -97,13 +89,7 @@ class MangaK : HttpSource(), ConfigurableSource {
             addQueryParameter("sort", "latest")
             addQueryParameter("page", page.toString())
             addQueryParameter("limit", "24")
-
-            val blacklist = getBlacklist()
-            if (blacklist.isNotEmpty()) {
-                addQueryParameter("exclude", blacklist.joinToString(","))
-            }
         }.build()
-
         return GET(url, headers)
     }
 
@@ -124,7 +110,7 @@ class MangaK : HttpSource(), ConfigurableSource {
             }
 
             val includedGenres = mutableListOf<String>()
-            val excludedGenres = mutableListOf<String>() // Populated directly by the filter object
+            val excludedGenres = mutableListOf<String>()
 
             filters.forEach { filter ->
                 when (filter) {
@@ -179,7 +165,6 @@ class MangaK : HttpSource(), ConfigurableSource {
                 addQueryParameter("exclude", excludedGenres.joinToString(","))
             }
         }.build()
-
         return GET(url, headers)
     }
 
@@ -189,27 +174,21 @@ class MangaK : HttpSource(), ConfigurableSource {
 
     override fun getMangaUrl(manga: SManga): String {
         val path = manga.url.substringBefore("#")
-        // `path` may be relative or already absolute depending on the API response,
-        // so resolve it against baseUrl instead of blindly concatenating.
         return baseUrl.toHttpUrl().resolve(path)?.toString() ?: (baseUrl + path)
     }
 
     override fun mangaDetailsRequest(manga: SManga): Request = GET(getMangaUrl(manga), headers)
 
     override fun mangaDetailsParse(response: Response): SManga {
-        val dto = response.extractNextJs<NextJsDto> {
-            it is JsonObject && "pageProps" in it
-        }
-
+        val dto = response.parseNextJsData()
         return dto?.pageProps?.initialManga?.toSManga()
             ?: throw Exception("Could not find manga details")
     }
 
     // ============================= Chapters ==============================
 
-    // `chapter.url` may be relative or already absolute depending on the API response,
-    // so resolve it against baseUrl instead of blindly concatenating.
-    override fun getChapterUrl(chapter: SChapter): String = baseUrl.toHttpUrl().resolve(chapter.url)?.toString() ?: (baseUrl + chapter.url)
+    override fun getChapterUrl(chapter: SChapter): String =
+        baseUrl.toHttpUrl().resolve(chapter.url)?.toString() ?: (baseUrl + chapter.url)
 
     override fun fetchChapterList(manga: SManga): Observable<List<SChapter>> {
         if (!manga.url.contains("#")) {
@@ -218,26 +197,19 @@ class MangaK : HttpSource(), ConfigurableSource {
                 ?.substringBefore("\n")
                 ?.trim()
 
-            // If the ID was previously saved into the description, bypass the details request
             if (!idFromDesc.isNullOrEmpty()) {
                 val request = GET("$apiUrl/titles/$idFromDesc/chapters?cv=${System.currentTimeMillis()}", headers)
                 return client.newCall(request).asObservable().map { chapterListParse(it) }
             }
 
-            // Fallback for uninitialized manga
             return client.newCall(mangaDetailsRequest(manga)).asObservable().map { response ->
-                val dto = response.extractNextJs<NextJsDto> {
-                    it is JsonObject && "pageProps" in it
-                }
-
+                val dto = response.parseNextJsData()
                 val id = dto?.pageProps?.initialManga?.id
                     ?: throw Exception("Could not find manga ID for migration")
-
                 val request = GET("$apiUrl/titles/$id/chapters?cv=${System.currentTimeMillis()}", headers)
                 client.newCall(request).execute().let { chapterListParse(it) }
             }
         }
-
         return super.fetchChapterList(manga)
     }
 
@@ -248,15 +220,9 @@ class MangaK : HttpSource(), ConfigurableSource {
 
     override fun chapterListParse(response: Response): List<SChapter> {
         val chapters = response.parseAs<ChapterListResponseDto>().chapters
-
         // The website uses the API's `chapter_number` field as an internal sorting index,
         // not the actual chapter number. This dictates the site's canonical reading order,
         // allowing them to correctly interleave volume extras and side stories between main chapters.
-        // Because we rely on this index for sorting, it triggers Mihon's "Missing Chapters"
-        // warning whenever the site's custom order jumps around numerically.
-        //
-        // TODO: Investigate a better way to handle chapter sorting and numbering to maintain
-        // the site's chronological reading order without causing sequence warnings in the app.
         return chapters.sortedByDescending { it.chapterNumber ?: 0f }
             .map { it.toSChapter(dateFormat) }
     }
@@ -266,13 +232,9 @@ class MangaK : HttpSource(), ConfigurableSource {
     override fun pageListRequest(chapter: SChapter): Request = GET(getChapterUrl(chapter), headers)
 
     override fun pageListParse(response: Response): List<Page> {
-        val dto = response.extractNextJs<NextJsDto> {
-            it is JsonObject && "pageProps" in it
-        }
-
+        val dto = response.parseNextJsData()
         val images = dto?.pageProps?.initialChapter?.images
             ?: throw Exception("Could not find chapter images")
-
         return images.mapIndexed { index, url ->
             Page(index, imageUrl = url)
         }
@@ -280,11 +242,29 @@ class MangaK : HttpSource(), ConfigurableSource {
 
     override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
 
+    // ============================== Next.js parsing ======================
+
+    /**
+     * Parses the Next.js __NEXT_DATA__ JSON embedded in the page HTML.
+     * Replaces keiyoushi's extractNextJs utility which is not available in UMA/Usagi.
+     */
+    private fun Response.parseNextJsData(): NextJsDto? {
+        val html = body.string()
+        val doc = Jsoup.parse(html)
+        val raw = doc.selectFirst("script#__NEXT_DATA__")?.data()
+            ?: return null
+        return try {
+            // __NEXT_DATA__ root is { props: { pageProps: { ... } } }
+            val root = json.decodeFromString<NextJsRootDto>(raw)
+            root.props
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     // ============================== Filters ==============================
 
     override fun getFilterList(): FilterList {
-        val blacklist = getBlacklist()
-
         return FilterList(
             SortFilter(),
             ContentRatingFilter(),
@@ -296,29 +276,12 @@ class MangaK : HttpSource(), ConfigurableSource {
             MinChapterFilter(),
             Filter.Separator(),
             Filter.Header("Genres"),
-            GenreList(getGenreList(blacklist)),
         )
     }
 
-    // ============================= Utilities =============================
-
-    private fun getBlacklist(): Set<String> = preferences.getStringSet(PREF_BLACKLIST_KEY, emptySet()) ?: emptySet()
-
-    override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        val genres = getGenreList()
-        val blacklistPref = MultiSelectListPreference(screen.context).apply {
-            key = PREF_BLACKLIST_KEY
-            title = "Global Genre Blacklist"
-            summary = "Select genres to always exclude from search and browse results."
-            entries = genres.map { it.name }.toTypedArray()
-            entryValues = genres.map { it.value }.toTypedArray()
-            setDefaultValue(emptySet<String>())
-        }
-        screen.addPreference(blacklistPref)
-    }
+    // ============================= Preferences ===========================
 
     companion object {
-        private const val PREF_BLACKLIST_KEY = "pref_blacklist"
         private val IMAGE_FALLBACK_REGEX = "rx\\.qvzr[a-z]\\.org".toRegex()
     }
 }
