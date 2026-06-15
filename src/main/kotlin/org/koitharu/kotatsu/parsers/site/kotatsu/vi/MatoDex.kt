@@ -52,7 +52,7 @@ internal class MatoDex(context: MangaLoaderContext) :
 
     override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
         super.onCreateConfig(keys)
-        keys.remove(userAgentKey)
+        keys.add(userAgentKey)
     }
 
     override val availableSortOrders: Set<SortOrder> = EnumSet.of(SortOrder.UPDATED)
@@ -67,8 +67,8 @@ internal class MatoDex(context: MangaLoaderContext) :
         val section = request.selectFirst("section.flex.flex-1.flex-col.gap-4") ?: request
         val genres = section.select("div.flex.flex-wrap.gap-1.md\\:hidden span").map {
             MangaTag(
-                title = it.text().trim(),
-                key = it.text().trim(),
+                title = it.text(),
+                key = it.text(),
                 source = source,
             )
         }.toSet()
@@ -97,7 +97,7 @@ internal class MatoDex(context: MangaLoaderContext) :
                 source = source,
                 contentRating = null,
                 description = section.select("div.prose p, div[class*=prose] p")
-                    .joinToString(separator = "\n\n") { it.text().trim() }
+                    .joinToString(separator = "\n\n") { it.text() }
                     .takeIf { it.isNotEmpty() },
             ),
         )
@@ -140,9 +140,9 @@ internal class MatoDex(context: MangaLoaderContext) :
         }
 
         // fallback
-        val imgElements = doc.select("astro-island[component-url*=MangaReader] img").takeIf { it.isNotEmpty() }
+        val imgs = doc.select("astro-island[component-url*=MangaReader] img").takeIf { it.isNotEmpty() }
             ?: doc.select("img")
-        return imgElements.mapIndexed { i, img ->
+        return imgs.mapIndexed { i, img ->
             MangaPage(
                 id = generateUid("${chapter.url}#$i"),
                 url = img.absUrl("src"),
