@@ -21,6 +21,7 @@ import org.koitharu.kotatsu.parsers.model.search.QueryCriteria.*
 import org.koitharu.kotatsu.parsers.model.search.SearchCapability
 import org.koitharu.kotatsu.parsers.model.search.SearchableField
 import org.koitharu.kotatsu.parsers.model.search.SearchableField.*
+import org.koitharu.kotatsu.parsers.network.UserAgents
 import org.koitharu.kotatsu.parsers.util.*
 import org.koitharu.kotatsu.parsers.util.json.*
 import java.text.SimpleDateFormat
@@ -39,6 +40,7 @@ private const val SERVER_DATA_SAVER = "data-saver"
 internal class MangaDexParser(context: MangaLoaderContext) : FlexibleMangaParser(context, MangaParserSource.MANGADEX) {
 
 	override val configKeyDomain = ConfigKey.Domain("mangadex.org")
+	override val userAgentKey = ConfigKey.UserAgent(UserAgents.KOTATSU)
 
 	private val preferredServerKey = ConfigKey.PreferredImageServer(
 		presetValues = mapOf(
