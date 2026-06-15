@@ -88,8 +88,8 @@ internal class MatoDex(context: MangaLoaderContext) :
                 coverUrl = section.selectFirst("div.relative.shrink-0 img")?.attr("src")?.toAbsoluteUrl(domain),
                 title = title,
                 altTitles = if (altTitle.isNotEmpty()) setOf(altTitle) else emptySet(),
-                rating = section.selectFirst("span[data-icon=lucide:star]")
-                    ?.nextElementSibling()?.text()?.toFloatOrNull()
+                rating = section.selectFirst("svg[data-icon=lucide:star] + span")
+                    ?.text()?.toFloatOrNull()
                     ?.div(10f) ?: RATING_UNKNOWN,
                 tags = genres,
                 authors = authors,
@@ -168,7 +168,7 @@ internal class MatoDex(context: MangaLoaderContext) :
                 title = title,
                 number = Regex("""\d+(?:\.\d+)?""").find(title)?.value?.toFloatOrNull() ?: 0f,
                 url = href,
-                uploadDate = dateFormat.parseSafe(a.selectFirst("span.text-muted-foreground")?.text()),
+                uploadDate = dateFormat.parseSafe(a.selectFirst("span[class*=text-muted-foreground]")?.text()),
                 scanlator = a.select("span.font-medium").joinToString(", ") { it.text() }.ifBlank { null },
                 branch = null,
                 source = source,
