@@ -21,16 +21,16 @@ ksp {
 }
 
 tasks.jar {
-	archiveFileName.set("raw.jar")
-	exclude("android/**")
-	exclude("androidx/annotation/**")
-	exclude("androidx/preference/**")
+    archiveFileName.set("raw.jar")
+    exclude("android/**")
+    exclude("androidx/annotation/**")
+    exclude("androidx/preference/**")
 }
 
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
     compilerOptions {
         freeCompilerArgs.addAll(
-			"-Xannotation-default-target=param-property",
+            "-Xannotation-default-target=param-property",
             "-opt-in=kotlin.RequiresOptIn",
             "-opt-in=kotlin.contracts.ExperimentalContracts",
             "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
@@ -54,13 +54,14 @@ publishing {
 
 dependencies {
     implementation(libs.kotlinx.coroutines.core)
-	implementation(libs.kotlinx.serialization.json)
+    implementation(libs.kotlinx.serialization.json)
     implementation(libs.okhttp)
     implementation(libs.okio)
     implementation(libs.json)
     implementation(libs.androidx.collection)
+    implementation("com.squareup.okhttp3:okhttp-brotli:5.4.0")
 
-	api(libs.core.parsers)
+    api(libs.core.parsers)
     api(libs.jsoup)
 
     compileOnly(libs.android.stubs)
