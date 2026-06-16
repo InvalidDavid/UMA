@@ -21,10 +21,13 @@ import org.koitharu.kotatsu.parsers.model.search.QueryCriteria.*
 import org.koitharu.kotatsu.parsers.model.search.SearchCapability
 import org.koitharu.kotatsu.parsers.model.search.SearchableField
 import org.koitharu.kotatsu.parsers.model.search.SearchableField.*
+import org.koitharu.kotatsu.parsers.network.CommonHeaders
 import org.koitharu.kotatsu.parsers.util.*
 import org.koitharu.kotatsu.parsers.util.json.*
 import java.text.SimpleDateFormat
 import java.util.*
+import okhttp3.Interceptor
+import okhttp3.Response
 
 private const val PAGE_SIZE = 20
 private const val CHAPTERS_FIRST_PAGE_SIZE = 120
@@ -37,6 +40,19 @@ private const val SERVER_DATA_SAVER = "data-saver"
 
 @MangaSourceParser("MANGADEX", "MangaDex")
 internal class MangaDexParser(context: MangaLoaderContext) : FlexibleMangaParser(context, MangaParserSource.MANGADEX) {
+
+	override fun intercept(chain: Interceptor.Chain): Response {
+		val request = chain.request()
+
+		val newRequest = request.newBuilder()
+			.header(
+				CommonHeaders.USER_AGENT,
+				"Usagi/0.0.31 (Android)"
+			)
+			.build()
+
+		return chain.proceed(newRequest)
+	}
 
 	override val configKeyDomain = ConfigKey.Domain("mangadex.org")
 
