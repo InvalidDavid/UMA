@@ -11,7 +11,7 @@ import org.koitharu.kotatsu.parsers.util.*
 import java.text.SimpleDateFormat
 import java.util.*
 
-@MangaSourceParser("ATSUMARU", "Atsumaru", "en")
+@MangaSourceParser("ATSUMARUONE", "Atsumaru", "en")
 internal class ATSUMARU(context: MangaLoaderContext) :
     PagedMangaParser(context, MangaParserSource.ATSUMARU, pageSize = 24) {
 
