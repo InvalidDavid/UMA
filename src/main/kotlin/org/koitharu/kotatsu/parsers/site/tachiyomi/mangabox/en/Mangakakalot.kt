@@ -19,10 +19,10 @@ import kotlin.time.Duration.Companion.seconds
 import org.koitharu.kotatsu.parsers.TachiyomiSource
 import org.koitharu.kotatsu.parsers.util.rateLimit
 
-@TachiyomiSource("MANGAKAKALOT", "Mangakakalot", "en")
-class Mangakakalot :
+@TachiyomiSource("MANGAKAKALOTIDK", "Mangakakalot", "en")
+class MANGAKAKALOTIDK :
     MangaBox(
-        "Mangakakalot",
+        "MANGAKAKALOT",
         arrayOf(
             "www.mangakakalot.gg",
             "www.mangakakalove.com",
