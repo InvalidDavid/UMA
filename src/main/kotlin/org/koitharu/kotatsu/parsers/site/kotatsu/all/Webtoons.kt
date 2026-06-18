@@ -278,7 +278,7 @@ internal abstract class WebtoonsParser(
             .ifEmpty { throw ParseException("No images found in chapter.", chapter.url) }
     }
 
-    @MangaSourceParser("WEBTOONS_EN", "Webtoons English", "en", type = ContentType.MANGA)
+    @MangaSourceParser("WEBTOONS_EN", "Webtoons En", "en", type = ContentType.MANGA)
     class English(context: MangaLoaderContext) : WebtoonsParser(context, MangaParserSource.WEBTOONS_EN)
 
     @MangaSourceParser("WEBTOONS_ID", "Webtoons Indonesia", "id", type = ContentType.MANGA)
