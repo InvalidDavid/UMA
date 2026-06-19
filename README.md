@@ -59,22 +59,22 @@ You may copy, distribute and modify the software as long as you track changes/da
 
 </div>
 
-[license-shield]:https://img.shields.io/github/license/InvalidDavid/Usagi-Bot.svg?style=for-the-badge
+[license-shield]:https://img.shields.io/github/license/InvalidDavid/UMA.svg?style=for-the-badge
 [license-url]: https://github.com/InvalidDavid/UMA/blob/master/LICENSE
 
-[contributors-shield]: https://img.shields.io/github/contributors/InvalidDavid/Usagi-Bot.svg?style=for-the-badge
+[contributors-shield]: https://img.shields.io/github/contributors/InvalidDavid/UMA.svg?style=for-the-badge
 [contributors-url]: https://github.com/InvalidDavid/UMA/graphs/contributors
 
-[forks-shield]: https://img.shields.io/github/forks/InvalidDavid/Usagi-Bot.svg?style=for-the-badge
+[forks-shield]: https://img.shields.io/github/forks/InvalidDavid/UMA.svg?style=for-the-badge
 [forks-url]: https://github.com/InvalidDavid/UMA/network/members
 
-[stars-shield]: https://img.shields.io/github/stars/InvalidDavid/Usagi-Bot.svg?style=for-the-badge
+[stars-shield]: https://img.shields.io/github/stars/InvalidDavid/UMA.svg?style=for-the-badge
 [stars-url]: https://github.com/InvalidDavid/UMA/stargazers
 
-[issues-shield]: https://img.shields.io/github/issues/InvalidDavid/Usagi-Bot.svg?style=for-the-badge
+[issues-shield]: https://img.shields.io/github/issues/InvalidDavid/UMA.svg?style=for-the-badge
 [issues-url]: https://github.com/InvalidDavid/UMA/issues
 
-[discord-shield]: https://img.shields.io/discord/1484655684879519885?style=for-the-badge&logo=discord&label=Discord&color=5865F2
+[discord-shield]: https://img.shields.io/discord/1435615296202477581?style=for-the-badge&logo=discord&label=Discord&color=5865F2
 [discord-url]: https://discord.gg/yumemi-tm-1435615296202477581
 
 [dme-shield]: https://img.shields.io/badge/-Discord-black.svg?style=for-the-badge&logo=discord&colorB=555
