@@ -79,17 +79,22 @@ class MangaDistrict :
             else -> super.chapterListParse(response)
         }
 
-        val allArePlainChapters = chapters.isNotEmpty() && chapters.all {
-            Regex("""^Chapter\s*\d+$""", RegexOption.IGNORE_CASE)
-                .matches(it.name.trim())
-        }
-
-        return if (allArePlainChapters) {
-            chapters.reversed()
-        } else {
-            chapters
+        return chapters.sortedBy {
+            extractChapterNumber(it.name) ?: Double.MAX_VALUE
         }
     }
+
+    private fun extractChapterNumber(name: String): Double? {
+        return Regex(
+            """(?:chapter|ch\.?)\s*(\d+(?:\.\d+)?)""",
+            RegexOption.IGNORE_CASE,
+        )
+            .find(name)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toDoubleOrNull()
+    }
+
     override fun chapterFromElement(element: Element): SChapter = super.chapterFromElement(element).apply {
         val urlKey = url.urlKey()
         val dates = preferences.dates
