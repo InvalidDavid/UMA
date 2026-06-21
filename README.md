@@ -13,10 +13,10 @@ Open up a Issues with this contents:
 
 # Contact
 
-Discord Forks Server: [![Discord][discord-shield]][discord-url]
+Support Server: [![Discord][discord-shield]][discord-url]
 
 Direct Contact:
-[![Telegram][telegram-shield]][telegram-url]   [![Discord][dme-shield]][dme-url]
+[![Telegram][telegram-shield]][telegram-url]
 
 # plugins
 
@@ -74,11 +74,8 @@ You may copy, distribute and modify the software as long as you track changes/da
 [issues-shield]: https://img.shields.io/github/issues/InvalidDavid/UMA.svg?style=for-the-badge
 [issues-url]: https://github.com/InvalidDavid/UMA/issues
 
-[discord-shield]: https://img.shields.io/discord/1435615296202477581?style=for-the-badge&logo=discord&label=Discord&color=5865F2
-[discord-url]: https://discord.gg/yumemi-tm-1435615296202477581
-
-[dme-shield]: https://img.shields.io/badge/-Discord-black.svg?style=for-the-badge&logo=discord&colorB=555
-[dme-url]: https://discordapp.com/users/809739434537910283
+[discord-shield]: https://img.shields.io/discord/1518057632064209017?style=for-the-badge&logo=discord&label=Discord&color=5865F2
+[discord-url]: https://discord.gg/CyJeVDP7Cw
 
 [telegram-shield]: https://img.shields.io/badge/-Telegram-black.svg?style=for-the-badge&logo=telegram&colorB=555
 [telegram-url]: https://t.me/invalidxdavid#
