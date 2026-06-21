@@ -10,10 +10,15 @@ import org.koitharu.kotatsu.parsers.model.*
 import org.koitharu.kotatsu.parsers.util.*
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
 @MangaSourceParser("ATSUMARU", "Atsumaru", "en")
 internal class Atsumaru(context: MangaLoaderContext) :
-    PagedMangaParser(context, MangaParserSource.ATSUMARU, pageSize = 24) {
+    PagedMangaParser(context, MangaParserSource.ATSUMARU, pageSize = 40) {
 
     override val configKeyDomain = ConfigKey.Domain("atsu.moe")
     private val apiUrl = "https://$domain/api/"
@@ -24,7 +29,7 @@ internal class Atsumaru(context: MangaLoaderContext) :
 
     override val availableSortOrders: Set<SortOrder> = EnumSet.of(
         SortOrder.POPULARITY,
-        SortOrder.UPDATED
+        SortOrder.RATING,
     )
 
     override val filterCapabilities: MangaListFilterCapabilities
@@ -32,56 +37,147 @@ internal class Atsumaru(context: MangaLoaderContext) :
             isSearchSupported = true
         )
 
-    override suspend fun getFilterOptions(): MangaListFilterOptions {
-        return MangaListFilterOptions()
-    }
+    override suspend fun getFilterOptions() = MangaListFilterOptions(
+        availableTags = setOf(
+            MangaTag(
+                key = "Manga",
+                title = "Manga",
+                source = source
+            ),
+            MangaTag(
+                key = "Manwha",
+                title = "Manhwa",
+                source = source
+            ),
+            MangaTag(
+                key = "Manhua",
+                title = "Manhua",
+                source = source
+            ),
+            MangaTag(
+                key = "OEL",
+                title = "OEL",
+                source = source
+            )
+        ),
+        availableStates = EnumSet.of(
+            MangaState.ONGOING,
+            MangaState.FINISHED,
+            MangaState.PAUSED,
+            MangaState.ABANDONED
+        )
+    )
 
-    override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
-        val endpoint = when (order) {
-            SortOrder.POPULARITY -> "infinite/trending"
-            SortOrder.UPDATED -> "infinite/recentlyUpdated"
-            else -> "infinite/trending"
+    override suspend fun getListPage(
+        page: Int,
+        order: SortOrder,
+        filter: MangaListFilter
+    ): List<Manga> {
+
+        val sort = when (order) {
+            SortOrder.POPULARITY -> "views:desc"
+            SortOrder.RATING -> "mbRating:desc"
+            else -> "views:desc"
         }
 
-        val url = "${apiUrl}$endpoint".toHttpUrl().newBuilder()
-            .addQueryParameter("page", (page - 1).toString())
-            .addQueryParameter("types", "Manga,Manwha,Manhua,OEL")
+        val url = "https://$domain/collections/manga/documents/search"
+            .toHttpUrl()
+            .newBuilder()
+            .addQueryParameter(
+                "q",
+                filter.query ?: "*"
+            )
+            .addQueryParameter(
+                "query_by",
+                "title,englishTitle,otherNames,authors"
+            )
+            .addQueryParameter(
+                "query_by_weights",
+                "4,3,2,1"
+            )
+            .addQueryParameter(
+                "num_typos",
+                "4,3,2,1"
+            )
+            .addQueryParameter(
+                "include_fields",
+                "id,title,englishTitle,poster,posterSmall,posterMedium,type,isAdult,status,year,mbRating,populairty"
+            )
+            .addQueryParameter(
+                "page",
+                page.toString()
+            )
+            .addQueryParameter(
+                "per_page",
+                pageSize.toString()
+            )
+            .addQueryParameter(
+                "sort_by",
+                sort
+            )
+            .addQueryParameter(
+                "filter_by",
+                buildFilter(filter)
+            )
             .build()
 
-        val query = filter.query
-        if (!query.isNullOrEmpty()) {
-            return getSearchPage(page, query)
-        }
 
-        val json = webClient.httpGet(url.toString()).parseJson()
-        val items = json.getJSONArray("items")
+        val json = webClient
+            .httpGet(url.toString())
+            .parseJson()
 
-        return (0 until items.length()).map { i ->
-            val item = items.getJSONObject(i)
-            parseManga(item)
-        }
-    }
 
-    private suspend fun getSearchPage(page: Int, query: String): List<Manga> {
-        val url = "https://$domain/collections/manga/documents/search".toHttpUrl().newBuilder()
-            .addQueryParameter("q", query)
-            .addQueryParameter("query_by", "title,englishTitle,otherNames")
-            .addQueryParameter("limit", pageSize.toString())
-            .addQueryParameter("page", page.toString())
-            .addQueryParameter("query_by_weights", "3,2,1")
-            .addQueryParameter("include_fields", "id,title,englishTitle,poster")
-            .addQueryParameter("num_typos", "4,3,2")
-            .build()
+        val hits = json.optJSONArray("hits")
+            ?: return emptyList()
 
-        val json = webClient.httpGet(url.toString()).parseJson()
-        val hits = json.getJSONArray("hits")
 
-        return (0 until hits.length()).map { i ->
-            val hit = hits.getJSONObject(i)
-            val document = hit.getJSONObject("document")
+        return (0 until hits.length()).map {
+            val document = hits
+                .getJSONObject(it)
+                .getJSONObject("document")
+
             parseManga(document)
         }
     }
+
+    private fun buildFilter(filter: MangaListFilter): String {
+
+        val filters = mutableListOf<String>()
+
+        filters += "isAdult:=false"
+        filters += "views:>0"
+        filters += "hidden:!=true"
+
+
+        // Manga type filter
+        val types = filter.tags.map {
+            "`${it.key}`"
+        }
+
+        if (types.isNotEmpty()) {
+            filters += "type:=[${types.joinToString(",")}]"
+        }
+
+
+        // Status filter
+        val statuses = filter.states.mapNotNull {
+            when (it) {
+                MangaState.ONGOING -> "`Ongoing`"
+                MangaState.FINISHED -> "`Completed`"
+                MangaState.PAUSED -> "`Hiatus`"
+                MangaState.ABANDONED -> "`Canceled`"
+                else -> null
+            }
+        }
+
+        if (statuses.isNotEmpty()) {
+            filters += "status:=[${statuses.joinToString(",")}]"
+        }
+
+
+        return filters.joinToString(" && ")
+    }
+
 
     private fun parseManga(json: JSONObject): Manga {
         val id = json.getString("id")
@@ -133,24 +229,11 @@ internal class Atsumaru(context: MangaLoaderContext) :
         } ?: manga.title
 
         val description = mangaPage?.optString("synopsis") ?: manga.description
-
         val posterObj = mangaPage?.optJSONObject("poster")
         val posterImage = posterObj?.optString("image")
         val coverUrl = if (!posterImage.isNullOrEmpty()) {
             "https://$domain/static/$posterImage"
         } else manga.coverUrl
-
-        val tagsArray = mangaPage?.optJSONArray("tags")
-        val tags = if (tagsArray != null) {
-            (0 until tagsArray.length()).mapNotNull { i ->
-                val tag = tagsArray.optJSONObject(i) ?: return@mapNotNull null
-                MangaTag(
-                    key = tag.optString("id"),
-                    title = tag.optString("name"),
-                    source = source
-                )
-            }.toSet()
-        } else manga.tags
 
         val authorsArray = mangaPage?.optJSONArray("authors")
         val authors = if (authorsArray != null) {
@@ -176,7 +259,7 @@ internal class Atsumaru(context: MangaLoaderContext) :
             title = title,
             description = description,
             coverUrl = coverUrl,
-            tags = tags,
+            tags = emptySet(),
             authors = authors,
             state = state,
             chapters = chapters
@@ -184,30 +267,70 @@ internal class Atsumaru(context: MangaLoaderContext) :
     }
 
 
+    private suspend fun fetchAllChapters(
+        mangaId: String,
+        mangaPage: JSONObject?
+    ): List<MangaChapter> = coroutineScope {
 
-    private suspend fun fetchAllChapters(mangaId: String, mangaPage: JSONObject?): List<MangaChapter> {
         val scanlators = mangaPage.parseScanlators()
 
-        val allChapters = mutableListOf<MangaChapter>()
-        var currentPage = 0
-        var totalPages = 1
+        // First request is needed to know total pages
+        val firstUrl =
+            "${apiUrl}manga/chapters?id=$mangaId&filter=all&sort=desc&page=0"
 
-        while (currentPage < totalPages) {
+        val firstJson = webClient
+            .httpGet(firstUrl)
+            .parseJson()
 
-            val url = "${apiUrl}manga/chapters?id=$mangaId&filter=all&sort=desc&page=$currentPage"
-            val json = webClient.httpGet(url).parseJson()
+        val totalPages = firstJson.optInt("pages", 1)
 
-            val chaptersArray = json.optJSONArray("chapters") ?: break
-            for (i in 0 until chaptersArray.length()) {
-                val chapter = chaptersArray.optJSONObject(i) ?: continue
-                allChapters.add(parseChapter(chapter, mangaId, scanlators))
-            }
+        val semaphore = Semaphore(4)
 
-            totalPages = json.getInt("pages")
-            currentPage++
+        val pages = buildList {
+
+            // Add already fetched page 0
+            add(firstJson)
+
+            // Fetch remaining pages in parallel
+            addAll(
+                (1 until totalPages).map { page ->
+
+                    async {
+                        semaphore.withPermit {
+
+                            val url =
+                                "${apiUrl}manga/chapters?id=$mangaId&filter=all&sort=desc&page=$page"
+
+                            webClient
+                                .httpGet(url)
+                                .parseJson()
+                        }
+                    }
+
+                }.awaitAll()
+            )
         }
 
-        return allChapters.reversed().mapChapterBranches()
+
+        pages.flatMap { json ->
+
+            val array = json.optJSONArray("chapters")
+                ?: return@flatMap emptyList()
+
+            (0 until array.length())
+                .mapNotNull { i ->
+                    array.optJSONObject(i)
+                }
+                .map {
+                    parseChapter(
+                        it,
+                        mangaId,
+                        scanlators
+                    )
+                }
+        }
+            .sortedBy { it.number }
+            .mapChapterBranches()
     }
 
     private fun JSONObject?.parseScanlators(): Map<String, String> {
@@ -260,24 +383,20 @@ internal class Atsumaru(context: MangaLoaderContext) :
     }
 
     private fun List<MangaChapter>.mapChapterBranches(): List<MangaChapter> {
-        val usedBranches = HashMap<String, HashSet<Pair<Int, Float>>>()
+
+        val counters = HashMap<Float, Int>()
 
         return map { chapter ->
 
-            val baseBranch = "Group"
+            val count = counters.getOrDefault(chapter.number, 0) + 1
+            counters[chapter.number] = count
 
-            val branch = (1..Int.MAX_VALUE).first { number ->
-                val candidate = "$baseBranch $number"
-
-                val usedNumbers = usedBranches[candidate]
-
-                usedNumbers == null || chapter.volume to chapter.number !in usedNumbers
-            }.let { number ->
-                "$baseBranch $number"
-            }
-
-            usedBranches.getOrPut(branch, ::HashSet)
-                .add(chapter.volume to chapter.number)
+            val branch =
+                if (count == 1) {
+                    "Group"
+                } else {
+                    "Group $count"
+                }
 
             chapter.copy(
                 scanlator = branch,
@@ -310,7 +429,6 @@ internal class Atsumaru(context: MangaLoaderContext) :
             )
         }
     }
-
     override suspend fun getRelatedManga(seed: Manga): List<Manga> {
         return emptyList()
     }
