@@ -20,6 +20,7 @@ import org.koitharu.kotatsu.parsers.util.urlBuilder
 import org.koitharu.kotatsu.parsers.util.urlEncoded
 import java.util.EnumSet
 import java.util.Locale
+import org.koitharu.kotatsu.parsers.model.MangaListFilterOptions
 
 @MangaSourceParser("NHENTAI", "NHentai.net", type = ContentType.HENTAI)
 internal class NHentaiParser(context: MangaLoaderContext) :
@@ -42,8 +43,6 @@ internal class NHentaiParser(context: MangaLoaderContext) :
         val url = urlBuilder().addPathSegments(apiSuffix)
         val isDefaultHome = order == SortOrder.UPDATED
                 && filter.query.isNullOrEmpty()
-                && filter.tags.isEmpty()
-                && filter.locale == null
 
         if (isDefaultHome) {
             url.addPathSegment("galleries")
@@ -88,6 +87,12 @@ internal class NHentaiParser(context: MangaLoaderContext) :
                 source = source
             )
         }
+    }
+
+    override suspend fun getFilterOptions(): MangaListFilterOptions {
+        return MangaListFilterOptions(
+            availableTags = emptySet(),
+        )
     }
 
     override suspend fun getDetails(manga: Manga): Manga {
