@@ -10,7 +10,6 @@ import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
 import eu.kanade.tachiyomi.util.asJsoup
-import org.koitharu.kotatsu.parsers.util.rateLimit
 import keiyoushi.utils.tryParse
 import okhttp3.Cookie
 import okhttp3.CookieJar
@@ -25,7 +24,6 @@ import org.koitharu.kotatsu.parsers.TachiyomiSource
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
-import kotlin.time.Duration.Companion.seconds
 
 @TachiyomiSource("MANGAFOX", "MangaFox", "en")
 class MangaFox : HttpSource() {
@@ -69,8 +67,8 @@ class MangaFox : HttpSource() {
                 }
             },
         )
-        .rateLimit(1, 2.seconds)
         .build()
+
 
     override fun headersBuilder(): Headers.Builder = super.headersBuilder().add("Referer", "$baseUrl/")
 
