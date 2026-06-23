@@ -15,6 +15,7 @@ import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import org.koitharu.kotatsu.parsers.model.MangaState
 import org.koitharu.kotatsu.parsers.model.MangaTag
 import org.koitharu.kotatsu.parsers.model.SortOrder
+import org.koitharu.kotatsu.parsers.network.CloudFlareHelper
 import org.koitharu.kotatsu.parsers.network.CommonHeaders
 import org.koitharu.kotatsu.parsers.network.UserAgents
 import org.koitharu.kotatsu.parsers.site.kotatsu.madara.MadaraParser
@@ -31,7 +32,7 @@ import org.koitharu.kotatsu.parsers.util.urlBuilder
 import org.koitharu.kotatsu.parsers.util.urlEncoded
 
 // Do not use "hentaicb.sbs" domain, may cause duplicate tags!
-@MangaSourceParser("HENTAICUBE", "CBHentai", "vi", ContentType.HENTAI)
+@MangaSourceParser("HENTAICUBE", "HentaiCube", "vi", ContentType.HENTAI)
 internal class HentaiCube(context: MangaLoaderContext) :
 	MadaraParser(context, MangaParserSource.HENTAICUBE, "hentaicube.xyz") {
 
@@ -152,20 +153,32 @@ internal class HentaiCube(context: MangaLoaderContext) :
 	override suspend fun getDetails(manga: Manga): Manga {
 		val result = super.getDetails(manga)
 		val doc = webClient.httpGet(result.publicUrl).parseHtml()
-
 		return result.copy(
+			tags = manga.tags,
 			title = doc.selectFirst("h1")?.ownText() ?: result.title,
 		)
 	}
 
 	override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
-		val headers = Headers.Builder()
+		val originUrl = chapter.url.substringBeforeLast("/ch").toAbsoluteUrl(domain)
+		val cfCookies = "cf_chl_rc_ni=1; cf_clearance=" + CloudFlareHelper.getClearanceCookie(context.cookieJar, originUrl)
+		val nonceUrl = urlBuilder().addPathSegments("wp-json/manga-reader/v1/challenge")
+		val nonceHeaders = Headers.Builder()
 			.add(CommonHeaders.REFERER, chapter.url.toAbsoluteUrl(domain))
 			.add(CommonHeaders.USER_AGENT, UserAgents.CHROME_DESKTOP)
+			.add(CommonHeaders.COOKIE, cfCookies)
+			.build()
+
+		val challenges = webClient.httpGet(nonceUrl.build(), nonceHeaders).parseJson()
+		val imgHeaders = Headers.Builder()
+			.add(CommonHeaders.REFERER, chapter.url.toAbsoluteUrl(domain))
+			.add(CommonHeaders.USER_AGENT, UserAgents.CHROME_DESKTOP)
+			.add(CommonHeaders.COOKIE, cfCookies)
+			.add("x-masr-nonce", challenges.getString("nonce"))
 			.build()
 
 		val jsonUrl = urlBuilder().addPathSegments("wp-json/manga-reader/v1/images")
-		val json = webClient.httpGet(jsonUrl.build(), headers).parseJson()
+		val json = webClient.httpGet(jsonUrl.build(), imgHeaders).parseJson()
 		return json.getJSONArray("images").asTypedList<String>().map {
 			MangaPage(generateUid(it), it, null, source)
 		}
