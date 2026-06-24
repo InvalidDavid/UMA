@@ -1,7 +1,6 @@
-package org.koitharu.kotatsu.parsers.site.kotatsu.all.hentais
+package org.koitharu.kotatsu.parsers.site.kotatsu.en.hentais
 
 import org.json.JSONArray
-import org.json.JSONObject
 import org.jsoup.nodes.Document
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
@@ -22,10 +21,10 @@ import org.koitharu.kotatsu.parsers.util.attrAsRelativeUrl
 import org.koitharu.kotatsu.parsers.util.generateUid
 import org.koitharu.kotatsu.parsers.util.mapToSet
 import org.koitharu.kotatsu.parsers.util.parseHtml
+import org.koitharu.kotatsu.parsers.util.parseSafe
 import org.koitharu.kotatsu.parsers.util.selectFirstOrThrow
 import org.koitharu.kotatsu.parsers.util.src
 import org.koitharu.kotatsu.parsers.util.toAbsoluteUrl
-import org.koitharu.kotatsu.parsers.util.parseSafe
 import org.koitharu.kotatsu.parsers.util.urlDecode
 import org.koitharu.kotatsu.parsers.util.urlEncoded
 import java.text.SimpleDateFormat
@@ -69,7 +68,7 @@ internal class HentaiNexus(context: MangaLoaderContext) :
 
     override suspend fun getFilterOptions(): MangaListFilterOptions {
         val document = webClient.httpGet("https://$domain/explore/categories/tag").parseHtml()
-        val tags = document.select("div.container div.columns div.column").mapToSet {div ->
+        val tags = document.select("div.container div.columns div.column").mapToSet { div ->
             val tag = div.selectFirstOrThrow("a").attr("href")
                 .substring(8) // href="/?q=tag:value"
                 .urlDecode()
