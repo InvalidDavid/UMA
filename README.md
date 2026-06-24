@@ -6,10 +6,10 @@
 
 # Sources Requests
 
-Open up a Issues with this contents:
+Open up a Issue with this contents:
 - URL
 - Website Name
-- NSWF yes/no
+- NSFW yes/no
 
 # Contact
 
@@ -18,7 +18,13 @@ Support Server: [![Discord][discord-shield]][discord-url]
 Direct Contact:
 [![Telegram][telegram-shield]][telegram-url]
 
-# plugins
+
+
+# Tutorial
+<details>
+  <summary>Plugins</summary>
+
+<div align="left">
 
 This template project provides a collection of utilities and some parsers for convenient access to any content available on the web.
 
@@ -33,9 +39,9 @@ This template project provides a collection of utilities and some parsers for co
 1. Open Terminal on root folder, build this project:
 
     On Linux & Unix system:
-	```bash
-	chmod +x gradlew && ./gradlew buildJar
- 	```
+    ```bash
+    chmod +x gradlew && ./gradlew buildJar
+    ```
 
     On Windows system:
     ```cmd
@@ -44,9 +50,14 @@ This template project provides a collection of utilities and some parsers for co
 
 **More simply, just run `buildJar` task in Android Studio / IntelliJ IDEA and dex it after building.**
 
+</div>
+
+</details>
+
 ## Credits
 
 - Thanks to [KotatsuApp](https://github.com/KotatsuApp) for providing some parsers and the core library.
+- Thanks to [Kotatsu Redo Parser](https://github.com/Kotatsu-Redo/kotatsu-parsers-redo) for providing some extensions code on GitHub.
 - Thanks to [Keiyoushi](https://github.com/Keiyoushi) for providing some extensions code on GitHub.
 
 ### License
