@@ -8,7 +8,8 @@
 
 Open up a Issue with this contents:
 - URL
-- Website Name
+- Name
+- language?
 - NSFW yes/no
 
 # Contact
