@@ -1,9 +1,10 @@
-package org.koitharu.kotatsu.parsers.site.kotatsu.en
+package org.koitharu.kotatsu.parsers.site.kotatsu.en.hentais
 
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
 import okhttp3.Response
 import org.jsoup.nodes.Document
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -18,8 +19,8 @@ import org.koitharu.kotatsu.parsers.parsers.MadaraParser
 import org.koitharu.kotatsu.parsers.util.*
 
 private const val F_URL = "fullUrl="
-private val UA = "Usagi/1 (Android)"
 
+@Broken("MadaraDex cdn server cloudflare block")
 @MangaSourceParser("MADARADEX", "MadaraDex", "en", ContentType.HENTAI)
 internal class MadaraDex(context: MangaLoaderContext) :
     MadaraParser(context, MangaParserSource.MADARADEX, "madaradex.org") {
@@ -35,7 +36,7 @@ internal class MadaraDex(context: MangaLoaderContext) :
 
     override fun getRequestHeaders() = super.getRequestHeaders()
         .newBuilder()
-        .set(CommonHeaders.USER_AGENT, UA)
+        .set(CommonHeaders.USER_AGENT, UserAgents.CHROME_DESKTOP)
         .set(CommonHeaders.REFERER, "https://$domain/")
         .build()
 
@@ -133,38 +134,45 @@ internal class MadaraDex(context: MangaLoaderContext) :
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
         val url = request.url
-        val fullUrl =
-            url.fragment
-                ?.substringAfter(F_URL, "")
+
+        val fullUrl = url.fragment
+            ?.substringAfter(F_URL, "")
 
         if (!fullUrl.isNullOrEmpty()) {
+
             copyCookies()
-            val cleanUrl =
-                url.newBuilder()
-                    .fragment(null)
-                    .build()
-            val newRequest =
-                request.newBuilder()
-                    .header(
-                        CommonHeaders.REFERER,
-                        fullUrl
-                    )
-                    .header(
-                        CommonHeaders.USER_AGENT,
-                        UA
-                    )
-                    .url(cleanUrl)
-                    .build()
+
+            val cleanUrl = url.newBuilder()
+                .fragment(null)
+                .build()
+
+            val newRequest = request.newBuilder()
+                .header(
+                    CommonHeaders.REFERER,
+                    fullUrl
+                )
+                .header(
+                    CommonHeaders.USER_AGENT,
+                    UserAgents.CHROME_DESKTOP
+                )
+                .url(cleanUrl)
+                .build()
+
             return chain.proceed(newRequest)
         }
+
         return super.intercept(chain)
     }
 
 
     private fun copyCookies() {
-        context.cookieJar.copyCookies(
-            domain,
-            "cdn.$domain"
-        )
+        val cookies = context.cookieJar.getCookies(domain)
+
+        cookies.forEach {
+            context.cookieJar.insertCookies(
+                "cdn.$domain",
+                "${it.name}=${it.value}"
+            )
+        }
     }
 }
