@@ -31,8 +31,8 @@ import java.text.SimpleDateFormat
 import java.util.Base64
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 
-private const val SERVER_DEFAULT = "default" // goes to image_fallback
-private const val SERVER_FALLBACK = "fallback" // new decryption method for .webp format
+private const val SERVER_PNG = "png" // old method uses now image_fallback
+private const val SERVER_WEBP = "webp" // new decryption method for .webp format
 
 @MangaSourceParser("HENTAINEXUS", "HentaiNexus", "en", type = ContentType.HENTAI)
 internal class HentaiNexus(context: MangaLoaderContext) :
@@ -55,20 +55,25 @@ internal class HentaiNexus(context: MangaLoaderContext) :
     var mangaInternalId: String = ""                    /* use as a flag for reloading data */
     var mangaPages: List<MangaPage> = listOf()
 
-    var mangaPagesInternalId: String = ""               /* use as a flag for reloading data */
-    var decryptedPagesData: List<String> = listOf()
+    private val pageCache = object : LinkedHashMap<String, List<String>>(10, 0.75f, true) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<String, List<String>>
+        ): Boolean {
+            return size > 5
+        }
+    }
 
-    private val imageParserModeKey = ConfigKey.PreferredImageServer(
+    private val preferredImageModeKey = ConfigKey.PreferredImageServer(
         presetValues = mapOf(
-            SERVER_DEFAULT to "Normal",
-            SERVER_FALLBACK to "Fallback",
+            SERVER_PNG to "Old method",
+            SERVER_WEBP to "New method",
         ),
-        defaultValue = SERVER_DEFAULT,
+        defaultValue = SERVER_PNG,
     )
 
     override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
         super.onCreateConfig(keys)
-        keys.add(imageParserModeKey)
+        keys.add(preferredImageModeKey)
     }
 
     override val filterCapabilities: MangaListFilterCapabilities
@@ -204,25 +209,31 @@ internal class HentaiNexus(context: MangaLoaderContext) :
     }
 
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
-        if (mangaPages.isEmpty() or !chapter.url.contains(mangaInternalId)) {
+        if (mangaPages.isEmpty() || !chapter.url.contains(mangaInternalId)) {
             mangaPages = getPagesInternal(chapter.url)
             mangaInternalId = chapter.url.split("/").last()
+
+            // preload image urls
+            val reader = mangaPages.firstOrNull()?.url?.substringBefore("#")
+            if (reader != null && !pageCache.containsKey(reader)) {
+                pageCache[reader] = getPageUrlInternal(reader)
+            }
         }
 
         return mangaPages
     }
 
     override suspend fun getPageUrl(page: MangaPage): String {
-        if (decryptedPagesData.isEmpty() || !page.url.contains(mangaPagesInternalId)) {
-            decryptedPagesData = emptyList()
-            decryptedPagesData = getPageUrlInternal(page.url)
-            mangaPagesInternalId =
-                page.url.split("/")
-                    .last()
-                    .split("#")[0]
-        }
-        val pageNumber = page.url.split("#").last().toInt()
-        return decryptedPagesData[pageNumber - 1]
+        val readerUrl = page.url.substringBefore("#")
+
+        val pages = pageCache[readerUrl]
+            ?: getPageUrlInternal(readerUrl).also {
+                pageCache[readerUrl] = it
+            }
+
+        val index = page.url.substringAfter("#").toInt() - 1
+
+        return pages[index]
     }
 
     private suspend fun getPagesInternal(chapterUrl: String, document: Document? = null): List<MangaPage> {
@@ -255,49 +266,43 @@ internal class HentaiNexus(context: MangaLoaderContext) :
             .trim()
         val decryptedString = decrypt(encryptedPagesData)
             .replace("\\/", "/")
-        return when (config[imageParserModeKey] ?: SERVER_DEFAULT) {
-            SERVER_FALLBACK -> parseFallbackImages(decryptedString)
-            else -> parseNormalImages(decryptedString)
-        }
-    }
-
-    private fun parseNormalImages(jsonString: String): List<String> {
-        val json = JSONArray(jsonString)
+        val jsonArray = JSONArray(decryptedString)
+        val mode = config[preferredImageModeKey] ?: SERVER_WEBP
         return buildList {
-            for (i in 0 until json.length()) {
-                val item = json.getJSONObject(i)
-                val image = item.optString("image")
-                    .takeIf { it.isNotBlank() }
-                val fallback = item.optString("image_fallback")
-                    .takeIf { it.isNotBlank() }
-                val url = fallback ?: image
+            for (i in 0 until jsonArray.length()) {
+                val item = jsonArray.getJSONObject(i)
+                val url = when (mode) {
+                    SERVER_PNG -> {
+                        val image = item.optString("image")
+                            .takeIf { it.isNotBlank() }
+                        val fallback = item.optString("image_fallback")
+                            .takeIf { it.isNotBlank() }
+                        fallback ?: image
+                    }
+                    SERVER_WEBP -> {
+                        var found: String? = null
+                        val keys = item.keys()
+                        while (keys.hasNext()) {
+                            val value = item.optString(keys.next())
+                            if (
+                                value.startsWith("http") &&
+                                (
+                                        value.contains(".webp") ||
+                                                value.contains(".jpg") ||
+                                                value.contains(".jpeg") ||
+                                                value.contains(".png")
+                                        )
+                            ) {
+                                found = value
+                                break
+                            }
+                        }
+                        found
+                    }
+                    else -> null
+                }
                 if (!url.isNullOrBlank()) {
                     add(normalizeImageUrl(url))
-                }
-            }
-        }
-    }
-
-    private fun parseFallbackImages(jsonString: String): List<String> {
-        val json = JSONArray(jsonString)
-        return buildList {
-            for (i in 0 until json.length()) {
-                val item = json.getJSONObject(i)
-                val keys = item.keys()
-                while (keys.hasNext()) {
-                    val value = item.optString(keys.next())
-                    if (
-                        value.startsWith("http") &&
-                        (
-                                value.contains(".webp") ||
-                                        value.contains(".jpg") ||
-                                        value.contains(".jpeg") ||
-                                        value.contains(".png")
-                                )
-                    ) {
-                        add(normalizeImageUrl(value))
-                        break
-                    }
                 }
             }
         }
