@@ -4,7 +4,6 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
 import okhttp3.Response
 import org.jsoup.nodes.Document
-import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -20,7 +19,6 @@ import org.koitharu.kotatsu.parsers.util.*
 
 private const val F_URL = "fullUrl="
 
-@Broken("MadaraDex cdn server cloudflare block")
 @MangaSourceParser("MADARADEX", "MadaraDex", "en", ContentType.HENTAI)
 internal class MadaraDex(context: MangaLoaderContext) :
     MadaraParser(context, MangaParserSource.MADARADEX, "madaradex.org") {
