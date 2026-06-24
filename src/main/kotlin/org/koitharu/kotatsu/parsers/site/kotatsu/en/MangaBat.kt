@@ -31,7 +31,6 @@ import org.koitharu.kotatsu.parsers.util.parseJson
 import org.koitharu.kotatsu.parsers.util.parseSafe
 import org.koitharu.kotatsu.parsers.util.toTitleCase
 import java.text.SimpleDateFormat
-import java.util.ArrayList
 import java.util.EnumSet
 import java.util.LinkedHashSet
 import java.util.Locale
@@ -40,6 +39,8 @@ import org.koitharu.kotatsu.parsers.network.OkHttpWebClient
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import org.koitharu.kotatsu.parsers.util.toAbsoluteUrl
+import org.koitharu.kotatsu.parsers.util.mapToSet
 
 @MangaSourceParser("MANGABAT", "MangaBat", "en")
 internal class Mangabat(context: MangaLoaderContext) :
@@ -62,6 +63,94 @@ internal class Mangabat(context: MangaLoaderContext) :
         SortOrder.POPULARITY,
         SortOrder.NEWEST,
     )
+
+    override suspend fun getDetails(manga: Manga): Manga = coroutineScope {
+        val fullUrl = manga.url.toAbsoluteUrl(domain)
+        val doc = webClient.httpGet(fullUrl).parseHtml()
+        val chaptersDeferred = async { getChapters(doc) }
+        val desc = doc.selectFirst(selectDesc)?.html()
+        val stateDiv = doc.select(selectState).text()
+        val state = when (stateDiv.lowercase()) {
+            in ongoing -> MangaState.ONGOING
+            in finished -> MangaState.FINISHED
+            else -> null
+        }
+
+        val alt = doc.body()
+            .select(selectAlt)
+            .text()
+            .replace("Alternative : ", "")
+            .nullIfEmpty()
+
+        val authors = doc.body()
+            .select(selectAut)
+            .mapToSet { it.text() }
+
+
+        // -------- EXTRA INFO FROM MANGABATS --------
+        val infoBox = doc.selectFirst("ul.manga-info-text")
+        val views = infoBox
+            ?.select("li:contains(View)")
+            ?.text()
+            ?.substringAfter(":")
+            ?.trim()
+
+        // Get rating from JSON-LD (more reliable than stars)
+        var rating: String? = null
+
+        doc.select("script[type=application/ld+json]")
+            .forEach { script ->
+                try {
+                    val json = JSONObject(script.data())
+
+                    if (json.has("ratingValue")) {
+                        rating = json.optString("ratingValue")
+                    }
+                } catch (_: Exception) {
+                    // Ignore invalid JSON blocks
+                }
+            }
+
+        val extraInfo = buildString {
+            if (!views.isNullOrBlank()) {
+                if (isNotEmpty()) append("\n")
+                append("Views: $views ")
+            }
+
+            if (!rating.isNullOrBlank()) {
+                if (isNotEmpty()) append("\n")
+                append("--- Rating: $rating/5")
+            }
+        }
+
+        val finalDescription = listOfNotNull(
+            desc,
+            extraInfo.takeIf { it.isNotBlank() }
+        ).joinToString("\n\n")
+
+        manga.copy(
+            tags = doc.body()
+                .select(selectTag)
+                .mapToSet { a ->
+                    val href = a.attr("href")
+                    MangaTag(
+                        key = href.substringAfterLast("category=")
+                            .substringBefore("&")
+                            .takeIf { it != href }
+                            ?: href.removeSuffix("/")
+                                .substringAfterLast("/"),
+
+                        title = a.text().toTitleCase(),
+                        source = source,
+                    )
+                },
+            description = finalDescription,
+            altTitles = setOfNotNull(alt),
+            authors = authors,
+            state = state,
+            chapters = chaptersDeferred.await(),
+        )
+    }
 
     @Deprecated("Use availableSortOrders instead", ReplaceWith("availableSortOrders"))
     override val searchQueryCapabilities: MangaSearchQueryCapabilities
@@ -220,8 +309,7 @@ internal class Mangabat(context: MangaLoaderContext) :
         }
 
         val total =
-            pagination?.optInt("total", 0)
-                ?: 0
+            pagination.optInt("total", 0)
 
         val offsets =
             (CHAPTER_LIST_TAKE until total step CHAPTER_LIST_TAKE)
