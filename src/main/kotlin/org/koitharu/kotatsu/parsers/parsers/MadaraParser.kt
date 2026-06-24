@@ -34,10 +34,6 @@ internal abstract class MadaraParser(
         keys.add(userAgentKey)
     }
 
-    protected open fun imageFromElement(element: Element): String? {
-        return element.requireSrc()
-    }
-
     // Change these values only if the site does not support manga listings via ajax
     protected open val withoutAjax = false
     protected open val authorSearchSupported = false
@@ -748,10 +744,8 @@ internal abstract class MadaraParser(
                     fullUrl,
                 )
                 return root.select(selectPage).flatMap { div ->
-                    div.selectOrThrow("img").mapNotNull { img ->
-                        val url = imageFromElement(img)?.toRelativeUrl(domain)
-                            ?: return@mapNotNull null
-
+                    div.selectOrThrow("img").map { img ->
+                        val url = img.requireSrc().toRelativeUrl(domain)
                         MangaPage(
                             id = generateUid(url),
                             url = url,
