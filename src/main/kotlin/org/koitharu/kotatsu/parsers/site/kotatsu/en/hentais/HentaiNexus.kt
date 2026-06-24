@@ -21,14 +21,18 @@ import org.koitharu.kotatsu.parsers.util.attrAsRelativeUrl
 import org.koitharu.kotatsu.parsers.util.generateUid
 import org.koitharu.kotatsu.parsers.util.mapToSet
 import org.koitharu.kotatsu.parsers.util.parseHtml
-import org.koitharu.kotatsu.parsers.util.parseSafe
 import org.koitharu.kotatsu.parsers.util.selectFirstOrThrow
 import org.koitharu.kotatsu.parsers.util.src
 import org.koitharu.kotatsu.parsers.util.toAbsoluteUrl
+import org.koitharu.kotatsu.parsers.util.parseSafe
 import org.koitharu.kotatsu.parsers.util.urlDecode
 import org.koitharu.kotatsu.parsers.util.urlEncoded
 import java.text.SimpleDateFormat
 import java.util.Base64
+import org.koitharu.kotatsu.parsers.config.ConfigKey
+
+private const val SERVER_DEFAULT = "default" // goes to image_fallback
+private const val SERVER_FALLBACK = "fallback" // new decryption method for .webp format
 
 @MangaSourceParser("HENTAINEXUS", "HentaiNexus", "en", type = ContentType.HENTAI)
 internal class HentaiNexus(context: MangaLoaderContext) :
@@ -52,12 +56,19 @@ internal class HentaiNexus(context: MangaLoaderContext) :
     var mangaPages: List<MangaPage> = listOf()
 
     var mangaPagesInternalId: String = ""               /* use as a flag for reloading data */
-    private val pageCache = object : LinkedHashMap<String, List<String>>(10, 0.75f, true) {
-        override fun removeEldestEntry(
-            eldest: MutableMap.MutableEntry<String, List<String>>
-        ): Boolean {
-            return size > 5
-        }
+    var decryptedPagesData: List<String> = listOf()
+
+    private val imageParserModeKey = ConfigKey.PreferredImageServer(
+        presetValues = mapOf(
+            SERVER_DEFAULT to "Normal",
+            SERVER_FALLBACK to "Fallback",
+        ),
+        defaultValue = SERVER_DEFAULT,
+    )
+
+    override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
+        super.onCreateConfig(keys)
+        keys.add(imageParserModeKey)
     }
 
     override val filterCapabilities: MangaListFilterCapabilities
@@ -68,7 +79,7 @@ internal class HentaiNexus(context: MangaLoaderContext) :
 
     override suspend fun getFilterOptions(): MangaListFilterOptions {
         val document = webClient.httpGet("https://$domain/explore/categories/tag").parseHtml()
-        val tags = document.select("div.container div.columns div.column").mapToSet { div ->
+        val tags = document.select("div.container div.columns div.column").mapToSet {div ->
             val tag = div.selectFirstOrThrow("a").attr("href")
                 .substring(8) // href="/?q=tag:value"
                 .urlDecode()
@@ -193,34 +204,25 @@ internal class HentaiNexus(context: MangaLoaderContext) :
     }
 
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
-        if (mangaPages.isEmpty() || !chapter.url.contains(mangaInternalId)) {
-
+        if (mangaPages.isEmpty() or !chapter.url.contains(mangaInternalId)) {
             mangaPages = getPagesInternal(chapter.url)
-
             mangaInternalId = chapter.url.split("/").last()
-
-            // preload image urls
-            val reader = mangaPages.firstOrNull()?.url?.substringBefore("#")
-            if (reader != null && !pageCache.containsKey(reader)) {
-                pageCache[reader] = getPageUrlInternal(reader)
-            }
         }
 
         return mangaPages
     }
 
     override suspend fun getPageUrl(page: MangaPage): String {
-
-        val readerUrl = page.url.substringBefore("#")
-
-        val pages = pageCache[readerUrl]
-            ?: getPageUrlInternal(readerUrl).also {
-                pageCache[readerUrl] = it
-            }
-
-        val index = page.url.substringAfter("#").toInt() - 1
-
-        return pages[index]
+        if (decryptedPagesData.isEmpty() || !page.url.contains(mangaPagesInternalId)) {
+            decryptedPagesData = emptyList()
+            decryptedPagesData = getPageUrlInternal(page.url)
+            mangaPagesInternalId =
+                page.url.split("/")
+                    .last()
+                    .split("#")[0]
+        }
+        val pageNumber = page.url.split("#").last().toInt()
+        return decryptedPagesData[pageNumber - 1]
     }
 
     private suspend fun getPagesInternal(chapterUrl: String, document: Document? = null): List<MangaPage> {
@@ -239,7 +241,9 @@ internal class HentaiNexus(context: MangaLoaderContext) :
     }
 
     private suspend fun getPageUrlInternal(pageUrl: String): List<String> {
-        val doc = webClient.httpGet(pageUrl.toAbsoluteUrl(domain)).parseHtml()
+        val doc = webClient
+            .httpGet(pageUrl.toAbsoluteUrl(domain))
+            .parseHtml()
         val script = doc.select("script")
             .firstOrNull { it.data().contains("initReader") }
             ?: throw Exception("Reader script not found")
@@ -249,21 +253,39 @@ internal class HentaiNexus(context: MangaLoaderContext) :
             .replace("\\n", "")
             .replace("\\r", "")
             .trim()
-        if (encryptedPagesData.isBlank()) {
-            throw Exception("Encrypted page data empty")
-        }
         val decryptedString = decrypt(encryptedPagesData)
             .replace("\\/", "/")
-        val result = mutableListOf<String>()
-        try {
-            val json = JSONArray(decryptedString)
+        return when (config[imageParserModeKey] ?: SERVER_DEFAULT) {
+            SERVER_FALLBACK -> parseFallbackImages(decryptedString)
+            else -> parseNormalImages(decryptedString)
+        }
+    }
+
+    private fun parseNormalImages(jsonString: String): List<String> {
+        val json = JSONArray(jsonString)
+        return buildList {
             for (i in 0 until json.length()) {
                 val item = json.getJSONObject(i)
-                var url: String? = null
+                val image = item.optString("image")
+                    .takeIf { it.isNotBlank() }
+                val fallback = item.optString("image_fallback")
+                    .takeIf { it.isNotBlank() }
+                val url = fallback ?: image
+                if (!url.isNullOrBlank()) {
+                    add(normalizeImageUrl(url))
+                }
+            }
+        }
+    }
+
+    private fun parseFallbackImages(jsonString: String): List<String> {
+        val json = JSONArray(jsonString)
+        return buildList {
+            for (i in 0 until json.length()) {
+                val item = json.getJSONObject(i)
                 val keys = item.keys()
                 while (keys.hasNext()) {
                     val value = item.optString(keys.next())
-
                     if (
                         value.startsWith("http") &&
                         (
@@ -273,26 +295,27 @@ internal class HentaiNexus(context: MangaLoaderContext) :
                                         value.contains(".png")
                                 )
                     ) {
-                        url = value
+                        add(normalizeImageUrl(value))
                         break
                     }
                 }
-                if (!url.isNullOrBlank()) {
-                    result.add(url)
-                }
             }
-        } catch (e: Exception) {
-            throw Exception(
-                "Failed parsing pages JSON: $decryptedString",
-                e
-            )
         }
-        if (result.isEmpty()) {
-            throw Exception(
-                "No image URLs found. JSON: $decryptedString"
-            )
+    }
+
+    private fun normalizeImageUrl(url: String): String {
+        return when {
+            url.startsWith("http") -> url
+
+            url.startsWith("//") ->
+                "https:$url"
+
+            url.startsWith("/") ->
+                "https://$domain$url"
+
+            else ->
+                "https://$domain/$url"
         }
-        return result
     }
 
     private fun decrypt(encodedData: String): String {
@@ -300,25 +323,16 @@ internal class HentaiNexus(context: MangaLoaderContext) :
         val keyLength = minOf(xorKey.size, 64)
 
         // Decode base64 string into characters (1 byte per char, unsigned)
-        val decodedBytes = try {
-            Base64.getDecoder().decode(encodedData)
-        } catch (e: IllegalArgumentException) {
-            throw Exception(
-                "Invalid Base64 length=${encodedData.length}, end=${encodedData.takeLast(50)}",
-                e
-            )
-        }
-        val decodedChars = CharArray(decodedBytes.size)
+        val decodedBytes = Base64.getDecoder().decode(encodedData)
+        val decodedChars = decodedBytes.map { (it.toInt() and 0xFF).toChar() }.toMutableList()
 
-        for (i in decodedBytes.indices) {
-            decodedChars[i] = (decodedBytes[i].toInt() and 0xff).toChar()
-        }
         // XOR first 64 characters with the key
         for (i in 0 until keyLength) {
             decodedChars[i] = (decodedChars[i].code xor xorKey[i].code).toChar()
         }
 
-        val decodedString = String(decodedChars)
+        val decodedString = decodedChars.joinToString("")
+
         // Prime sieve: first 16 primes
         val sieve = BooleanArray(257)
         val primeIndexes = mutableListOf<Int>()
