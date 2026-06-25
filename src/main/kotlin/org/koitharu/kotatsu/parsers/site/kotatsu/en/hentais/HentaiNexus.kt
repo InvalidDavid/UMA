@@ -65,8 +65,8 @@ internal class HentaiNexus(context: MangaLoaderContext) :
 
     private val preferredImageModeKey = ConfigKey.PreferredImageServer(
         presetValues = mapOf(
-            SERVER_PNG to "Old method",
-            SERVER_WEBP to "New method",
+            SERVER_PNG to "Old method (png)",
+            SERVER_WEBP to "New method (webp)",
         ),
         defaultValue = SERVER_PNG,
     )
