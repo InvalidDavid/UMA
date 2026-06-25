@@ -60,21 +60,19 @@ There are actually two ways, one which you manually update the Plugin from time 
 </details>
 
 1. Download the latest version of the Plugin from the [Releases](https://github.com/InvalidDavid/UMA/releases) page.
+Click on the blue Name or press the three dots on the right side and press Download.
 
 
-3. Click on the blue Name or press the three dots on the right side and press Download.
+2. Go back to the App and open up `Explore`
 
 
-3. Go back to the App and open up `Explore`
+3. Click on `three Dots in the top right corner` and select `Manage Sources`
 
 
-4. Click on `three Dots in the top right corner` and select `Manage Sources`
+4. Go to `Manage Plugins` and press the `Add` / `+` button in the top right corner.
 
 
-5. Go to `Manage Plugins` and press the `Add` / `+` button in the top right corner.
-
-
-7. Select `Import from local storage` and select `UMA.jar` file which you downloaded in the previous step.
+5. Select `Import from local storage` and select `UMA.jar` file which you downloaded in the previous step.
 
 And that's it! Select your new sources in the catalog and have fun reading.
 </details>
