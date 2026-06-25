@@ -32,7 +32,7 @@ import java.util.EnumSet
 
 @MangaSourceParser("KALISCAN", "kaliscan.io", "en")
 internal class KaliScan(context: MangaLoaderContext) :
-    MadthemeParser(context, MangaParserSource.KALISCAN, "kaliscan.io") {
+    MadthemeParser(context, MangaParserSource.KALISCAN, "kaliscan.io", pageSize=24) {
 
     override val selectDesc = ".summary .content, .summary .content ~ p"
     override val selectState = ".detail .meta > p > strong:contains(Status) ~ a"

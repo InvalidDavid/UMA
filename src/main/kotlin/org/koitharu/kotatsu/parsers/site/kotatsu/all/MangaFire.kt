@@ -598,23 +598,23 @@ internal abstract class MangaFireParser(
         return sb.toString()
     }
 
-    @MangaSourceParser("MANGAFIRE_EN", "MangaFire English", "en")
+    @MangaSourceParser("MANGAFIRE_EN", "MangaFire (English)", "en")
     class English(context: MangaLoaderContext) : MangaFireParser(context, MangaParserSource.MANGAFIRE_EN, "en")
 
-    @MangaSourceParser("MANGAFIRE_ES", "MangaFire Spanish", "es")
+    @MangaSourceParser("MANGAFIRE_ES", "MangaFire (Spanish)", "es")
     class Spanish(context: MangaLoaderContext) : MangaFireParser(context, MangaParserSource.MANGAFIRE_ES, "es")
 
     @MangaSourceParser("MANGAFIRE_ESLA", "MangaFire Spanish (Latim)", "es")
     class SpanishLatim(context: MangaLoaderContext) :
         MangaFireParser(context, MangaParserSource.MANGAFIRE_ESLA, "es-la")
 
-    @MangaSourceParser("MANGAFIRE_FR", "MangaFire French", "fr")
+    @MangaSourceParser("MANGAFIRE_FR", "MangaFire (French)", "fr")
     class French(context: MangaLoaderContext) : MangaFireParser(context, MangaParserSource.MANGAFIRE_FR, "fr")
 
-    @MangaSourceParser("MANGAFIRE_JA", "MangaFire Japanese", "ja")
+    @MangaSourceParser("MANGAFIRE_JA", "MangaFire (Japanese)", "ja")
     class Japanese(context: MangaLoaderContext) : MangaFireParser(context, MangaParserSource.MANGAFIRE_JA, "ja")
 
-    @MangaSourceParser("MANGAFIRE_PT", "MangaFire Portuguese", "pt")
+    @MangaSourceParser("MANGAFIRE_PT", "MangaFire (Portuguese)", "pt")
     class Portuguese(context: MangaLoaderContext) : MangaFireParser(context, MangaParserSource.MANGAFIRE_PT, "pt")
 
     @MangaSourceParser("MANGAFIRE_PTBR", "MangaFire Portuguese (Brazil)", "pt")

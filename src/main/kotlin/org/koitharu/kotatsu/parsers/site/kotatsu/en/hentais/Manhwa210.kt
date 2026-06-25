@@ -17,7 +17,6 @@ import org.koitharu.kotatsu.parsers.model.MangaState
 import org.koitharu.kotatsu.parsers.model.MangaTag
 import org.koitharu.kotatsu.parsers.model.RATING_UNKNOWN
 import org.koitharu.kotatsu.parsers.model.SortOrder
-import org.koitharu.kotatsu.parsers.network.OkHttpWebClient
 import org.koitharu.kotatsu.parsers.util.attrAsRelativeUrl
 import org.koitharu.kotatsu.parsers.util.attrOrNull
 import org.koitharu.kotatsu.parsers.util.generateUid
@@ -25,7 +24,6 @@ import org.koitharu.kotatsu.parsers.util.mapChapters
 import org.koitharu.kotatsu.parsers.util.mapToSet
 import org.koitharu.kotatsu.parsers.util.parseFailed
 import org.koitharu.kotatsu.parsers.util.parseHtml
-import org.koitharu.kotatsu.parsers.util.rateLimit
 import org.koitharu.kotatsu.parsers.util.removeSuffix
 import org.koitharu.kotatsu.parsers.util.requireSrc
 import org.koitharu.kotatsu.parsers.util.selectLast
@@ -34,19 +32,11 @@ import org.koitharu.kotatsu.parsers.util.toAbsoluteUrl
 import org.koitharu.kotatsu.parsers.util.urlEncoded
 import java.util.Calendar
 import java.util.EnumSet
-import kotlin.time.Duration.Companion.seconds
 
-@MangaSourceParser("MANHWA210", "Manhwa210", "en", type = ContentType.MANHWA)
+@MangaSourceParser("MANHWA210", "Manhwa210", "en", type = ContentType.HENTAI)
 internal class Manhwa210(context: MangaLoaderContext) : PagedMangaParser(context, MangaParserSource.MANHWA210, 60) {
 
     override val configKeyDomain = ConfigKey.Domain("manhwa210.com")
-
-    override val webClient = OkHttpWebClient(
-        context.httpClient.newBuilder()
-            .rateLimit(5, 10.seconds)
-            .build(),
-        source,
-    )
 
     override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
         super.onCreateConfig(keys)

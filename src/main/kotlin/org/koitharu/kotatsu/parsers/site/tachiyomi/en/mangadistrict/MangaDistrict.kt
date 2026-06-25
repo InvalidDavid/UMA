@@ -5,7 +5,7 @@ import android.content.SharedPreferences
 import android.preference.CheckBoxPreference
 import android.preference.ListPreference
 import androidx.preference.PreferenceScreen
-import org.koitharu.kotatsu.parsers.site.tachiyomi.madara.Madara
+import org.koitharu.kotatsu.parsers.site.tachiyomi.parsers.Madara
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.asObservableSuccess
 import eu.kanade.tachiyomi.source.ConfigurableSource

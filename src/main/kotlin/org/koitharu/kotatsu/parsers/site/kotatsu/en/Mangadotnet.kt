@@ -12,7 +12,7 @@ import org.koitharu.kotatsu.parsers.util.*
 import java.text.SimpleDateFormat
 import java.util.*
 
-@MangaSourceParser("MANGADOTNET", "Mangadotnet", "en", ContentType.MANGA)
+@MangaSourceParser("MANGADOTNET", "Mangadot.net", "en", ContentType.MANGA)
 internal class Mangadotnet(context: MangaLoaderContext) :
     PagedMangaParser(context, MangaParserSource.MANGADOTNET, 20) {
 

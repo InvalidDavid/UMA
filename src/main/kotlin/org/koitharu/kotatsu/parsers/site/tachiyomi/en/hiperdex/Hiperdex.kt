@@ -3,7 +3,7 @@ package org.koitharu.kotatsu.parsers.site.tachiyomi.en.hiperdex
 import android.preference.CheckBoxPreference
 import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceScreen
-import org.koitharu.kotatsu.parsers.site.tachiyomi.madara.Madara
+import org.koitharu.kotatsu.parsers.site.tachiyomi.parsers.Madara
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.SManga
 import keiyoushi.utils.getPreferences

@@ -24,7 +24,6 @@ import okhttp3.Response
 import okhttp3.ResponseBody.Companion.asResponseBody
 import org.jsoup.nodes.Document
 import org.koitharu.kotatsu.parsers.TachiyomiSource
-import org.koitharu.kotatsu.parsers.config.ConfigKey
 import java.text.SimpleDateFormat
 import java.util.Locale
 

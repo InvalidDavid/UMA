@@ -31,14 +31,16 @@ import org.koitharu.kotatsu.parsers.util.parseJson
 import org.koitharu.kotatsu.parsers.util.parseSafe
 import org.koitharu.kotatsu.parsers.util.toTitleCase
 import java.text.SimpleDateFormat
-import java.util.ArrayList
 import java.util.EnumSet
 import java.util.LinkedHashSet
 import java.util.Locale
 import java.util.TimeZone
 import org.koitharu.kotatsu.parsers.network.OkHttpWebClient
-import org.koitharu.kotatsu.parsers.util.rateLimit
-import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import org.koitharu.kotatsu.parsers.util.toAbsoluteUrl
+import org.koitharu.kotatsu.parsers.util.mapToSet
 
 @MangaSourceParser("MANGABAT", "MangaBat", "en")
 internal class Mangabat(context: MangaLoaderContext) :
@@ -48,7 +50,6 @@ internal class Mangabat(context: MangaLoaderContext) :
 
     override val webClient = OkHttpWebClient(
         context.httpClient.newBuilder()
-            .rateLimit(5, 10.seconds)
             .build(),
         source,
     )
@@ -62,6 +63,94 @@ internal class Mangabat(context: MangaLoaderContext) :
         SortOrder.POPULARITY,
         SortOrder.NEWEST,
     )
+
+    override suspend fun getDetails(manga: Manga): Manga = coroutineScope {
+        val fullUrl = manga.url.toAbsoluteUrl(domain)
+        val doc = webClient.httpGet(fullUrl).parseHtml()
+        val chaptersDeferred = async { getChapters(doc) }
+        val desc = doc.selectFirst(selectDesc)?.html()
+        val stateDiv = doc.select(selectState).text()
+        val state = when (stateDiv.lowercase()) {
+            in ongoing -> MangaState.ONGOING
+            in finished -> MangaState.FINISHED
+            else -> null
+        }
+
+        val alt = doc.body()
+            .select(selectAlt)
+            .text()
+            .replace("Alternative : ", "")
+            .nullIfEmpty()
+
+        val authors = doc.body()
+            .select(selectAut)
+            .mapToSet { it.text() }
+
+
+        // -------- EXTRA INFO FROM MANGABATS --------
+        val infoBox = doc.selectFirst("ul.manga-info-text")
+        val views = infoBox
+            ?.select("li:contains(View)")
+            ?.text()
+            ?.substringAfter(":")
+            ?.trim()
+
+        // Get rating from JSON-LD (more reliable than stars)
+        var rating: String? = null
+
+        doc.select("script[type=application/ld+json]")
+            .forEach { script ->
+                try {
+                    val json = JSONObject(script.data())
+
+                    if (json.has("ratingValue")) {
+                        rating = json.optString("ratingValue")
+                    }
+                } catch (_: Exception) {
+                    // Ignore invalid JSON blocks
+                }
+            }
+
+        val extraInfo = buildString {
+            if (!views.isNullOrBlank()) {
+                if (isNotEmpty()) append("\n")
+                append("Views: $views ")
+            }
+
+            if (!rating.isNullOrBlank()) {
+                if (isNotEmpty()) append("\n")
+                append("--- Rating: $rating/5")
+            }
+        }
+
+        val finalDescription = listOfNotNull(
+            desc,
+            extraInfo.takeIf { it.isNotBlank() }
+        ).joinToString("\n\n")
+
+        manga.copy(
+            tags = doc.body()
+                .select(selectTag)
+                .mapToSet { a ->
+                    val href = a.attr("href")
+                    MangaTag(
+                        key = href.substringAfterLast("category=")
+                            .substringBefore("&")
+                            .takeIf { it != href }
+                            ?: href.removeSuffix("/")
+                                .substringAfterLast("/"),
+
+                        title = a.text().toTitleCase(),
+                        source = source,
+                    )
+                },
+            description = finalDescription,
+            altTitles = setOfNotNull(alt),
+            authors = authors,
+            state = state,
+            chapters = chaptersDeferred.await(),
+        )
+    }
 
     @Deprecated("Use availableSortOrders instead", ReplaceWith("availableSortOrders"))
     override val searchQueryCapabilities: MangaSearchQueryCapabilities
@@ -181,50 +270,103 @@ internal class Mangabat(context: MangaLoaderContext) :
     }
 
     private suspend fun fetchChaptersApi(slug: String): List<MangaChapter> {
-        val rawChapters = ArrayList<JSONObject>()
-        var offset = 0
 
-        while (true) {
-            val apiUrl = "https://$domain/api/manga/$slug/chapters?limit=$CHAPTER_LIST_TAKE&offset=$offset"
-            val json = webClient.httpGet(apiUrl).parseJson()
-            val data = json.optJSONObject("data") ?: break
-            val chapters = data.optJSONArray("chapters") ?: break
+        suspend fun request(offset: Int): JSONObject {
+            val apiUrl =
+                "https://$domain/api/manga/$slug/chapters" +
+                        "?limit=$CHAPTER_LIST_TAKE&offset=$offset"
 
-            for (i in 0 until chapters.length()) {
-                chapters.optJSONObject(i)?.let(rawChapters::add)
-            }
-
-            val hasMore = data.optJSONObject("pagination")?.optBoolean("has_more", false) == true
-            if (!hasMore) {
-                break
-            }
-
-            offset += CHAPTER_LIST_TAKE
+            return webClient.httpGet(apiUrl).parseJson()
         }
 
-        return rawChapters.mapNotNull { chapter ->
-            val chapterSlug = chapter.optString("chapter_slug").nullIfEmpty()
-                ?: return@mapNotNull null
-            val chapterName = chapter.optString("chapter_name").nullIfEmpty()
-                ?: "Chapter"
-            val chapterNumber = chapter.optString("chapter_num").toFloatOrNull()
-                ?: chapter.optDouble("chapter_num", Double.NaN).takeUnless(Double::isNaN)?.toFloat()
-                ?: 0f
+        fun extractChapters(json: JSONObject): List<JSONObject> {
+            val array = json
+                .optJSONObject("data")
+                ?.optJSONArray("chapters")
+                ?: return emptyList()
+
+            return buildList {
+                for (i in 0 until array.length()) {
+                    array.optJSONObject(i)?.let(::add)
+                }
+            }
+        }
+        // first request
+        val first = request(0)
+
+        val chapters = mutableListOf<JSONObject>()
+        chapters += extractChapters(first)
+
+        val pagination =
+            first.optJSONObject("data")
+                ?.optJSONObject("pagination")
+
+        val hasMore =
+            pagination?.optBoolean("has_more", false) ?: false
+
+        if (!hasMore) {
+            return mapChapters(slug, chapters)
+        }
+
+        val total =
+            pagination.optInt("total", 0)
+
+        val offsets =
+            (CHAPTER_LIST_TAKE until total step CHAPTER_LIST_TAKE)
+                .toList()
+        // parallel loading
+        coroutineScope {
+            val results = offsets.map { offset ->
+                async {
+                    request(offset)
+                }
+            }.awaitAll()
+            results.forEach {
+                chapters += extractChapters(it)
+            }
+        }
+        return mapChapters(slug, chapters)
+    }
+
+    private fun mapChapters(
+        slug: String,
+        chapters: List<JSONObject>
+    ): List<MangaChapter> {
+
+        return chapters.mapNotNull { chapter ->
+            val chapterSlug =
+                chapter.optString("chapter_slug")
+                    .nullIfEmpty()
+                    ?: return@mapNotNull null
+
+            val chapterName =
+                chapter.optString("chapter_name")
+                    .nullIfEmpty()
+                    ?: "Chapter"
+
+            val number =
+                chapter.optString("chapter_num")
+                    .toFloatOrNull()
+                    ?: 0f
 
             val url = "/manga/$slug/$chapterSlug"
 
             MangaChapter(
                 id = generateUid(url),
                 title = chapterName,
-                number = chapterNumber,
+                number = number,
                 volume = 0,
                 url = url,
-                uploadDate = parseApiDate(chapter.optString("updated_at")),
+                uploadDate = parseApiDate(
+                    chapter.optString("updated_at")
+                ),
                 source = source,
                 scanlator = null,
                 branch = null,
             )
-        }.sortedBy { it.number }
+        }.sortedBy {
+            it.number
+        }
     }
 
     private fun parseApiDate(date: String?): Long {

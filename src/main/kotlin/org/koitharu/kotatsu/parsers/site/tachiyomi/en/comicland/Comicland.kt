@@ -14,8 +14,9 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.koitharu.kotatsu.parsers.TachiyomiSource
+import org.koitharu.kotatsu.parsers.model.ContentType
 
-@TachiyomiSource("COMICLAND", "ComicLand", "en")
+@TachiyomiSource("COMICLAND", "ComicLand", "en", ContentType.HENTAI)
 class ComicLand : HttpSource() {
 
     override val name = "ComicLand"
