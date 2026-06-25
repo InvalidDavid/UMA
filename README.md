@@ -74,7 +74,7 @@ There are actually two ways, one which you manually update the Plugin from time 
 
 </details>
 
-5. Go to `Manage Sources` and press the `Add` / `+` button in the top right corner.
+5. Go to `Manage Plugins` and press the `Add` / `+` button in the top right corner.
 6. Select `Import from local storage` and select `UMA.jar` file which you downloaded in the previous step.
 
 And that's it! Select your new sources in the catalog and have fun reading.
@@ -112,7 +112,7 @@ And that's it! Select your new sources in the catalog and have fun reading.
 
 <br>
 
-3. Go to `Manage Sources` and press the `Add` / `+` button in the top right corner.
+3. Go to `Manage Plugins` and press the `Add` / `+` button in the top right corner.
 
 4. Select `Import from Github` and enter the URL:
 
