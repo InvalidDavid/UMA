@@ -148,7 +148,7 @@ class Utoon :
                 name = if (dto.isLocked) "\uD83D\uDD12 ${dto.label}" else dto.label
                 date_upload = parseChapterDate(dto.ago)
             }
-        }.reversed()
+        }.sortedBy { it.chapter_number }
     }
 
     // =============================== Pages ===============================
