@@ -132,7 +132,7 @@ InvalidDavid/UMA
 
 And that's it! Select your new sources in the catalog and have fun reading.
 
-> **Note:** If the plugin does not update automatically, enable this feature first (see screenshot).  
+> **Note:** The plugin will not update automatically unless you enable this feature (see screenshot).  
 > You can manually check anytime in `Manage Plugins` for an `Install` button.
 
 <details>
