@@ -46,33 +46,36 @@ There are actually two ways, one which you manually update the Plugin from time 
 <summary><b>Manually way</b></summary>
 
 <br>
+
+1. Download the latest version of the Plugin from the [Releases](https://github.com/InvalidDavid/UMA/releases) page.
+2. Click on the blue Name or press the three dots on the right side and press Download.
 <details>
-<summary>📥 How to download .jar File</summary>
+<summary>📷 Show Screenshot</summary>
 
 ![Screenshot][img3]
 
 </details>
-<details>
-<summary>📷 Image Turoial</summary>
 
-![Screenshot][img5]
+3. Go back to the App and open up `Explore`
+
+<details>
+<summary>📷 Show Screenshot</summary>
+
+![Screenshot][img1]
 
 </details>
 
-1. Download the latest version of the Plugin from the [Releases](https://github.com/InvalidDavid/UMA/releases) page.
-Click on the blue Name or press the three dots on the right side and press Download.
+4. Click on `three Dots in the top right corner` and select `Manage Sources`
 
+<details>
+<summary>📷 Show Screenshot</summary>
 
-2. Go back to the App and open up `Explore`
+![Screenshot][img2]
 
+</details>
 
-3. Click on `three Dots in the top right corner` and select `Manage Sources`
-
-
-4. Go to `Manage Plugins` and press the `Add` / `+` button in the top right corner.
-
-
-5. Select `Import from local storage` and select `UMA.jar` file which you downloaded in the previous step.
+5. Go to `Manage Plugins` and press the `Add` / `+` button in the top right corner.
+6. Select `Import from local storage` and select `UMA.jar` file which you downloaded in the previous step.
 
 And that's it! Select your new sources in the catalog and have fun reading.
 </details>
@@ -86,21 +89,30 @@ And that's it! Select your new sources in the catalog and have fun reading.
 
 <br>
 
-<details>
-<summary>📷 Image Tutorial</summary>
+1. Open up `Explore`
 
-![Screenshot][img]
+<details>
+<summary>📷 Show Screenshot</summary>
+
+![Screenshot][img1]
+
 
 </details>
 
-1. Open up `Explore`
-
+<br>
 
 2. Click on `three Dots in the top right corner` and select `Manage Sources`
 
+<details>
+<summary>📷 Show Screenshot</summary>
+
+![Screenshot][img2]
+
+</details>
+
+<br>
 
 3. Go to `Manage Plugins` and press the `Add` / `+` button in the top right corner.
-
 
 4. Select `Import from Github` and enter the URL:
 
@@ -121,10 +133,10 @@ InvalidDavid/UMA
 And that's it! Select your new sources in the catalog and have fun reading.
 
 > **Note:** The plugin will not update automatically unless you enable this feature (see screenshot).  
-> You can manually check anytime in `Manage Plugins` for an `Install` button to update.
+> You can manually check anytime in `Manage Plugins` for an `Install` button.
 
 <details>
-<summary>❓ Where?</summary>
+<summary>📷 Show Screenshot</summary>
 
 ![Screenshot][img4]
 
@@ -205,9 +217,7 @@ You may copy, distribute and modify the software as long as you track changes/da
 [telegram-shield]: https://img.shields.io/badge/-Telegram-black.svg?style=for-the-badge&logo=telegram&colorB=555
 [telegram-url]: https://t.me/invalidxdavid
 
-[img]: https://cdn.discordapp.com/attachments/1518283800830939176/1519723800327880826/image.png?ex=6a3e9895&is=6a3d4715&hm=818321ffb9a46f31c9148b5f4a234cac44b5a1ca559dc77c84206d451937ab80&
 [img1]: https://cdn.discordapp.com/attachments/1518283800830939176/1519672301883363409/image.png?ex=6a3e689e&is=6a3d171e&hm=fca40dfdf33ea99b07e7237b4d9a44afea1991be7b59f750a6bc9a906146c53e&
 [img2]: https://cdn.discordapp.com/attachments/1518283800830939176/1519672539532628068/image.png?ex=6a3e68d7&is=6a3d1757&hm=1551bf57fde5d3e8c7cb53c182347bfcb3b2ff58fa297c88148338e88c2b5fe1&
 [img3]: https://cdn.discordapp.com/attachments/1518283800830939176/1519673238316126268/image.png?ex=6a3e697e&is=6a3d17fe&hm=ed8e12ca85af9b8aa461463bf8095d958e46614e5478b97f95363875a81ab62b&
 [img4]: https://cdn.discordapp.com/attachments/1518283800830939176/1519673924554588321/image.png?ex=6a3e6a21&is=6a3d18a1&hm=2321b2d2a632080101312427741a790be7b1c3c15fd32cb82e5e3ba86fcfbe39&
-[img5]: https://cdn.discordapp.com/attachments/1518283800830939176/1519813607251116074/image.png?ex=6a3eec38&is=6a3d9ab8&hm=3cc4e454a7afd4233000cd0cf8efb8aa423841312b7399573e6ac5dbc90abdfd&
