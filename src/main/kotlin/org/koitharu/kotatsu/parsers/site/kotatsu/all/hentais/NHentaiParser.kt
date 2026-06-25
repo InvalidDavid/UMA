@@ -40,6 +40,38 @@ internal class NHentaiParser(context: MangaLoaderContext) :
     )
 
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
+
+        filter.query?.trim()?.let { query ->
+            if (query.all(Char::isDigit)) {
+                return try {
+                    val obj = webClient
+                        .httpGet("https://$domain/$apiSuffix/galleries/$query")
+                        .parseJson()
+
+                    val title = obj.extractTitle()
+
+                    listOf(
+                        Manga(
+                            id = generateUid("/g/$query/"),
+                            title = title.cleanupTitle().ifEmpty { title },
+                            altTitles = emptySet(),
+                            url = "/g/$query/",
+                            publicUrl = "https://$domain/g/$query/",
+                            rating = RATING_UNKNOWN,
+                            contentRating = ContentRating.ADULT,
+                            coverUrl = "https://t.$domain/${obj.getThumbnailPath()}",
+                            tags = emptySet(),
+                            state = null,
+                            authors = emptySet(),
+                            source = source
+                        )
+                    )
+                } catch (_: Exception) {
+                    emptyList()
+                }
+            }
+        }
+
         val url = urlBuilder().addPathSegments(apiSuffix)
         val isDefaultHome = order == SortOrder.UPDATED
                 && filter.query.isNullOrEmpty()
@@ -59,7 +91,7 @@ internal class NHentaiParser(context: MangaLoaderContext) :
             }
 
             val sort = when (order) {
-                 else -> "date"
+                else -> "date"
             }
 
             url.addPathSegment("search")
