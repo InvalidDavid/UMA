@@ -52,7 +52,7 @@ There are actually two ways, one which you manually update the Plugin from time 
 <details>
 <summary>📷 Show Screenshot</summary>
 
-![img_4.png](img_4.png)
+![Screenshot][img3]
 
 </details>
 
@@ -61,7 +61,7 @@ There are actually two ways, one which you manually update the Plugin from time 
 <details>
 <summary>📷 Show Screenshot</summary>
 
-![img_6.png](img_6.png)
+![Screenshot][img1]
 
 </details>
 
@@ -70,7 +70,7 @@ There are actually two ways, one which you manually update the Plugin from time 
 <details>
 <summary>📷 Show Screenshot</summary>
 
-![img_7.png](img_7.png)
+![Screenshot][img3]
 
 </details>
 
@@ -94,7 +94,7 @@ And that's it! Select your new sources in the catalog and have fun reading.
 <details>
 <summary>📷 Show Screenshot</summary>
 
-![img_5.png](img_5.png)
+![Screenshot][img1]
 
 
 </details>
@@ -106,7 +106,7 @@ And that's it! Select your new sources in the catalog and have fun reading.
 <details>
 <summary>📷 Show Screenshot</summary>
 
-![img_8.png](img_8.png)
+![Screenshot][img2]
 
 </details>
 
@@ -191,8 +191,6 @@ chmod +x gradlew && ./gradlew buildJar
 
 You may copy, distribute and modify the software as long as you track changes/dates in source files. Any modifications to or software including (via compiler) GPL-licensed code must also be made available under the GPL along with build and install instructions. See [LICENSE](./LICENSE) for more details.
 
----
-
 [license-shield]: https://img.shields.io/github/license/InvalidDavid/UMA.svg?style=for-the-badge
 [license-url]: https://github.com/InvalidDavid/UMA/blob/master/LICENSE
 [contributors-shield]: https://img.shields.io/github/contributors/InvalidDavid/UMA.svg?style=for-the-badge
@@ -208,4 +206,8 @@ You may copy, distribute and modify the software as long as you track changes/da
 [telegram-shield]: https://img.shields.io/badge/-Telegram-black.svg?style=for-the-badge&logo=telegram&colorB=555
 [telegram-url]: https://t.me/invalidxdavid
 
-```
+[img1]: https://cdn.discordapp.com/attachments/1518283800830939176/1519672301883363409/image.png?ex=6a3e689e&is=6a3d171e&hm=fca40dfdf33ea99b07e7237b4d9a44afea1991be7b59f750a6bc9a906146c53e&
+
+[img2]: https://cdn.discordapp.com/attachments/1518283800830939176/1519672539532628068/image.png?ex=6a3e68d7&is=6a3d1757&hm=1551bf57fde5d3e8c7cb53c182347bfcb3b2ff58fa297c88148338e88c2b5fe1&
+
+[img3]: https://cdn.discordapp.com/attachments/1518283800830939176/1519673238316126268/image.png?ex=6a3e697e&is=6a3d17fe&hm=ed8e12ca85af9b8aa461463bf8095d958e46614e5478b97f95363875a81ab62b&
