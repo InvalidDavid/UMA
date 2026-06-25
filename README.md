@@ -132,6 +132,17 @@ InvalidDavid/UMA
 
 And that's it! Select your new sources in the catalog and have fun reading.
 
+> **Note:** If the plugin does not update automatically, enable this feature first (see screenshot).  
+> You can manually check anytime in `Manage Plugins` for an `Install` button.
+
+<details>
+<summary>📷 Show Screenshot</summary>
+
+![Screenshot][img4]
+
+</details>
+
+
 </details>
 
 </details>
@@ -207,7 +218,6 @@ You may copy, distribute and modify the software as long as you track changes/da
 [telegram-url]: https://t.me/invalidxdavid
 
 [img1]: https://cdn.discordapp.com/attachments/1518283800830939176/1519672301883363409/image.png?ex=6a3e689e&is=6a3d171e&hm=fca40dfdf33ea99b07e7237b4d9a44afea1991be7b59f750a6bc9a906146c53e&
-
 [img2]: https://cdn.discordapp.com/attachments/1518283800830939176/1519672539532628068/image.png?ex=6a3e68d7&is=6a3d1757&hm=1551bf57fde5d3e8c7cb53c182347bfcb3b2ff58fa297c88148338e88c2b5fe1&
-
 [img3]: https://cdn.discordapp.com/attachments/1518283800830939176/1519673238316126268/image.png?ex=6a3e697e&is=6a3d17fe&hm=ed8e12ca85af9b8aa461463bf8095d958e46614e5478b97f95363875a81ab62b&
+[img4]: https://cdn.discordapp.com/attachments/1518283800830939176/1519673924554588321/image.png?ex=6a3e6a21&is=6a3d18a1&hm=2321b2d2a632080101312427741a790be7b1c3c15fd32cb82e5e3ba86fcfbe39&
