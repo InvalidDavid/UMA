@@ -70,7 +70,7 @@ There are actually two ways, one which you manually update the Plugin from time 
 <details>
 <summary>📷 Show Screenshot</summary>
 
-![Screenshot][img3]
+![Screenshot][img2]
 
 </details>
 
