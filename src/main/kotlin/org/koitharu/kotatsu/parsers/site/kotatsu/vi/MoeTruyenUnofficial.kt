@@ -16,6 +16,7 @@ import org.koitharu.kotatsu.parsers.model.MangaTag
 import org.koitharu.kotatsu.parsers.model.RATING_UNKNOWN
 import org.koitharu.kotatsu.parsers.model.SortOrder
 import org.koitharu.kotatsu.parsers.network.CommonHeaders
+import org.koitharu.kotatsu.parsers.network.UserAgents
 import org.koitharu.kotatsu.parsers.util.generateUid
 import org.koitharu.kotatsu.parsers.util.json.asTypedList
 import org.koitharu.kotatsu.parsers.util.json.getFloatOrDefault
@@ -39,6 +40,7 @@ internal class MoeTruyenUnofficial (context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.BFANGTEAM, 100) {
 
 	override val configKeyDomain = ConfigKey.Domain("moetruyen.net")
+	override val userAgentKey = ConfigKey.UserAgent(UserAgents.KOTATSU)
 
 	/**
 	 * Public API by SuiCaoDex (Unofficial)
