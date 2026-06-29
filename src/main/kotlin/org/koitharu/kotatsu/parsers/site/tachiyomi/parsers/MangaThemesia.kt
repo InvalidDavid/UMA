@@ -483,11 +483,11 @@ abstract class MangaThemesia(
     )
 
     protected open val typeFilterOptions = arrayOf(
-        Pair(intl["type_filter_option_all"], ""),
-        Pair(intl["type_filter_option_manga"], "Manga"),
-        Pair(intl["type_filter_option_manhwa"], "Manhwa"),
-        Pair(intl["type_filter_option_manhua"], "Manhua"),
-        Pair(intl["type_filter_option_comic"], "Comic"),
+        Pair("", ""),
+        Pair("Manga", "Manga"),
+        Pair("Manhwa", "Manhwa"),
+        Pair("Manhua", "Manhua"),
+        Pair("Comic", "Comic"),
     )
 
     protected class OrderByFilter(
@@ -501,12 +501,12 @@ abstract class MangaThemesia(
     )
 
     protected open val orderByFilterOptions = arrayOf(
-        Pair(intl["order_by_filter_default"], ""),
-        Pair(intl["order_by_filter_az"], "title"),
-        Pair(intl["order_by_filter_za"], "titlereverse"),
-        Pair(intl["order_by_filter_latest_update"], "update"),
-        Pair(intl["order_by_filter_latest_added"], "latest"),
-        Pair(intl["order_by_filter_popular"], "popular"),
+        Pair("", ""),
+        Pair("Title", "title"),
+        Pair("Title reversed", "titlereverse"),
+        Pair("Updated", "update"),
+        Pair("Latest", "latest"),
+        Pair("Popular", "popular"),
     )
 
     protected open val popularFilter by lazy { FilterList(OrderByFilter("", orderByFilterOptions, "popular")) }
