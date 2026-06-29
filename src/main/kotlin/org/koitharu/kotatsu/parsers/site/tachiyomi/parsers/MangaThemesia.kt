@@ -75,7 +75,7 @@ abstract class MangaThemesia(
             mangaPathFromUrl(query.substringAfter(URL_SEARCH_PREFIX))
                 ?: return Observable.just(MangasPage(emptyList(), false))
         } catch (e: Exception) {
-            return Observable.Companion.error(e)
+            return Observable.error(e)
         }
 
         return fetchMangaDetails(
@@ -568,11 +568,11 @@ abstract class MangaThemesia(
         }
         if (hasProjectPage) {
             filters.addAll(
-                listOf(
+                mutableListOf<Filter<*>>(
                     Filter.Separator(),
-                    Filter.Header("Project filter"),
-                    Filter.Header(name),
-                    ProjectFilter("Projects", projectFilterOptions),
+                    Filter.Header(intl["project_filter_warning"]),
+                    Filter.Header(intl.format("project_filter_name", name)),
+                    ProjectFilter(intl["project_filter_title"], projectFilterOptions),
                 ),
             )
         }
