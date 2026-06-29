@@ -7,7 +7,6 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
 import okhttp3.Response
 import okio.IOException
-import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.ErrorMessages
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
@@ -23,7 +22,6 @@ import org.koitharu.kotatsu.parsers.util.json.*
 import java.text.SimpleDateFormat
 import java.util.*
 
-@Broken("Temporarily close")
 @MangaSourceParser("CUUTRUYEN", "Cứu Truyện", "vi")
 internal class CuuTruyenParser(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.CUUTRUYEN, 24) {
@@ -31,11 +29,7 @@ internal class CuuTruyenParser(context: MangaLoaderContext) :
     private val apiSuffix = "/api/v2"
 	override val userAgentKey = ConfigKey.UserAgent(UserAgents.KOTATSU)
 
-	override val configKeyDomain = ConfigKey.Domain(
-		"cuutruyen.net",
-		"hetcuutruyen.net",
-		"nettrom.com",
-	)
+	override val configKeyDomain = ConfigKey.Domain("cuutruyen.net", "hetcuutruyen.net")
 
     private val preferredServerKey = ConfigKey.PreferredImageServer(
         presetValues = mapOf(
