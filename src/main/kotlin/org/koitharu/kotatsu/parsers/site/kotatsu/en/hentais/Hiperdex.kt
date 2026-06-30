@@ -218,31 +218,7 @@ internal class Hiperdex(context: MangaLoaderContext) : PagedMangaParser(
                     coverUrl = cover,
                     altTitles = emptySet(),
                     rating = RATING_UNKNOWN,
-                    tags = item
-                            .select(".genres-content a[href*='/genre/']")
-                            .mapNotNull {
-                                val title =
-                                    it.text()
-                                        .trim()
-                                val key =
-                                    it.attr("href")
-                                        .substringAfter("/genre/")
-                                        .substringBefore("/")
-                                        .trim()
-                                if (
-                                    title.isBlank() ||
-                                    key.isBlank()
-                                ) {
-                                    null
-                                } else {
-                                    MangaTag(
-                                        title = title,
-                                        key = key,
-                                        source = source
-                                    )
-                                }
-                            }
-                            .toSet(),
+                    tags = emptySet(),
                     authors = emptySet(),
                     state = null,
                     contentRating = null,
