@@ -66,44 +66,33 @@ abstract class MangaThemesia(
         order: SortOrder,
         filter: MangaListFilter,
     ): List<Manga> {
-
+        val query = filter.query
         val url = buildString {
-
             append("https://")
             append(domainName)
-            append("/")
-            append(mangaDirectory)
-
-            append("?page=")
-            append(page)
-
-
-            filter.query
-                ?.takeIf { it.isNotBlank() }
-                ?.let {
-                    append("&title=")
-                    append(it.urlEncoded())
-                }
-
-
+            if(query?.isNotBlank() == true) {
+                append("/?s=")
+                append(query.urlEncoded())
+            } else {
+                append("/")
+                append(mangaDirectory)
+                append("?page=")
+                append(page)
+            }
             filter.author
                 ?.takeIf { it.isNotBlank() }
                 ?.let {
                     append("&author=")
                     append(it.urlEncoded())
                 }
-
-
+            
             if (filter.year != -1) {
                 append("&yearx=")
                 append(filter.year)
             }
 
-
             filter.states.firstOrNull()?.let {
-
                 append("&status=")
-
                 append(
                     when(it) {
                         MangaState.ONGOING -> "ongoing"
@@ -115,11 +104,8 @@ abstract class MangaThemesia(
                 )
             }
 
-
             filter.types.firstOrNull()?.let {
-
                 append("&type=")
-
                 append(
                     when(it) {
                         ContentType.MANGA -> "Manga"
@@ -129,20 +115,15 @@ abstract class MangaThemesia(
                     }
                 )
             }
-
-
             filter.tags.forEach {
                 append("&genre[]=")
                 append(it.key.urlEncoded())
             }
-
-
             filter.tagsExclude.forEach {
                 append("&genre[]=-")
                 append(it.key.urlEncoded())
             }
-
-
+            
             when(order) {
                 SortOrder.UPDATED ->
                     append("&order=update")
@@ -153,8 +134,7 @@ abstract class MangaThemesia(
                 else -> {}
             }
         }
-
-
+        
         val document =
             webClient
                 .httpGet(
@@ -215,7 +195,7 @@ abstract class MangaThemesia(
             authors = emptySet(),
             coverUrl =
                 element
-                    .selectFirst("img")
+                    .selectFirst("img, source")
                     ?.imgAttr(),
             tags = emptySet(),
             rating = RATING_UNKNOWN,
@@ -315,7 +295,7 @@ abstract class MangaThemesia(
             coverUrl =
                 document
                     .selectFirst(
-                        ".thumb img, .infomanga img"
+                        ".thumb img, .infomanga img, .summary_image img, .cover img, img.wp-post-image"
                     )
                     ?.imgAttr()
                     ?: manga.coverUrl,
@@ -363,27 +343,36 @@ abstract class MangaThemesia(
         document: Document,
         manga: Manga,
     ): List<MangaChapter> {
+
         return document
             .select(
                 "div.bxcl li, div.cl li, #chapterlist li, ul li:has(div.chbox)"
             )
-            .mapIndexed { index, element ->
+            .mapNotNull { element ->
+
                 val url =
                     element
-                        .select("a")
-                        .attr("href")
+                        .selectFirst("a")
+                        ?.attr("href")
+                        ?: return@mapNotNull null
+
+                val title =
+                    cleanChapterTitle(
+                        element
+                            .selectFirst("a")
+                            ?.text()
+                            .orEmpty()
+                    )
+
+                val chapterNumber =
+                    extractChapterNumber(title)
+                        ?: return@mapNotNull null
+
                 MangaChapter(
                     id = generateUid(url),
                     url = url.toRelativeUrl(domainName),
-                    title =
-                        cleanChapterTitle(
-                            element
-                                .select("a")
-                                .text()
-                        ).ifBlank {
-                            "Chapter ${index + 1}"
-                        },
-                    number = index + 1f,
+                    title = title,
+                    number = chapterNumber,
                     volume = 0,
                     branch = null,
                     uploadDate =
@@ -398,8 +387,8 @@ abstract class MangaThemesia(
                     source = source,
                 )
             }
+            .sortedBy { it.number }
     }
-
 
     private fun parseDate(
         value:String,
@@ -586,19 +575,57 @@ abstract class MangaThemesia(
         )
     }
 
-    protected fun Element.imgAttr():
-            String {
-        return when {
-            hasAttr("data-lazy-src",) ->
-                attr("abs:data-lazy-src",)
-            hasAttr("data-src",) ->
-                attr("abs:data-src",)
-            hasAttr("data-cfsrc",) ->
-                attr("abs:data-cfsrc",)
-            else ->
-                attr("abs:src",)
+    protected fun Element.imgAttr(): String {
+        val attributes = listOf(
+            "data-src",
+            "data-lazy-src",
+            "data-original",
+            "data-cfsrc",
+            "data-image",
+            "data-bg",
+            "src"
+        )
+
+        for(attribute in attributes) {
+            val value = attr(attribute)
+            if(value.isNotBlank()) {
+                return fixImageExtension(
+                    value.toAbsoluteUrl(domainName)
+                )
+            }
         }
+
+
+        val srcset = attr("srcset")
+        if(srcset.isNotBlank()) {
+            return fixImageExtension(
+                srcset
+                    .split(",")
+                    .last()
+                    .trim()
+                    .split(" ")
+                    .first()
+                    .toAbsoluteUrl(domainName)
+            )
+        }
+        return ""
     }
+
+    private fun fixImageExtension(url: String): String {
+        var result = url
+        // Remove WordPress image proxy
+        result = result.replace(
+            Regex(
+                "https://i[0-3]\\.wp\\.com/"
+            ),
+            "https://"
+        )
+        // Remove WordPress resize params if they exist
+        result = result.substringBefore("?")
+        return result
+    }
+
+
 
     private fun cleanChapterTitle(
         value: String,
@@ -608,5 +635,17 @@ abstract class MangaThemesia(
             .replace(Regex("\\s+\\d{1,2}[./-]\\d{1,2}[./-]\\d{2,4}.*",), "",)
             .trim()
     }
+
+    private fun extractChapterNumber(title: String): Float? {
+        return Regex(
+            """(?:chapter|ch\.?)\s*([0-9]+(?:\.[0-9]+)?)""",
+            RegexOption.IGNORE_CASE,
+        )
+            .find(title)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toFloatOrNull()
+    }
+
     abstract val pageSelector: String
 }
