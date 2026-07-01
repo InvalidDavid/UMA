@@ -270,7 +270,7 @@ internal class Hiperdex(context: MangaLoaderContext) : PagedMangaParser(
                         source = source
                     )
                 }
-                .sortedByDescending {
+                .sortedBy {
                     it.number
                 }
 
