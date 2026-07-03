@@ -249,7 +249,7 @@ abstract class Keyoapp :
     // ============================= Chapters ==============================
     protected open val paidChapterSelector: String = "img[alt~=Coin]"
 
-    override fun chapterListParse(response: Response): List<SChapter> = response.asJsoup().select(chapterListSelector()).map { chapterFromElement(it) }
+    override fun chapterListParse(response: Response): List<SChapter> = response.asJsoup().select(chapterListSelector()).map { chapterFromElement(it) }.reversed()
 
     open fun chapterListSelector(): String {
         if (!preferences.showPaidChapters) {
