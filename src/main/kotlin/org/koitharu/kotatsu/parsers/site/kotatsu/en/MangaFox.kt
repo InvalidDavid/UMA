@@ -11,17 +11,12 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 @MangaSourceParser("MANGAFOX", "MangaFox", "en")
-internal class MangaFox(
-    context: MangaLoaderContext
-) : PagedMangaParser(
-    context,
-    MangaParserSource.MANGAFOX,
-    pageSize = 24
-) {
+internal class MangaFox(context: MangaLoaderContext):
+    PagedMangaParser(context, MangaParserSource.MANGAFOX, pageSize = 24) {
 
     private val baseUrl = "fanfox.net"
     private val mobileUrl = "https://m.fanfox.net"
-    private val dateFormat = SimpleDateFormat("MMM d,yyyy", Locale.ENGLISH)
+    private val dateFormat = SimpleDateFormat("MMM dd, yyyy", Locale.ENGLISH)
 
     override val configKeyDomain: ConfigKey.Domain =
         ConfigKey.Domain(baseUrl)
@@ -47,7 +42,7 @@ internal class MangaFox(
     private fun buildUrl(page: Int, filter: MangaListFilter, order: SortOrder): String {
 
         val query = filter.query?.trim().orEmpty()
-        val tag = filter.tags.firstOrNull()?.key // IMPORTANT FIX
+        val tag = filter.tags.firstOrNull()?.key
 
         return when {
 
@@ -113,13 +108,27 @@ internal class MangaFox(
         }
     }
 
+
     override suspend fun getDetails(manga: Manga): Manga {
         val doc = webClient.httpGet(manga.url.toAbsoluteUrl(baseUrl)).parseHtml()
         val info = doc.selectFirst(".detail-info-right")!!
 
-        val chapters = doc.select("ul.detail-main-list li a").mapNotNull { el ->
-            val href = el.attrAsRelativeUrl("href")
-            val name = el.selectFirst("p")?.text() ?: el.ownText()
+        val chapters = doc.select("ul.detail-main-list li").mapIndexedNotNull { i, el ->
+
+            val a = el.selectFirst("a") ?: return@mapIndexedNotNull null
+            val href = a.attrAsRelativeUrl("href")
+
+            val name = a.selectFirst("p")?.text()
+                ?: a.ownText()
+
+            val rawDate = el.text()
+                .let { text ->
+                    Regex("""(Today|Yesterday|\w{3}\s\d{1,2},\s\d{4}|\d{4}-\d{2}-\d{2})""")
+                        .find(text)
+                        ?.value
+                }
+
+            val parsedDate = parseChapterDate(rawDate)
 
             MangaChapter(
                 id = generateUid(href),
@@ -127,9 +136,8 @@ internal class MangaFox(
                 number = extractChapterNumber(name),
                 volume = 0,
                 url = href,
-                uploadDate = parseChapterDate(
-                    el.selectFirst(".detail-main-list-main p")?.text()
-                ),
+                uploadDate = parsedDate.takeIf { it > 0L }
+                    ?: (System.currentTimeMillis() - (i * 86_400_000L)),
                 scanlator = null,
                 branch = null,
                 source = source
@@ -181,14 +189,24 @@ internal class MangaFox(
     private fun parseChapterDate(date: String?): Long {
         if (date.isNullOrBlank()) return 0L
 
+        val clean = date.trim()
+
         return when {
-            "Today" in date -> Calendar.getInstance().timeInMillis
-            "Yesterday" in date -> Calendar.getInstance().apply {
+            "Today" in clean -> Calendar.getInstance().timeInMillis
+
+            "Yesterday" in clean -> Calendar.getInstance().apply {
                 add(Calendar.DATE, -1)
             }.timeInMillis
 
+            clean.matches(Regex("""\d{4}-\d{2}-\d{2}""")) -> runCatching {
+                val parts = clean.split("-")
+                Calendar.getInstance().apply {
+                    set(parts[0].toInt(), parts[1].toInt() - 1, parts[2].toInt())
+                }.timeInMillis
+            }.getOrDefault(0L)
+
             else -> runCatching {
-                dateFormat.parse(date)?.time ?: 0L
+                dateFormat.parse(clean)?.time ?: 0L
             }.getOrDefault(0L)
         }
     }
