@@ -1,0 +1,391 @@
+package org.koitharu.kotatsu.parsers.site.tachiyomi.parsers
+
+import android.content.SharedPreferences
+import androidx.preference.PreferenceScreen
+import androidx.preference.SwitchPreferenceCompat
+import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.source.ConfigurableSource
+import eu.kanade.tachiyomi.source.model.Filter
+import eu.kanade.tachiyomi.source.model.FilterList
+import eu.kanade.tachiyomi.source.model.MangasPage
+import eu.kanade.tachiyomi.source.model.Page
+import eu.kanade.tachiyomi.source.model.SChapter
+import eu.kanade.tachiyomi.source.model.SManga
+import eu.kanade.tachiyomi.source.online.HttpSource
+import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.lib.i18n.Intl
+import keiyoushi.utils.firstInstanceOrNull
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.tryParse
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.Request
+import okhttp3.Response
+import org.jsoup.nodes.Document
+import org.jsoup.nodes.Element
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Locale
+
+abstract class Keyoapp :
+    HttpSource(),
+    ConfigurableSource {
+
+    protected val preferences: SharedPreferences by getPreferencesLazy()
+
+    override val supportsLatest = true
+
+    override fun headersBuilder() = super.headersBuilder()
+        .add("Referer", "$baseUrl/")
+
+    private val dateFormat = SimpleDateFormat("MMM d, yyyy", Locale.ENGLISH)
+
+    protected val intl = Intl(
+        language = lang,
+        baseLanguage = "en",
+        availableLanguages = setOf("ar", "en", "fr"),
+        classLoader = this::class.java.classLoader!!,
+    )
+
+    // ============================== Popular ==============================
+
+    override fun popularMangaRequest(page: Int): Request = GET(baseUrl, headers)
+
+    open val popularMangaTitleSelector = listOf(
+        "Popular",
+        "Popularie",
+        "Trending",
+    )
+
+    open fun popularMangaSelector(): String = selector(
+        "div:contains(%s) + div .group.overflow-hidden.grid",
+        popularMangaTitleSelector,
+    )
+
+    open fun popularMangaFromElement(element: Element): SManga = SManga.create().apply {
+        thumbnail_url = element.getImageUrl("*[style*=background-image]")
+        element.selectFirst("a[href]")!!.run {
+            title = attr("title")
+            setUrlWithoutDomain(attr("abs:href"))
+        }
+    }
+
+    open fun popularMangaNextPageSelector(): String? = null
+
+    override fun popularMangaParse(response: Response): MangasPage {
+        runCatching { fetchGenres() }
+        val document = response.asJsoup()
+        val mangas = document.select(popularMangaSelector()).map { popularMangaFromElement(it) }
+        val hasNextPage = popularMangaNextPageSelector()?.let { document.selectFirst(it) } != null
+        return MangasPage(mangas, hasNextPage)
+    }
+
+    // ============================== Latest ===============================
+
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/latest/", headers)
+
+    open fun latestUpdatesSelector(): String = "div.grid > div.group"
+
+    open fun latestUpdatesFromElement(element: Element): SManga = popularMangaFromElement(element)
+
+    open fun latestUpdatesNextPageSelector(): String? = null
+
+    override fun latestUpdatesParse(response: Response): MangasPage {
+        runCatching { fetchGenres() }
+        val document = response.asJsoup()
+        val mangas = document.select(latestUpdatesSelector()).map { latestUpdatesFromElement(it) }
+        val hasNextPage = latestUpdatesNextPageSelector()?.let { document.selectFirst(it) } != null
+        return MangasPage(mangas, hasNextPage)
+    }
+
+    // ============================== Search ===============================
+
+    override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
+        val url = baseUrl.toHttpUrl().newBuilder().apply {
+            addPathSegment("series")
+            addPathSegment("")
+            if (query.isNotBlank()) {
+                addQueryParameter("q", query)
+            }
+            filters.firstInstanceOrNull<GenreList>()?.also { filter ->
+                filter.state
+                    .filter { it.state }
+                    .forEach { genre ->
+                        addQueryParameter("genre", genre.id)
+                    }
+            }
+        }.build()
+
+        return GET(url, headers)
+    }
+
+    open fun searchMangaSelector() = "#searched_series_page > button"
+
+    open fun searchMangaFromElement(element: Element): SManga = popularMangaFromElement(element)
+
+    open fun searchMangaNextPageSelector(): String? = null
+
+    override fun searchMangaParse(response: Response): MangasPage {
+        runCatching { fetchGenres() }
+        val document = response.asJsoup()
+
+        val query = response.request.url.queryParameter("q") ?: ""
+        val genres = response.request.url.queryParameterValues("genre").filterNotNull()
+
+        val mangaList = document.select(searchMangaSelector())
+            .filter { it.attr("title").contains(query, true) }
+            .filter { entry ->
+                val entryGenres = runCatching {
+                    entry.attr("tags").parseAs<List<String>>()
+                }.getOrDefault(emptyList())
+                genres.all { genre -> entryGenres.any { it.equals(genre, true) } }
+            }
+            .map(::searchMangaFromElement)
+
+        return MangasPage(mangaList, false)
+    }
+
+    // ============================== Filters ==============================
+
+    /**
+     * Automatically fetched genres from the source to be used in the filters.
+     */
+    private var genresList: List<Genre> = emptyList()
+
+    /**
+     * Inner variable to control the genre fetching failed state.
+     */
+    private var fetchGenresFailed: Boolean = false
+
+    /**
+     * Inner variable to control how much tries the genres request was called.
+     */
+    private var fetchGenresAttempts: Int = 0
+
+    class Genre(name: String, val id: String = name) : Filter.CheckBox(name)
+
+    protected class GenreList(title: String, genres: List<Genre>) : Filter.Group<Genre>(title, genres)
+
+    override fun getFilterList(): FilterList = if (genresList.isNotEmpty()) {
+        FilterList(
+            GenreList("Genres", genresList),
+        )
+    } else {
+        FilterList(
+            Filter.Header("Press 'Reset' to attempt to show the genres"),
+        )
+    }
+
+    /**
+     * Fetch the genres from the source to be used in the filters.
+     */
+    protected open fun fetchGenres() {
+        if (fetchGenresAttempts <= 3 && (genresList.isEmpty() || fetchGenresFailed)) {
+            val genres = runCatching {
+                client.newCall(genresRequest()).execute()
+                    .use { parseGenres(it.asJsoup()) }
+            }
+
+            fetchGenresFailed = genres.isFailure
+            genresList = genres.getOrNull().orEmpty()
+            fetchGenresAttempts++
+        }
+    }
+
+    protected open fun genresRequest(): Request = GET("$baseUrl/series/", headers)
+
+    /**
+     * Get the genres from the search page document.
+     *
+     * @param document The search page document
+     */
+    protected open fun parseGenres(document: Document): List<Genre> = document.select("#series_tags_page > button")
+        .map { btn ->
+            Genre(btn.text(), btn.attr("tag"))
+        }
+
+    // ============================== Details ==============================
+    protected open val descriptionSelector: String = "div:containsOwn(Synopsis) ~ div"
+    protected open val statusSelector: String = "div:has(span:containsOwn(Status)) ~ div"
+    protected open val authorSelector: String = "div:has(span:containsOwn(Author)) ~ div"
+    protected open val artistSelector: String = "div:has(span:containsOwn(Artist)) ~ div"
+    protected open val genreSelector: String = "div.grid:has(>h1) > div > a:not([title='Status'])"
+
+    protected open val typeSelector: String = "div:has(span:containsOwn(Type)) ~ div"
+    protected open val dateSelector: String = ".text-xs"
+
+    override fun mangaDetailsParse(response: Response): SManga = mangaDetailsParse(response.asJsoup())
+
+    open fun mangaDetailsParse(document: Document): SManga = SManga.create().apply {
+        title = document.selectFirst("div.grid > h1")!!.text()
+        thumbnail_url = document.getImageUrl("div[class*=photoURL]")
+        description = document.selectFirst(descriptionSelector)?.text()
+        status = document.selectFirst(statusSelector).parseStatus()
+        author = document.selectFirst(authorSelector)?.text()
+        artist = document.selectFirst(artistSelector)?.text()
+        genre = buildList {
+            document.selectFirst(typeSelector)?.text()?.replaceFirstChar {
+                if (it.isLowerCase()) {
+                    it.titlecase(
+                        Locale.ENGLISH,
+                    )
+                } else {
+                    it.toString()
+                }
+            }?.let(::add)
+            document.select(genreSelector).forEach { add(it.text()) }
+        }.joinToString()
+    }
+
+    protected fun Element?.parseStatus(): Int = when (this?.text()?.lowercase()) {
+        "ongoing" -> SManga.ONGOING
+        "dropped" -> SManga.CANCELLED
+        "paused" -> SManga.ON_HIATUS
+        "completed" -> SManga.COMPLETED
+        else -> SManga.UNKNOWN
+    }
+
+    // ============================= Chapters ==============================
+    protected open val paidChapterSelector: String = "img[alt~=Coin]"
+
+    override fun chapterListParse(response: Response): List<SChapter> = response.asJsoup().select(chapterListSelector()).map { chapterFromElement(it) }
+
+    open fun chapterListSelector(): String {
+        if (!preferences.showPaidChapters) {
+            return "#chapters > a:not(:has(.text-sm span:matches(Upcoming))):not(:has($paidChapterSelector))"
+        }
+        return "#chapters > a:not(:has(.text-sm span:matches(Upcoming)))"
+    }
+
+    open fun chapterFromElement(element: Element): SChapter = SChapter.create().apply {
+        setUrlWithoutDomain(element.selectFirst("a[href]")!!.attr("abs:href"))
+        name = element.selectFirst(".text-sm")!!.text()
+        element.selectFirst(dateSelector)?.run {
+            date_upload = text().trim().parseDate()
+        }
+        if (element.select(paidChapterSelector).isNotEmpty()) {
+            name = "🔒 $name"
+        }
+    }
+
+    // =============================== Pages ===============================
+
+    override fun pageListParse(response: Response): List<Page> = pageListParse(response.asJsoup())
+
+    open fun pageListParse(document: Document): List<Page> {
+        val cdnUrl = getCdnUrl(document)
+        document.select("#pages > img")
+            .map { it.attr("uid") }
+            .filter { it.isNotEmpty() }
+            .also { if (it.isNotEmpty() && cdnUrl == null) throw Exception(intl["chapter_page_url_not_found"]) }
+            .mapIndexed { index, img ->
+                Page(index, url = document.location(), imageUrl = "$cdnUrl/$img")
+            }
+            .takeIf { it.isNotEmpty() }
+            ?.also { return it }
+
+        // Fallback, old method
+        return document.select("#pages > img")
+            .map { it.imgAttr() }
+            .filter { it.contains(oldImgCdnRegex) }
+            .mapIndexed { index, img ->
+                Page(index, url = document.location(), imageUrl = img)
+            }
+    }
+
+    protected open fun getCdnUrl(document: Document): String? = document.select("script")
+        .firstOrNull { CDN_HOST_REGEX.containsMatchIn(it.html()) }
+        ?.let {
+            val cdnHost = CDN_HOST_REGEX.find(it.html())
+                ?.groups?.get(1)?.value
+                ?.replace(CDN_CLEAN_REGEX, "")
+            "https://$cdnHost/uploads"
+        }
+
+    private val oldImgCdnRegex = Regex("""^(https?:)?//cdn\d*\.keyoapp\.com""")
+
+    override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
+
+    // ============================= Utilities =============================
+
+    // From mangathemesia
+    private fun Element.imgAttr(): String = when {
+        hasAttr("data-lazy-src") -> attr("abs:data-lazy-src")
+        hasAttr("data-src") -> attr("abs:data-src")
+        else -> attr("abs:src")
+    }
+
+    protected open fun Element.getImageUrl(selector: String): String? = this.selectFirst(selector)?.let { element ->
+        IMG_REGEX.find(element.attr("style"))?.groups?.get(1)?.value
+            ?.toHttpUrlOrNull()?.let {
+                it.newBuilder()
+                    .setQueryParameter("w", "480") // Keyoapp returns the dynamic size of the thumbnail to any size
+                    .build()
+                    .toString()
+            }
+    }
+
+    private fun String.parseDate(): Long = if (this.contains("ago")) {
+        this.parseRelativeDate()
+    } else {
+        dateFormat.tryParse(this)
+    }
+
+    private fun String.parseRelativeDate(): Long {
+        val now = Calendar.getInstance().apply {
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+
+        val relativeDate = this.split(" ").firstOrNull()
+            ?.replace("one", "1")
+            ?.replace("a", "1")
+            ?.toIntOrNull()
+            ?: return 0L
+
+        when {
+            "second" in this -> now.add(Calendar.SECOND, -relativeDate)
+
+            // parse: 30 seconds ago
+            "minute" in this -> now.add(Calendar.MINUTE, -relativeDate)
+
+            // parses: "42 minutes ago"
+            "hour" in this -> now.add(Calendar.HOUR, -relativeDate)
+
+            // parses: "1 hour ago" and "2 hours ago"
+            "day" in this -> now.add(Calendar.DAY_OF_YEAR, -relativeDate)
+
+            // parses: "2 days ago"
+            "week" in this -> now.add(Calendar.WEEK_OF_YEAR, -relativeDate)
+
+            // parses: "2 weeks ago"
+            "month" in this -> now.add(Calendar.MONTH, -relativeDate)
+
+            // parses: "2 months ago"
+            "year" in this -> now.add(Calendar.YEAR, -relativeDate) // parse: "2 years ago"
+        }
+        return now.timeInMillis
+    }
+
+    private fun selector(selector: String, contains: List<String>): String = contains.joinToString { selector.replace("%s", it) }
+
+    override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        SwitchPreferenceCompat(screen.context).apply {
+            key = SHOW_PAID_CHAPTERS_PREF
+            title = intl["pref_show_paid_chapter_title"]
+            setDefaultValue(SHOW_PAID_CHAPTERS_DEFAULT)
+        }.also(screen::addPreference)
+    }
+
+    protected val SharedPreferences.showPaidChapters: Boolean
+        get() = getBoolean(SHOW_PAID_CHAPTERS_PREF, SHOW_PAID_CHAPTERS_DEFAULT)
+
+    companion object {
+        private const val SHOW_PAID_CHAPTERS_PREF = "pref_show_paid_chap"
+        private const val SHOW_PAID_CHAPTERS_DEFAULT = false
+        val CDN_HOST_REGEX = """realUrl\s*=\s*`[^`]+//([^/]+)""".toRegex()
+        val CDN_CLEAN_REGEX = """\$\{[^}]*\}""".toRegex()
+        val IMG_REGEX = """url\(['"]?([^(['")])]+)""".toRegex()
+    }
+}
