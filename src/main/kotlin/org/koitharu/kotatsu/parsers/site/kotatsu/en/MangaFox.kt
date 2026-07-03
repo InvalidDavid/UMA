@@ -10,12 +10,12 @@ import org.koitharu.kotatsu.parsers.util.*
 import java.text.SimpleDateFormat
 import java.util.*
 
-@MangaSourceParser("MANGAFOXTEST", "MangaFox TEST", "en")
+@MangaSourceParser("MANGAFOX", "MangaFox", "en")
 internal class MangaFox(
     context: MangaLoaderContext
 ) : PagedMangaParser(
     context,
-    MangaParserSource.MANGAFOXTEST,
+    MangaParserSource.MANGAFOX,
     pageSize = 24
 ) {
 
@@ -68,7 +68,7 @@ internal class MangaFox(
                 }
         }
     }
-    
+
     private fun parseMangaList(doc: Document): List<Manga> {
 
         val nodes = when {
@@ -112,7 +112,7 @@ internal class MangaFox(
             )
         }
     }
-    
+
     override suspend fun getDetails(manga: Manga): Manga {
         val doc = webClient.httpGet(manga.url.toAbsoluteUrl(baseUrl)).parseHtml()
         val info = doc.selectFirst(".detail-info-right")!!
@@ -168,7 +168,7 @@ internal class MangaFox(
             else -> null
         }
     }
-    
+
     private fun extractChapterNumber(name: String): Float {
         return Regex("""(?i)(chapter|ch\.)\s*(\d+(\.\d+)?)""")
             .find(name)
@@ -192,7 +192,7 @@ internal class MangaFox(
             }.getOrDefault(0L)
         }
     }
-    
+
     override suspend fun getFilterOptions(): MangaListFilterOptions {
         return MangaListFilterOptions(
             availableTags = getTags()
@@ -214,9 +214,9 @@ internal class MangaFox(
             )
         }.toSet()
     }
-    
+
     override suspend fun getRelatedManga(seed: Manga): List<Manga> = emptyList()
-    
+
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
         val mobilePath = chapter.url.replace("/manga/", "/roll_manga/")
         val url = "$mobileUrl$mobilePath"
