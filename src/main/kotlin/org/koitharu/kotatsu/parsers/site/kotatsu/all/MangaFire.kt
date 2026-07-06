@@ -8,6 +8,7 @@ import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.PagedMangaParser
 import org.koitharu.kotatsu.parsers.model.ContentType
+import org.koitharu.kotatsu.parsers.model.Demographic
 import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaChapter
 import org.koitharu.kotatsu.parsers.model.MangaListFilter
@@ -18,12 +19,10 @@ import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import org.koitharu.kotatsu.parsers.model.MangaState
 import org.koitharu.kotatsu.parsers.model.MangaTag
 import org.koitharu.kotatsu.parsers.model.RATING_UNKNOWN
-import org.koitharu.kotatsu.parsers.model.ContentRating
 import org.koitharu.kotatsu.parsers.model.SortOrder
 import org.koitharu.kotatsu.parsers.network.OkHttpWebClient
 import org.koitharu.kotatsu.parsers.util.generateUid
 import org.koitharu.kotatsu.parsers.util.parseJson
-import org.koitharu.kotatsu.parsers.model.Demographic
 import java.util.EnumSet
 
 internal abstract class MangaFireParser(
@@ -67,11 +66,8 @@ internal abstract class MangaFireParser(
         isTagsExclusionSupported = true,
         isSearchSupported = true,
         isSearchWithFiltersSupported = true,
-        isYearSupported = false, // idk how to do the year support
-        isYearRangeSupported = false,
     )
 
-    // ---------- Tag ----------
     companion object {
         val GENRE_MAP = mapOf(
             "Action" to "1", "Adventure" to "78", "Avant Garde" to "3",
@@ -106,8 +102,7 @@ internal abstract class MangaFireParser(
         availableContentTypes = EnumSet.of(
             ContentType.MANGA, ContentType.MANHWA, ContentType.MANHUA, ContentType.OTHER,
         ),
-        availableDemographics = EnumSet.of(Demographic.SHOUNEN, Demographic.SHOUJO, Demographic.SEINEN, Demographic.JOSEI,
-        ),
+        availableDemographics = EnumSet.of(Demographic.SHOUNEN, Demographic.SHOUJO, Demographic.SEINEN, Demographic.JOSEI),
     )
 
     // ---------- Listing ----------
@@ -147,7 +142,6 @@ internal abstract class MangaFireParser(
         filter.tags.forEach { url.append("&genres_in[]=").append(it.key) }
         filter.tagsExclude.forEach { url.append("&genres_ex[]=").append(it.key) }
 
-        // --- Statuses ---
         filter.states.forEach {
             url.append("&statuses[]=").append(
                 when (it) {
@@ -161,7 +155,6 @@ internal abstract class MangaFireParser(
             )
         }
 
-        // --- Sort order ---
         val sortParam = when (order) {
             SortOrder.UPDATED -> "order[chapter_updated_at]=desc"
             SortOrder.POPULARITY -> "order[views_total]=desc"
@@ -173,7 +166,6 @@ internal abstract class MangaFireParser(
         }
         if (sortParam.isNotEmpty()) url.append("&").append(sortParam)
 
-        // --- Execute request ---
         val response = apiClient.httpGet(url.toString()).parseJson()
         val items = response.getJSONArray("items")
         val mangas = mutableListOf<Manga>()
@@ -210,7 +202,7 @@ internal abstract class MangaFireParser(
 
     // ---------- Details ----------
     override suspend fun getDetails(manga: Manga): Manga {
-        val hid = manga.url.substringAfter("/title/").substringBefore("-").substringBefore("/")
+        val hid = extractHid(manga.url) // improved extraction
         val detailsJson = apiClient.httpGet("https://$domain/api/titles/$hid").parseJson()
         val data = detailsJson.getJSONObject("data")
 
@@ -247,12 +239,9 @@ internal abstract class MangaFireParser(
             tags.find { it.title == name }
         }.toSet()
 
-//        val ratingValue = if (data.has("rating")) {
-//            data.getDouble("rating").toFloat()
-//        } else {
-//            RATING_UNKNOWN
-//        }
-        // they use rating till 10 stars so idk
+        val ratingValue = data.optDouble("rating", RATING_UNKNOWN.toDouble()).toFloat().let {
+            if (it <= 0f) RATING_UNKNOWN else it / 2f
+        }
 
         val chapters = fetchChapters(hid)
 
@@ -261,7 +250,7 @@ internal abstract class MangaFireParser(
             coverUrl = cover ?: manga.coverUrl,
             authors = setOfNotNull(authors),
             description = description,
-            state = when (status) {
+            state = when (status?.lowercase()) {
                 "releasing" -> MangaState.ONGOING
                 "finished" -> MangaState.FINISHED
                 "discontinued" -> MangaState.ABANDONED
@@ -271,6 +260,7 @@ internal abstract class MangaFireParser(
             },
             tags = genreTags,
             altTitles = altTitlesArray.toSet(),
+            rating = ratingValue,
             chapters = chapters,
         )
     }
@@ -290,13 +280,13 @@ internal abstract class MangaFireParser(
             for (i in 0 until items.length()) {
                 val chObj = items.getJSONObject(i)
 
-                // Only chapters for the current language
                 if (chObj.getString("language") != siteLang) continue
 
                 val id = chObj.getInt("id")
                 val number = chObj.getDouble("number").toFloat()
                 val name = chObj.optString("name", null)
                 val createdAt = chObj.optLong("createdAt", 0L) * 1000L
+                val type = chObj.getString("type") // "official" or "unofficial"
                 val chapterUrl = "/title/$hid/$id"
                 val displayName = buildString {
                     append("Ch. ")
@@ -314,7 +304,7 @@ internal abstract class MangaFireParser(
                         url = chapterUrl,
                         scanlator = null,
                         uploadDate = createdAt,
-                        branch = null,
+                        branch = type, // store raw type temporarily
                         source = source,
                     )
                 )
@@ -322,12 +312,25 @@ internal abstract class MangaFireParser(
             page++
         } while (page <= lastPage)
 
-        return chapters.sortedBy { it.number }
+        val distinctTypes = chapters.map { it.branch }.distinct()
+        val useGroups = distinctTypes.size > 1
+
+        return chapters
+            .map { chapter ->
+                chapter.copy(
+                    branch = if (useGroups) {
+                        (chapter.branch ?: "").replaceFirstChar { it.uppercase() }
+                    } else {
+                        null
+                    }
+                )
+            }
+            .sortedBy { it.number }
     }
 
     // ---------- Pages ----------
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
-        val chapterId = chapter.url.substringAfterLast("/")
+        val chapterId = chapter.url.substringAfterLast("/") // numeric ID
         val response = apiClient.httpGet("https://$domain/api/chapters/$chapterId").parseJson()
         val pagesArray = response.getJSONObject("data").getJSONArray("pages")
         val pages = ArrayList<MangaPage>(pagesArray.length())
@@ -352,6 +355,18 @@ internal abstract class MangaFireParser(
     override suspend fun isAuthorized(): Boolean = true
     override suspend fun getUsername(): String = ""
 
+    // ---------- Utility ----------
+
+    private fun extractHid(url: String): String {
+        val lastPart = url.removeSuffix("/").substringAfterLast("/")
+        return when {
+            lastPart.contains(".") -> lastPart.substringAfterLast(".")
+            lastPart.contains("-") -> lastPart.substringBefore("-")
+            else -> lastPart
+        }
+    }
+
+    // ---------- Sources ----------
     @MangaSourceParser("MANGAFIRE_EN", "MangaFire (English)", "en")
     class English(context: MangaLoaderContext) : MangaFireParser(context, MangaParserSource.MANGAFIRE_EN, "en")
 
