@@ -34,12 +34,14 @@ internal abstract class MangaFireParser(
     override val configKeyDomain = ConfigKey.Domain("mangafire.to")
 
     override val availableSortOrders: Set<SortOrder> = EnumSet.of(
-        SortOrder.UPDATED,
-        SortOrder.POPULARITY,
-        SortOrder.RATING,
-        SortOrder.NEWEST,
-        SortOrder.ALPHABETICAL,
-        SortOrder.RELEVANCE,
+        SortOrder.UPDATED, // chapter update
+        SortOrder.POPULARITY, // most views
+        SortOrder.RATING, // rating score
+        SortOrder.NEWEST, // created manga
+        SortOrder.ALPHABETICAL, // title asc
+        SortOrder.RELEVANCE, // relevance sc
+        SortOrder.POPULARITY_WEEK,
+        SortOrder.POPULARITY_MONTH,
     )
 
     private val apiClient by lazy {
@@ -162,6 +164,8 @@ internal abstract class MangaFireParser(
             SortOrder.NEWEST -> "order[created_at]=desc"
             SortOrder.ALPHABETICAL -> "order[title]=asc"
             SortOrder.RELEVANCE -> "order[relevance]=desc"
+            SortOrder.POPULARITY_WEEK -> "order[views_7d]=desc"
+            SortOrder.POPULARITY_MONTH -> "order[views_30d]=desc"
             else -> ""
         }
         if (sortParam.isNotEmpty()) url.append("&").append(sortParam)
@@ -239,9 +243,8 @@ internal abstract class MangaFireParser(
             tags.find { it.title == name }
         }.toSet()
 
-        val ratingValue = data.optDouble("rating", RATING_UNKNOWN.toDouble()).toFloat().let {
-            if (it <= 0f) RATING_UNKNOWN else it / 2f
-        }
+//        val raw = data.optDouble("rating", -1.0)
+//        val ratingValue = if (raw >= 0.0) (raw / 2.0).toFloat() else throw Exception("Invalid rating value: $raw")
 
         val chapters = fetchChapters(hid)
 
@@ -260,7 +263,7 @@ internal abstract class MangaFireParser(
             },
             tags = genreTags,
             altTitles = altTitlesArray.toSet(),
-            rating = ratingValue,
+//            rating = ratingValue,
             chapters = chapters,
         )
     }
