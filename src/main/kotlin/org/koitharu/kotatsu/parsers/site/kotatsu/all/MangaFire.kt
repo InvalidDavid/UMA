@@ -7,7 +7,6 @@ import org.koitharu.kotatsu.parsers.MangaParserAuthProvider
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.PagedMangaParser
-import org.koitharu.kotatsu.parsers.model.ContentRating
 import org.koitharu.kotatsu.parsers.model.ContentType
 import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaChapter
@@ -19,6 +18,7 @@ import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import org.koitharu.kotatsu.parsers.model.MangaState
 import org.koitharu.kotatsu.parsers.model.MangaTag
 import org.koitharu.kotatsu.parsers.model.RATING_UNKNOWN
+import org.koitharu.kotatsu.parsers.model.ContentRating
 import org.koitharu.kotatsu.parsers.model.SortOrder
 import org.koitharu.kotatsu.parsers.network.OkHttpWebClient
 import org.koitharu.kotatsu.parsers.util.generateUid
@@ -146,7 +146,7 @@ internal abstract class MangaFireParser(
 
         filter.tags.forEach { url.append("&genres_in[]=").append(it.key) }
         filter.tagsExclude.forEach { url.append("&genres_ex[]=").append(it.key) }
-        
+
         // --- Statuses ---
         filter.states.forEach {
             url.append("&statuses[]=").append(
@@ -231,6 +231,9 @@ internal abstract class MangaFireParser(
         val themes = data.optJSONArray("themes")?.let { arr ->
             (0 until arr.length()).map { arr.getJSONObject(it).getString("title") }
         }
+        val altTitlesArray = data.optJSONArray("altTitles")?.let { arr ->
+            (0 until arr.length()).map { arr.getString(it) }
+        } ?: emptyList()
 
         val description = synopsisHtml?.let { Jsoup.parseBodyFragment(it).text() }
 
@@ -240,21 +243,16 @@ internal abstract class MangaFireParser(
             themes?.let { addAll(it) }
         }
 
-        var isAdult = false
-        var isSuggestive = false
         val genreTags = genreList.mapNotNull { name ->
-            when (name) {
-                "Hentai" -> isAdult = true
-                "Ecchi" -> isSuggestive = true
-            }
             tags.find { it.title == name }
         }.toSet()
 
-        val contentRating = when {
-            isAdult -> ContentRating.ADULT
-            isSuggestive -> ContentRating.SUGGESTIVE
-            else -> ContentRating.SAFE
-        }
+//        val ratingValue = if (data.has("rating")) {
+//            data.getDouble("rating").toFloat()
+//        } else {
+//            RATING_UNKNOWN
+//        }
+        // they use rating till 10 stars so idk
 
         val chapters = fetchChapters(hid)
 
@@ -272,7 +270,7 @@ internal abstract class MangaFireParser(
                 else -> null
             },
             tags = genreTags,
-            contentRating = contentRating,
+            altTitles = altTitlesArray.toSet(),
             chapters = chapters,
         )
     }
