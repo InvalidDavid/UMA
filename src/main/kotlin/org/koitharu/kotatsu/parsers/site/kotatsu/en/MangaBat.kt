@@ -63,76 +63,29 @@ internal class Mangabat(context: MangaLoaderContext) :
         SortOrder.POPULARITY,
         SortOrder.NEWEST,
     )
-
     override suspend fun getDetails(manga: Manga): Manga = coroutineScope {
         val fullUrl = manga.url.toAbsoluteUrl(domain)
         val doc = webClient.httpGet(fullUrl).parseHtml()
+
         val chaptersDeferred = async { getChapters(doc) }
-        val desc = doc.selectFirst(selectDesc)?.html()
-        val stateDiv = doc.select(selectState).text()
-        val state = when (stateDiv.lowercase()) {
-            in ongoing -> MangaState.ONGOING
-            in finished -> MangaState.FINISHED
+
+        val stateText = doc.findInfo("Status")?.lowercase()
+
+        val state = when {
+            stateText?.contains("ongoing") == true -> MangaState.ONGOING
+            stateText?.contains("completed") == true ||
+                    stateText?.contains("finish") == true -> MangaState.FINISHED
             else -> null
         }
 
-        val alt = doc.body()
-            .select(selectAlt)
-            .text()
-            .replace("Alternative : ", "")
-            .nullIfEmpty()
-
-        val authors = doc.body()
-            .select(selectAut)
-            .mapToSet { it.text() }
-
-
-        // -------- EXTRA INFO FROM MANGABATS --------
-        val infoBox = doc.selectFirst("ul.manga-info-text")
-        val views = infoBox
-            ?.select("li:contains(View)")
-            ?.text()
-            ?.substringAfter(":")
-            ?.trim()
-
-        // Get rating from JSON-LD (more reliable than stars)
-        var rating: String? = null
-
-        doc.select("script[type=application/ld+json]")
-            .forEach { script ->
-                try {
-                    val json = JSONObject(script.data())
-
-                    if (json.has("ratingValue")) {
-                        rating = json.optString("ratingValue")
-                    }
-                } catch (_: Exception) {
-                    // Ignore invalid JSON blocks
-                }
-            }
-
-        val extraInfo = buildString {
-            if (!views.isNullOrBlank()) {
-                if (isNotEmpty()) append("\n")
-                append("Views: $views ")
-            }
-
-            if (!rating.isNullOrBlank()) {
-                if (isNotEmpty()) append("\n")
-                append("--- Rating: $rating/5")
-            }
-        }
-
-        val finalDescription = listOfNotNull(
-            desc,
-            extraInfo.takeIf { it.isNotBlank() }
-        ).joinToString("\n\n")
+        val alt = doc.findInfo("Alternative")
 
         manga.copy(
             tags = doc.body()
                 .select(selectTag)
                 .mapToSet { a ->
                     val href = a.attr("href")
+
                     MangaTag(
                         key = href.substringAfterLast("category=")
                             .substringBefore("&")
@@ -144,12 +97,21 @@ internal class Mangabat(context: MangaLoaderContext) :
                         source = source,
                     )
                 },
-            description = finalDescription,
+
+            description = "If empty Chapters, reload Manga!",
             altTitles = setOfNotNull(alt),
-            authors = authors,
             state = state,
-            chapters = chaptersDeferred.await(),
+            chapters = chaptersDeferred.await()
         )
+    }
+
+    private fun Document.findInfo(label: String): String? {
+        return select("ul.manga-info-text li")
+            .firstOrNull { it.text().contains(label, ignoreCase = true) }
+            ?.text()
+            ?.substringAfter(":")
+            ?.trim()
+            ?.nullIfEmpty()
     }
 
     @Deprecated("Use availableSortOrders instead", ReplaceWith("availableSortOrders"))
@@ -173,45 +135,54 @@ internal class Mangabat(context: MangaLoaderContext) :
             ),
         )
 
-    override suspend fun getListPage(query: MangaSearchQuery, page: Int): List<Manga> {
+    override suspend fun getListPage(
+        query: MangaSearchQuery,
+        page: Int
+    ): List<Manga> {
+
         val titleQuery = query.criteria.filterIsInstance<Match<*>>()
             .firstOrNull { it.field == TITLE_NAME }
             ?.value as? String
 
+        val tagCriterion = query.criteria.filterIsInstance<Include<*>>()
+            .firstOrNull { it.field == TAG }
+
+        val tagKey = (tagCriterion?.values?.firstOrNull() as? MangaTag)?.key
+            ?: tagCriterion?.values?.firstOrNull()?.toString()
+
+        val state = query.criteria.filterIsInstance<Include<*>>()
+            .firstOrNull { it.field == STATE }
+            ?.values
+            ?.firstOrNull() as? MangaState
+
         val url = if (!titleQuery.isNullOrBlank()) {
-            "https://$domain/search/story/${normalizeSearchQuery(titleQuery).replace('_', '-')}?page=$page"
+
+            "https://$domain/search/story/${
+                normalizeSearchQuery(titleQuery).replace('_', '-')
+            }?page=$page"
+
         } else {
-            val tagCriterion = query.criteria.filterIsInstance<Include<*>>()
-                .firstOrNull { it.field == TAG }
 
-            val tagKey = (tagCriterion?.values?.firstOrNull() as? MangaTag)?.key
-                ?: tagCriterion?.values?.firstOrNull()?.toString()
-
-            val baseUrl = if (!tagKey.isNullOrBlank()) {
+            val base = if (!tagKey.isNullOrBlank()) {
                 "https://$domain/genre/$tagKey"
             } else {
                 "https://$domain/genre/all"
             }
 
-            val sortParam = when (query.order ?: SortOrder.UPDATED) {
-                SortOrder.POPULARITY -> "topview"
-                SortOrder.NEWEST -> "newest"
-                else -> "latest"
+            val filter = when {
+                state == MangaState.ONGOING && query.order == SortOrder.NEWEST -> 3
+                state == MangaState.ONGOING && query.order == SortOrder.UPDATED -> 6
+
+                state == MangaState.FINISHED && query.order == SortOrder.NEWEST -> 2
+                state == MangaState.FINISHED && query.order == SortOrder.UPDATED -> 5
+
+                query.order == SortOrder.POPULARITY -> 7
+                query.order == SortOrder.NEWEST -> 1
+
+                else -> 4 // all + latest
             }
 
-            val stateParam = query.criteria.filterIsInstance<Include<*>>()
-                .firstOrNull { it.field == STATE }
-                ?.values
-                ?.firstOrNull()
-                ?.let {
-                    when (it) {
-                        MangaState.ONGOING -> "ongoing"
-                        MangaState.FINISHED -> "completed"
-                        else -> "all"
-                    }
-                } ?: "all"
-
-            "$baseUrl?type=$sortParam&state=$stateParam&page=$page"
+            "$base?filter=$filter&page=$page"
         }
 
         val doc = webClient.httpGet(url).parseHtml()
@@ -368,6 +339,7 @@ internal class Mangabat(context: MangaLoaderContext) :
             it.number
         }
     }
+
 
     private fun parseApiDate(date: String?): Long {
         if (date.isNullOrBlank()) {

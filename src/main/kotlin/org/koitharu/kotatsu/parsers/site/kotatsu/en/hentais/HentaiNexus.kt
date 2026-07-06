@@ -32,7 +32,7 @@ import java.util.Base64
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 
 private const val SERVER_PNG = "png" // old method uses now image_fallback
-private const val SERVER_WEBP = "webp" // new decryption method for .webp format
+private const val SERVER_WEBP = "webp" // new decryption method for .webp/.avif format
 
 @MangaSourceParser("HENTAINEXUS", "HentaiNexus", "en", type = ContentType.HENTAI)
 internal class HentaiNexus(context: MangaLoaderContext) :
@@ -45,7 +45,7 @@ internal class HentaiNexus(context: MangaLoaderContext) :
     override val selectAuthor = "tr:contains(Artist) td:nth-child(2) a"
     override val selectLanguageChapter = ""
     override val selectUrlChapter = ""
-    override val selectTotalPage = ".section div.container:nth-child(2) > div.box > div.columns div.column"
+    override val selectTotalPage = "div.column.is-2-fullhd"
 
     val selectReadUrl = "a:contains(Read Online)"
     val selectPublisher = "tr:contains(Publisher) td:nth-child(2)"
@@ -66,7 +66,7 @@ internal class HentaiNexus(context: MangaLoaderContext) :
     private val preferredImageModeKey = ConfigKey.PreferredImageServer(
         presetValues = mapOf(
             SERVER_PNG to "Old method (png)",
-            SERVER_WEBP to "New method (webp)",
+            SERVER_WEBP to "New method (webp/avif)",
         ),
         defaultValue = SERVER_PNG,
     )
@@ -288,6 +288,7 @@ internal class HentaiNexus(context: MangaLoaderContext) :
                                 value.startsWith("http") &&
                                 (
                                         value.contains(".webp") ||
+                                                value.contains(".avif") ||
                                                 value.contains(".jpg") ||
                                                 value.contains(".jpeg") ||
                                                 value.contains(".png")

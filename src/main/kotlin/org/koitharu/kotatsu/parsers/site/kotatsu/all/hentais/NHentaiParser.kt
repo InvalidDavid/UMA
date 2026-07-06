@@ -21,6 +21,7 @@ import org.koitharu.kotatsu.parsers.util.urlEncoded
 import java.util.EnumSet
 import java.util.Locale
 import org.koitharu.kotatsu.parsers.model.MangaListFilterOptions
+import org.koitharu.kotatsu.parsers.model.MangaTag
 
 @MangaSourceParser("NHENTAI", "NHentai.net", type = ContentType.HENTAI)
 internal class NHentaiParser(context: MangaLoaderContext) :
@@ -38,6 +39,27 @@ internal class NHentaiParser(context: MangaLoaderContext) :
     override val availableSortOrders: Set<SortOrder> = EnumSet.of(
         SortOrder.UPDATED,
     )
+
+    private fun JSONObject.extractTags(): Set<MangaTag> {
+        return optJSONArray("tags")
+            ?.mapJSON { tag ->
+
+                if (tag.optString("type") != "tag") {
+                    return@mapJSON null
+                }
+
+                MangaTag(
+                    title = tag.optString("name")
+                        .replace("-", " ")
+                        .replaceFirstChar { c -> c.uppercase() },
+                    key = tag.optString("name"),
+                    source = source
+                )
+            }
+            ?.filterNotNull()
+            ?.toSet()
+            ?: emptySet()
+    }
 
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
 
@@ -60,7 +82,7 @@ internal class NHentaiParser(context: MangaLoaderContext) :
                             rating = RATING_UNKNOWN,
                             contentRating = ContentRating.ADULT,
                             coverUrl = "https://t.$domain/${obj.getThumbnailPath()}",
-                            tags = emptySet(),
+                            tags = obj.extractTags(),
                             state = null,
                             authors = emptySet(),
                             source = source
@@ -113,7 +135,7 @@ internal class NHentaiParser(context: MangaLoaderContext) :
                 rating = RATING_UNKNOWN,
                 contentRating = ContentRating.ADULT,
                 coverUrl = "https://t.$domain/${it.getThumbnailPath()}",
-                tags = emptySet(),
+                tags = it.extractTags(),
                 state = null,
                 authors = emptySet(),
                 source = source
@@ -129,10 +151,13 @@ internal class NHentaiParser(context: MangaLoaderContext) :
 
     override suspend fun getDetails(manga: Manga): Manga {
         val id = manga.url.removeSurrounding("/g/", "/")
-        val obj = webClient.httpGet("https://$domain/$apiSuffix/galleries/$id").parseJson()
+
+        val obj = webClient
+            .httpGet("https://$domain/$apiSuffix/galleries/$id")
+            .parseJson()
 
         return manga.copy(
-            tags = emptySet(),
+            tags = obj.extractTags(),
             authors = emptySet(),
             description = "Pages: ${obj.optInt("num_pages")}",
             coverUrl = "https://t.$domain/${obj.getCoverPath()}",
@@ -151,7 +176,6 @@ internal class NHentaiParser(context: MangaLoaderContext) :
             )
         )
     }
-
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
         val id = chapter.url.removeSurrounding("/g/", "/")
         val response = webClient.httpGet("https://$domain/$apiSuffix/galleries/$id").parseJson()

@@ -263,7 +263,6 @@ internal class MangagoParser(context: MangaLoaderContext) :
     }
 
     private fun buildChapterList(chapters: List<ChapterParseData>): List<MangaChapter> {
-        // Count scanlator occurrences to determine the most common one
         val scanlatorCounts = mutableMapOf<String, Int>()
         for (chapter in chapters) {
             val scanlator = chapter.scanlator ?: extractTitleSuffix(chapter.name) ?: continue
@@ -281,7 +280,6 @@ internal class MangagoParser(context: MangaLoaderContext) :
                 if (existing == null) {
                     regularChapters[chapterNum] = chapter
                 } else {
-                    // Prefer the chapter from the most common scanlator for consistency
                     val existingSource = existing.scanlator ?: extractTitleSuffix(existing.name)
                     val newSource = chapter.scanlator ?: extractTitleSuffix(chapter.name)
 
@@ -291,23 +289,19 @@ internal class MangagoParser(context: MangaLoaderContext) :
                     if (newIsPreferred && !existingIsPreferred) {
                         regularChapters[chapterNum] = chapter
                     } else if (!newIsPreferred && existingIsPreferred) {
-                        // Keep existing
                     } else {
-                        // Same source priority, prefer longer title
                         if (chapter.name.length > existing.name.length) {
                             regularChapters[chapterNum] = chapter
                         }
                     }
                 }
             } else {
-                // Non-standard chapters (Special, Extra, etc.) go to special list
                 specialChapters.add(chapter)
             }
         }
 
         val result = mutableListOf<MangaChapter>()
 
-        // Add regular chapters sorted by number
         val sortedRegular = regularChapters.entries.sortedBy { it.key }
         for ((chapterNum, chapter) in sortedRegular) {
             result.add(
@@ -325,7 +319,6 @@ internal class MangagoParser(context: MangaLoaderContext) :
             )
         }
 
-        // Add special chapters at the end with high numbers
         val baseSpecialNumber = (regularChapters.keys.maxOrNull() ?: 0f) + 10000f
         for ((index, chapter) in specialChapters.withIndex()) {
             result.add(
@@ -347,7 +340,6 @@ internal class MangagoParser(context: MangaLoaderContext) :
     }
 
     private fun extractTitleSuffix(title: String): String? {
-        // Extract suffix like "Official" from "Ch.40 : Official" or "Good Translations" from "Ch.41 : Good Translations"
         val regex = Regex("""(?:ch\.?|chapter)\s*\d+(?:\.\d+)?\s*[:\-]\s*(.+)""", RegexOption.IGNORE_CASE)
         return regex.find(title)?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() }
     }
@@ -362,8 +354,6 @@ internal class MangagoParser(context: MangaLoaderContext) :
         }
     }
 
-    // Cache for deobfuscated JS to avoid re-fetching in getPageUrl
-    // Map of chapterJsUrl -> Pair(deobfuscatedJS, timestamp)
     private val jsCache = mutableMapOf<String, Pair<String, Long>>()
     private val maxCacheTime = 1000 * 60 * 5 // 5 minutes
 
@@ -371,21 +361,14 @@ internal class MangagoParser(context: MangaLoaderContext) :
         val fullUrl = chapter.url.toAbsoluteUrl(domain)
         val doc = webClient.httpGet(fullUrl).parseHtml()
 
-        // Check for mobile mode FIRST (like Mihon does)
-        // Mobile mode has a page dropdown - images load 5 at a time per batch
         val pageDropdown = doc.select("div.controls ul#dropdown-menu-page")
         if (pageDropdown.isNotEmpty()) {
             val pagesCount = pageDropdown.select("li").size
 
-            // Detect URL format and build batch URL generator
-            // Format 1: .../chapter/xxx/yyy/1/ -> .../chapter/xxx/yyy/6/
-            // Format 2: .../pg-1/ -> .../pg-6/
-            // Note: Large numbers (like 2115696) are chapter IDs, not page numbers
             val cleanUrl = fullUrl.removeSuffix("/")
             val lastSegment = cleanUrl.substringAfterLast("/")
 
             val isPgFormat = lastSegment.startsWith("pg-")
-            // Only treat as page number if it's a small number (< 1000), large numbers are chapter IDs
             val pageNumber = lastSegment.toIntOrNull()
             val isPageNumber = pageNumber != null && pageNumber < 1000
 
@@ -393,26 +376,20 @@ internal class MangagoParser(context: MangaLoaderContext) :
             val buildBatchUrl: (Int) -> String
 
             if (isPgFormat) {
-                // Format: .../pg-1/ -> extract base and use pg-N
                 baseUrl = cleanUrl.substringBeforeLast("/")
                 buildBatchUrl = { batchNum -> "$baseUrl/pg-$batchNum/" }
             } else if (isPageNumber) {
-                // URL ends with a small page number, replace it
                 baseUrl = cleanUrl.substringBeforeLast("/")
                 buildBatchUrl = { batchNum -> "$baseUrl/$batchNum/" }
             } else {
-                // No page number in URL (last segment is chapter ID or text), append /N/
                 baseUrl = cleanUrl
                 buildBatchUrl = { batchNum -> "$baseUrl/$batchNum/" }
             }
-
-            // Mobile mode loads images in batches of 5
-            // We need to fetch each batch URL to get all images
+            
             val batchSize = 5
             val allImages = mutableListOf<String>()
             var batchStart = 1
 
-            // Get JS and cols from the first document for descrambling
             val js = getDeobfuscatedJS(doc)
             val cols = getColsFromDoc(doc) ?: ""
 
@@ -428,13 +405,11 @@ internal class MangagoParser(context: MangaLoaderContext) :
                 allImages.addAll(batchImages)
                 batchStart += batchSize
 
-                // Safety check to prevent infinite loops
                 if (batchStart > pagesCount + batchSize) {
                     break
                 }
             }
 
-            // Return pages with resolved image URLs
             return allImages.take(pagesCount).mapIndexed { index, imageUrl ->
                 val url = if (imageUrl.contains("cspiclink") && js != null) {
                     val descramblingKey = getDescramblingKey(js, imageUrl)
@@ -452,7 +427,6 @@ internal class MangagoParser(context: MangaLoaderContext) :
             }
         }
 
-        // Desktop mode - all images are in imgsrcs, decrypt them all at once
         val imgsrcsScript = doc.selectFirst("script:containsData(imgsrcs)")?.html()
 
         if (imgsrcsScript != null) {
@@ -485,7 +459,6 @@ internal class MangagoParser(context: MangaLoaderContext) :
     }
 
     override suspend fun getPageUrl(page: MangaPage): String {
-        // URLs are already resolved in getPages() for both desktop and mobile modes
         if (page.url.isBlank()) {
             throw Exception("Page URL is blank in getPageUrl")
         }
@@ -493,8 +466,6 @@ internal class MangagoParser(context: MangaLoaderContext) :
     }
 
     override suspend fun getRelatedManga(seed: Manga): List<Manga> = emptyList()
-
-    // --- Decryption & Helper Functions ---
 
     private suspend fun decryptImageList(doc: Document, sourceUrl: String): List<String> {
         val imgsrcsScript = doc.selectFirst("script:containsData(imgsrcs)")?.html()
@@ -522,8 +493,6 @@ internal class MangagoParser(context: MangaLoaderContext) :
             .map { it.trim() }
             .filter { it.isNotBlank() }
             .map { url ->
-                // Hostnames with underscores (e.g., iweb_5.mangapicgallery.com) cause SSL errors on Android
-                // Use HTTP instead to bypass the issue
                 if (url.startsWith("https://") && url.contains("/_") || url.contains("https://iweb_")) {
                     url.replaceFirst("https://", "http://")
                 } else {
@@ -549,7 +518,6 @@ internal class MangagoParser(context: MangaLoaderContext) :
     }
 
     private fun getColsFromDoc(doc: Document): String? {
-        // Get cols from cached JS for the current chapter's script URL
         val chapterJsUrl = doc.select("script[src*=chapter.js]").firstOrNull()?.absUrl("src")
         val cached = if (chapterJsUrl != null) jsCache[chapterJsUrl] else null
         val js = cached?.first ?: return null
@@ -607,14 +575,6 @@ internal class MangagoParser(context: MangaLoaderContext) :
 
     private fun deobfuscateSoJsonV4(jsf: String): String {
         if (!jsf.startsWith("['sojson.v4']")) {
-            // If it's not sojson.v4, maybe it's already deobfuscated or a different obfuscation?
-            // Based on Mihon code, it expects sojson.v4
-            // If the site changed, this might crash, but we try to parse as is or throw
-            // For now, let's assume if it starts differently, it might not need deobfuscation or format changed.
-            // But given the error, we should stick to the logic.
-            // If the format changed, this regex logic might need update.
-            // However, let's return the string if it looks like JS code?
-            // For safety, throw if header mismatch to alert user.
             throw Exception("Obfuscated code header mismatch. Expected sojson.v4")
         }
 
@@ -648,22 +608,17 @@ internal class MangagoParser(context: MangaLoaderContext) :
             return imgList
         }
 
-        // Try to extract the unscramble key by parsing characters at key locations as integers.
-        // If any character is NOT a digit, it means the image list is already unscrambled.
         val unscrambleKey = try {
             keyLocations.map { loc ->
                 if (loc >= imgList.length) {
                     throw NumberFormatException("Position $loc is beyond string length")
                 }
-                // This will throw NumberFormatException if the character is not a digit
                 imgList[loc].toString().toInt()
             }
         } catch (e: NumberFormatException) {
-            // Characters at key positions are not digits, meaning the list is already unscrambled
             return imgList
         }
 
-        // Remove characters at key positions, accounting for index shifts
         keyLocations.forEachIndexed { idx, loc ->
             imgList = imgList.removeRange((loc - idx)..(loc - idx))
         }
