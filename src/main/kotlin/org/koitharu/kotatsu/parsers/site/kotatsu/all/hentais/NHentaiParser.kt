@@ -1,219 +1,336 @@
 package org.koitharu.kotatsu.parsers.site.kotatsu.all.hentais
 
 import org.json.JSONObject
+import org.jsoup.Jsoup
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
+import org.koitharu.kotatsu.parsers.MangaParserAuthProvider
 import org.koitharu.kotatsu.parsers.MangaSourceParser
-import org.koitharu.kotatsu.parsers.model.ContentRating
-import org.koitharu.kotatsu.parsers.model.ContentType
-import org.koitharu.kotatsu.parsers.model.Manga
-import org.koitharu.kotatsu.parsers.model.MangaChapter
-import org.koitharu.kotatsu.parsers.model.MangaListFilter
-import org.koitharu.kotatsu.parsers.model.MangaPage
-import org.koitharu.kotatsu.parsers.model.MangaParserSource
-import org.koitharu.kotatsu.parsers.model.RATING_UNKNOWN
-import org.koitharu.kotatsu.parsers.model.SortOrder
-import org.koitharu.kotatsu.parsers.parsers.GalleryAdultsParser
-import org.koitharu.kotatsu.parsers.util.generateUid
-import org.koitharu.kotatsu.parsers.util.json.mapJSON
-import org.koitharu.kotatsu.parsers.util.parseJson
-import org.koitharu.kotatsu.parsers.util.urlBuilder
-import org.koitharu.kotatsu.parsers.util.urlEncoded
-import java.util.EnumSet
-import java.util.Locale
-import org.koitharu.kotatsu.parsers.model.MangaListFilterOptions
-import org.koitharu.kotatsu.parsers.model.MangaTag
+import org.koitharu.kotatsu.parsers.config.ConfigKey
+import org.koitharu.kotatsu.parsers.core.PagedMangaParser
+import org.koitharu.kotatsu.parsers.model.*
+import org.koitharu.kotatsu.parsers.util.*
+import java.util.*
+
+private const val ONE_IMG_SERVER = "1"
+private const val TWO_IMG_SERVER = "2"
+private const val THREE_IMG_SERVER = "3"
+private const val FOUR_IMG_SERVER = "4"
 
 @MangaSourceParser("NHENTAI", "NHentai.net", type = ContentType.HENTAI)
 internal class NHentaiParser(context: MangaLoaderContext) :
-    GalleryAdultsParser(context, MangaParserSource.NHENTAI, "nhentai.net", 25) {
+    PagedMangaParser(context, MangaParserSource.NHENTAI, 25),
+    MangaParserAuthProvider {
 
-    private val apiSuffix = "api/v2"
+    override val configKeyDomain = ConfigKey.Domain("nhentai.net")
 
-    // Required overrides for base class
-    override val selectGallery = ""
-    override val selectGalleryLink = ""
-    override val selectGalleryTitle = ""
-    override val selectGalleryImg = ""
-    override val idImg = "none"
+    private var imageServer: String = ""
+    private var thumbServer: String = ""
+
+    private var displayFullTitle: Boolean = true
 
     override val availableSortOrders: Set<SortOrder> = EnumSet.of(
         SortOrder.UPDATED,
+        SortOrder.POPULARITY,
     )
 
-    private fun JSONObject.extractTags(): Set<MangaTag> {
-        return optJSONArray("tags")
-            ?.mapJSON { tag ->
+    override val filterCapabilities = MangaListFilterCapabilities(
+        isSearchSupported = true,
+        isSearchWithFiltersSupported = true,
+        isMultipleTagsSupported = true,
+        isAuthorSearchSupported = true,
+    )
 
-                if (tag.optString("type") != "tag") {
-                    return@mapJSON null
-                }
+    private val preferredServerKey = ConfigKey.PreferredImageServer(
+        presetValues = mapOf(
+            ONE_IMG_SERVER to "First server",
+            TWO_IMG_SERVER to "Second server",
+            THREE_IMG_SERVER to "Third server",
+            FOUR_IMG_SERVER to "Fourth server",
+        ),
+        defaultValue = ONE_IMG_SERVER,
+    )
 
-                MangaTag(
-                    title = tag.optString("name")
-                        .replace("-", " ")
-                        .replaceFirstChar { c -> c.uppercase() },
-                    key = tag.optString("name"),
-                    source = source
-                )
-            }
-            ?.filterNotNull()
-            ?.toSet()
-            ?: emptySet()
+    override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
+        super.onCreateConfig(keys)
+        keys.add(userAgentKey)
+        keys.add(preferredServerKey)
     }
 
-    override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
+    // Apply selected server – used later for image requests
+    private val selectedServer: String
+        get() = config[preferredServerKey].toString()
 
-        filter.query?.trim()?.let { query ->
-            if (query.all(Char::isDigit)) {
-                return try {
-                    val obj = webClient
-                        .httpGet("https://$domain/$apiSuffix/galleries/$query")
-                        .parseJson()
-
-                    val title = obj.extractTitle()
-
-                    listOf(
-                        Manga(
-                            id = generateUid("/g/$query/"),
-                            title = title.cleanupTitle().ifEmpty { title },
-                            altTitles = emptySet(),
-                            url = "/g/$query/",
-                            publicUrl = "https://$domain/g/$query/",
-                            rating = RATING_UNKNOWN,
-                            contentRating = ContentRating.ADULT,
-                            coverUrl = "https://t.$domain/${obj.getThumbnailPath()}",
-                            tags = obj.extractTags(),
-                            state = null,
-                            authors = emptySet(),
-                            source = source
-                        )
-                    )
-                } catch (_: Exception) {
-                    emptyList()
-                }
-            }
-        }
-
-        val url = urlBuilder().addPathSegments(apiSuffix)
-        val isDefaultHome = order == SortOrder.UPDATED
-                && filter.query.isNullOrEmpty()
-
-        if (isDefaultHome) {
-            url.addPathSegment("galleries")
-            url.addQueryParameter("page", page.toString())
-        } else {
-            val query = buildString {
-                filter.query?.trim()?.takeIf { it.isNotEmpty() }?.let {
-                    append(it)
-                }
-
-                if (isEmpty()) {
-                    append("pages:>0")
-                }
-            }
-
-            val sort = when (order) {
-                else -> "date"
-            }
-
-            url.addPathSegment("search")
-            url.addQueryParameter("query", query.urlEncoded())
-            url.addQueryParameter("sort", sort)
-            url.addQueryParameter("page", page.toString())
-        }
-
-        val json = webClient.httpGet(url.build()).parseJson()
-        return json.optJSONArray("result").mapJSON {
-            val id = it.getInt("id")
-            val title = it.extractTitle()
-            Manga(
-                id = generateUid("/g/$id/"),
-                title = title.cleanupTitle().ifEmpty { title },
-                altTitles = emptySet(),
-                url = "/g/$id/",
-                publicUrl = "https://$domain/g/$id/",
-                rating = RATING_UNKNOWN,
-                contentRating = ContentRating.ADULT,
-                coverUrl = "https://t.$domain/${it.getThumbnailPath()}",
-                tags = it.extractTags(),
-                state = null,
-                authors = emptySet(),
-                source = source
-            )
-        }
-    }
-
-    override suspend fun getFilterOptions(): MangaListFilterOptions {
-        return MangaListFilterOptions(
-            availableTags = emptySet(),
+    companion object {
+        val LANG_MAP = mapOf(
+            "en" to "english",
+            "ja" to "japanese",
+            "zh" to "chinese",
         )
+    }
+
+    // Cached popular tags
+    private var popularTags: Set<MangaTag>? = null
+
+    override suspend fun getFilterOptions() = MangaListFilterOptions(
+        availableTags = getPopularTags(),
+        availableLocales = setOf(
+            Locale.ENGLISH,
+            Locale.JAPANESE,
+            Locale.CHINESE,
+        ),
+    )
+
+    private suspend fun getPopularTags(): Set<MangaTag> {
+        popularTags?.let { return it }
+        return try {
+            val doc = Jsoup.parse(
+                webClient.httpGet("https://$domain/tags?sort=popular").parseHtml().toString()
+            )
+            val tags = doc.select("section#tag-container a.tag")
+                .mapNotNull { element ->
+                    val name = element.text()
+                    if (name.isBlank()) null
+                    else MangaTag(
+                        title = name.replace("-", " ").replaceFirstChar { it.uppercase() },
+                        key = name,  // raw tag name, will be used as tag:"name"
+                        source = source,
+                    )
+                }.toSet()
+            popularTags = tags
+            tags
+        } catch (_: Exception) {
+            emptySet()
+        }
+    }
+
+    private suspend fun ensureNhConfig() {
+        if (imageServer.isBlank() || thumbServer.isBlank()) {
+            try {
+                val json = webClient.httpGet("https://$domain/api/v2/config").parseJson()
+                val imgServers = json.getJSONArray("image_servers")
+                    .let { (0 until it.length()).map { i -> it.getString(i) } }
+                val thbServers = json.getJSONArray("thumb_servers")
+                    .let { (0 until it.length()).map { i -> it.getString(i) } }
+                imageServer = imgServers[selectedServer.toInt() - 1]
+                thumbServer = thbServers[selectedServer.toInt() - 1]
+            } catch (_: Exception) {
+                imageServer = "https://i$selectedServer.nhentai.net"
+                thumbServer = "https://t$selectedServer.nhentai.net"
+            }
+        }
+    }
+
+
+    override suspend fun getListPage(
+        page: Int,
+        order: SortOrder,
+        filter: MangaListFilter,
+    ): List<Manga> {
+        ensureNhConfig()
+
+        // Language filter
+        val langQuery = filter.locale?.let { loc ->
+            val langKey = loc.language.lowercase()
+            LANG_MAP[langKey]?.let { "language:$it" }
+        }
+
+        // Direct ID search
+        val directId = extractGalleryId(filter.query)
+        if (directId != null) {
+            return try {
+                listOf(fetchMangaById(directId))
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
+
+        val isLatest = order == SortOrder.UPDATED && filter.query.isNullOrBlank() && langQuery == null && filter.tags.isEmpty()
+
+        val url = buildString {
+            append("https://$domain/api/v2/")
+            if (isLatest) {
+                append("galleries?page=$page")
+            } else {
+                val queryParts = mutableListOf<String>()
+                if (!filter.query.isNullOrBlank()) queryParts.add(filter.query!!)
+                if (langQuery != null) queryParts.add(langQuery)
+
+                // Add selected tags as tag:"name"
+                filter.tags.forEach { tag ->
+                    queryParts.add("tag:\"${tag.key}\"")
+                }
+
+                val finalQuery = queryParts.joinToString(" ").ifBlank { "\"\"" }
+                val sort = when (order) {
+                    SortOrder.UPDATED -> "date"
+                    SortOrder.POPULARITY -> "popular"
+                    else -> "date"
+                }
+                append("search?query=${finalQuery.urlEncoded()}&sort=$sort&page=$page")
+            }
+        }
+
+        val json = webClient.httpGet(url).parseJson()
+        val items = json.getJSONArray("result")
+        return (0 until items.length()).map { i -> items.getJSONObject(i).toManga() }
+    }
+
+    private fun extractGalleryId(query: String?): Int? {
+        if (query.isNullOrBlank()) return null
+        val trimmed = query.trim()
+        return when {
+            trimmed.startsWith("id:") -> trimmed.removePrefix("id:").toIntOrNull()
+            trimmed.all(Char::isDigit) -> trimmed.toIntOrNull()
+            else -> null
+        }
+    }
+
+    private suspend fun fetchMangaById(id: Int): Manga {
+        ensureNhConfig()
+        val json = webClient.httpGet("https://$domain/api/v2/galleries/$id").parseJson()
+        return json.toMangaDetails()
     }
 
     override suspend fun getDetails(manga: Manga): Manga {
-        val id = manga.url.removeSurrounding("/g/", "/")
-
-        val obj = webClient
-            .httpGet("https://$domain/$apiSuffix/galleries/$id")
-            .parseJson()
-
-        return manga.copy(
-            tags = obj.extractTags(),
-            authors = emptySet(),
-            description = "Pages: ${obj.optInt("num_pages")}",
-            coverUrl = "https://t.$domain/${obj.getCoverPath()}",
-            chapters = listOf(
-                MangaChapter(
-                    id = manga.id,
-                    title = manga.title,
-                    number = 1f,
-                    volume = 0,
-                    url = manga.url,
-                    scanlator = null,
-                    uploadDate = obj.optLong("upload_date") * 1000,
-                    branch = null,
-                    source = source
-                )
-            )
+        ensureNhConfig()
+        val id = manga.url.removeSurrounding("/g/", "/").toInt()
+        val json = webClient.httpGet("https://$domain/api/v2/galleries/$id").parseJson()
+        return json.toMangaDetails().copy(
+            coverUrl = manga.coverUrl?.ifBlank {
+                "${thumbServer}/${json.getJSONObject("cover").optString("path")}"
+            },
         )
     }
+
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
-        val id = chapter.url.removeSurrounding("/g/", "/")
-        val response = webClient.httpGet("https://$domain/$apiSuffix/galleries/$id").parseJson()
-        return response.getJSONArray("pages").mapJSON { page ->
-            val path = page.getString("path")
+        ensureNhConfig()
+        val id = chapter.url.removeSurrounding("/g/", "/").toInt()
+        val json = webClient.httpGet("https://$domain/api/v2/galleries/$id").parseJson()
+        val pagesArray = json.getJSONArray("pages")
+        return (0 until pagesArray.length()).map { i ->
+            val pageObj = pagesArray.getJSONObject(i)
+            val path = pageObj.getString("path")
             MangaPage(
                 id = generateUid(path),
-                url = "https://i.$domain/$path",
-                preview = page.optString("thumbnail").takeIf { it.isNotBlank() }
-                    ?.let { "https://t.$domain/$it" },
+                url = "$imageServer/$path",
+                preview = null,
                 source = source,
             )
         }
     }
 
     override suspend fun getPageUrl(page: MangaPage): String = page.url
+    override suspend fun getRelatedManga(seed: Manga): List<Manga> = emptyList()
 
-    private fun JSONObject.extractTitle(): String {
+    private fun JSONObject.toManga(): Manga {
+        val id = getInt("id")
         val titleObj = optJSONObject("title")
-        return listOfNotNull(
-            titleObj?.optString("english"),
-            titleObj?.optString("pretty"),
-            optString("english_title"),
-            optString("japanese_title")
-        ).firstOrNull { it.isNotBlank() } ?: "Gallery ${optInt("id")}"
+        val rawTitle = titleObj?.optString("english")
+            ?: titleObj?.optString("pretty")
+            ?: optString("english_title")
+            ?: optString("japanese_title")
+            ?: "Gallery $id"
+
+        val title = if (displayFullTitle) rawTitle else rawTitle.shortenTitle()
+        val thumbPath = optJSONObject("thumbnail")?.optString("path")
+            ?: optString("thumbnail").takeIf { !it.isNullOrBlank() }
+            ?: "galleries/$id/thumb.webp"
+
+        return Manga(
+            id = generateUid("/g/$id/"),
+            title = title,
+            altTitles = emptySet(),
+            url = "/g/$id/",
+            publicUrl = "https://$domain/g/$id/",
+            rating = RATING_UNKNOWN,
+            contentRating = ContentRating.ADULT,
+            coverUrl = "$thumbServer/$thumbPath",
+            tags = extractTags(),
+            state = null,
+            authors = emptySet(),
+            source = source,
+        )
     }
 
-    private fun JSONObject.getThumbnailPath(): String = optJSONObject("thumbnail")?.optString("path")
-        ?: optString("thumbnail").takeIf { it.isNotBlank() }
-        ?: "galleries/${optString("media_id")}/thumb.webp"
+    private fun JSONObject.toMangaDetails(): Manga {
+        val id = getInt("id")
+        val titleObj = optJSONObject("title")
+        val rawTitle = titleObj?.optString("english")
+            ?: titleObj?.optString("japanese")
+            ?: titleObj?.optString("pretty")
+            ?: "Gallery $id"
+        val title = if (displayFullTitle) rawTitle else rawTitle.shortenTitle()
 
-    private fun JSONObject.getCoverPath(): String = optJSONObject("cover")?.optString("path") ?: getThumbnailPath()
+        val thumbPath = getJSONObject("thumbnail").getString("path")
+        val coverPath = getJSONObject("cover").optString("path", thumbPath)
+        val numPages = optInt("num_pages")
+        val uploadDate = optLong("upload_date") * 1000
 
+        val tags = extractTags()
+        val artists = getTagsOfType("artist")
+        val groups = getTagsOfType("group")
+        val author = artists.joinToString(", ").ifBlank { groups.joinToString(", ") }
 
-    override fun Locale.toLanguagePath(): String = when (this) {
-        Locale.ENGLISH -> "english"
-        Locale.JAPANESE -> "japanese"
-        Locale.CHINESE -> "chinese"
-        else -> language
+        val description = buildString {
+            append("Pages: $numPages\n")
+        }
+
+        return Manga(
+            id = generateUid("/g/$id/"),
+            title = title,
+            altTitles = listOfNotNull(titleObj?.optString("japanese")).toSet(),
+            url = "/g/$id/",
+            publicUrl = "https://$domain/g/$id/",
+            rating = RATING_UNKNOWN,
+            contentRating = ContentRating.ADULT,
+            coverUrl = "$thumbServer/$thumbPath",
+            largeCoverUrl = "$imageServer/$coverPath",
+            tags = tags,
+            state = null,
+            authors = setOfNotNull(author.ifBlank { null }),
+            description = description,
+            chapters = listOf(
+                MangaChapter(
+                    id = generateUid("/g/$id/"),
+                    title = title,
+                    number = 1f,
+                    volume = 0,
+                    url = "/g/$id/",
+                    scanlator = groups.joinToString(", ").ifBlank { null },
+                    uploadDate = uploadDate,
+                    branch = null,
+                    source = source,
+                )
+            ),
+            source = source,
+        )
     }
+
+    private fun JSONObject.extractTags(): Set<MangaTag> {
+        val tagsArray = optJSONArray("tags") ?: return emptySet()
+        return (0 until tagsArray.length()).map { i ->
+            val tag = tagsArray.getJSONObject(i)
+            val name = tag.getString("name")
+            MangaTag(
+                title = name.replace("-", " ").replaceFirstChar { it.uppercase() },
+                key = "${tag.getString("type")}:$name",
+                source = source,
+            )
+        }.toSet()
+    }
+
+    private fun JSONObject.getTagsOfType(type: String): List<String> {
+        val tagsArray = optJSONArray("tags") ?: return emptyList()
+        return (0 until tagsArray.length()).mapNotNull { i ->
+            val tag = tagsArray.getJSONObject(i)
+            if (tag.getString("type") == type) tag.getString("name") else null
+        }
+    }
+
+    private val shortenTitleRegex = Regex("""(\[[^]]*]|[({][^)}]*[)}])""")
+    private fun String.shortenTitle() = this.replace(shortenTitleRegex, "").trim()
+
+    override val authUrl: String get() = "https://$domain"
+    override suspend fun isAuthorized(): Boolean = true
+    override suspend fun getUsername(): String = ""
 }
