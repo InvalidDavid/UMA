@@ -72,20 +72,59 @@ internal abstract class MangaFireParser(
 
     companion object {
         val GENRE_MAP = mapOf(
-            "Action" to "1", "Adventure" to "78", "Avant Garde" to "3",
-            "Boys Love" to "4", "Comedy" to "5", "Demons" to "77",
-            "Drama" to "6", "Ecchi" to "7", "Fantasy" to "79",
-            "Girls Love" to "9", "Gourmet" to "10", "Harem" to "11",
-            "Horror" to "530", "Isekai" to "13", "Iyashikei" to "531",
-            "Josei" to "15", "Kids" to "532", "Magic" to "539",
-            "Mahou Shoujo" to "533", "Martial Arts" to "534",
-            "Mecha" to "19", "Military" to "535", "Music" to "21",
-            "Mystery" to "22", "Parody" to "23", "Psychological" to "536",
-            "Reverse Harem" to "25", "Romance" to "26", "School" to "73",
-            "Sci-Fi" to "28", "Seinen" to "537", "Shoujo" to "30",
-            "Shounen" to "31", "Slice of Life" to "538", "Space" to "33",
-            "Sports" to "34", "Super Power" to "75", "Supernatural" to "76",
-            "Suspense" to "37", "Thriller" to "38", "Vampire" to "39"
+            "Action" to "1",
+            "Adult" to "268929",
+            "Adventure" to "78",
+            "Avant Garde" to "3",
+            "Boys Love" to "4",
+            "Comedy" to "5",
+            "Crime" to "268921",
+            "Demons" to "77",
+            "Drama" to "6",
+            "Ecchi" to "7",
+            "Fantasy" to "79",
+            "Girls Love" to "9",
+            "Gourmet" to "10",
+            "Harem" to "11",
+            "Hentai" to "268930",
+            "Historical" to "268922",
+            "Horror" to "530",
+            "Isekai" to "13",
+            "Iyashikei" to "531",
+            "Josei" to "15",
+            "Kids" to "532",
+            "Magic" to "539",
+            "Magical Girls" to "268923",
+            "Mahou Shoujo" to "533",
+            "Martial Arts" to "534",
+            "Mature" to "268931",
+            "Mecha" to "19",
+            "Medical" to "268924",
+            "Military" to "535",
+            "Music" to "21",
+            "Mystery" to "22",
+            "Parody" to "23",
+            "Philosophical" to "268925",
+            "Psychological" to "536",
+            "Reverse Harem" to "25",
+            "Romance" to "26",
+            "School" to "73",
+            "Sci-Fi" to "28",
+            "Seinen" to "537",
+            "Shoujo" to "30",
+            "Shounen" to "31",
+            "Slice of Life" to "538",
+            "Smut" to "268932",
+            "Space" to "33",
+            "Sports" to "34",
+            "Super Power" to "75",
+            "Superhero" to "268926",
+            "Supernatural" to "76",
+            "Suspense" to "37",
+            "Thriller" to "38",
+            "Tragedy" to "268927",
+            "Vampire" to "39",
+            "Wuxia" to "268928"
         )
     }
 
@@ -107,7 +146,6 @@ internal abstract class MangaFireParser(
         availableDemographics = EnumSet.of(Demographic.SHOUNEN, Demographic.SHOUJO, Demographic.SEINEN, Demographic.JOSEI),
     )
 
-    // ---------- Listing ----------
     override suspend fun getListPage(
         page: Int,
         order: SortOrder,
@@ -204,9 +242,8 @@ internal abstract class MangaFireParser(
         return mangas
     }
 
-    // ---------- Details ----------
     override suspend fun getDetails(manga: Manga): Manga {
-        val hid = extractHid(manga.url) // improved extraction
+        val hid = extractHid(manga.url)
         val detailsJson = apiClient.httpGet("https://$domain/api/titles/$hid").parseJson()
         val data = detailsJson.getJSONObject("data")
 
@@ -231,20 +268,34 @@ internal abstract class MangaFireParser(
             (0 until arr.length()).map { arr.getString(it) }
         } ?: emptyList()
 
-        val description = synopsisHtml?.let { Jsoup.parseBodyFragment(it).text() }
+        // putting rating into description, adding it via "rating" does not work
+        val raw = data.optDouble("rating", -1.0)
+        val ratingValue = if (raw >= 0.0) raw.toFloat() else null
+
+        val synopsisText = synopsisHtml?.let { Jsoup.parseBodyFragment(it).text() } ?: ""
+
+        val richDescription = buildString {
+            ratingValue?.let { rating ->
+                val stars = (rating / 2.0).toInt().coerceIn(0, 5)
+                append("${"★".repeat(stars)}${"☆".repeat(5 - stars)} $rating\n\n")
+            }
+            if (synopsisText.isNotBlank()) {
+                append(synopsisText.trim(), "\n\n")
+            }
+            if (altTitlesArray.isNotEmpty()) {
+                append("Alternative Names:\n")
+                altTitlesArray.forEach { append("- ", it, "\n") }
+            }
+        }.trim()
 
         val genreList = buildList {
             type?.let { add(it.replaceFirstChar { c -> c.uppercase() }) }
             genres?.let { addAll(it) }
             themes?.let { addAll(it) }
         }
-
         val genreTags = genreList.mapNotNull { name ->
             tags.find { it.title == name }
         }.toSet()
-
-//        val raw = data.optDouble("rating", -1.0)
-//        val ratingValue = if (raw >= 0.0) (raw / 2.0).toFloat() else throw Exception("Invalid rating value: $raw")
 
         val chapters = fetchChapters(hid)
 
@@ -252,7 +303,7 @@ internal abstract class MangaFireParser(
             title = title,
             coverUrl = cover ?: manga.coverUrl,
             authors = setOfNotNull(authors),
-            description = description,
+            description = richDescription,
             state = when (status?.lowercase()) {
                 "releasing" -> MangaState.ONGOING
                 "finished" -> MangaState.FINISHED
@@ -263,12 +314,10 @@ internal abstract class MangaFireParser(
             },
             tags = genreTags,
             altTitles = altTitlesArray.toSet(),
-//            rating = ratingValue,
             chapters = chapters,
         )
     }
 
-    // ---------- Chapters ----------
     private suspend fun fetchChapters(hid: String): List<MangaChapter> {
         val chapters = mutableListOf<MangaChapter>()
         var page = 1
@@ -289,7 +338,7 @@ internal abstract class MangaFireParser(
                 val number = chObj.getDouble("number").toFloat()
                 val name = chObj.optString("name", null)
                 val createdAt = chObj.optLong("createdAt", 0L) * 1000L
-                val type = chObj.getString("type") // "official" or "unofficial"
+                val type = chObj.getString("type") // "official" or "unofficial" or others
                 val chapterUrl = "/title/$hid/$id"
                 val displayName = buildString {
                     append("Ch. ")
@@ -331,7 +380,6 @@ internal abstract class MangaFireParser(
             .sortedBy { it.number }
     }
 
-    // ---------- Pages ----------
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
         val chapterId = chapter.url.substringAfterLast("/") // numeric ID
         val response = apiClient.httpGet("https://$domain/api/chapters/$chapterId").parseJson()
@@ -358,7 +406,6 @@ internal abstract class MangaFireParser(
     override suspend fun isAuthorized(): Boolean = true
     override suspend fun getUsername(): String = ""
 
-    // ---------- Utility ----------
 
     private fun extractHid(url: String): String {
         val lastPart = url.removeSuffix("/").substringAfterLast("/")
@@ -369,7 +416,6 @@ internal abstract class MangaFireParser(
         }
     }
 
-    // ---------- Sources ----------
     @MangaSourceParser("MANGAFIRE_EN", "MangaFire (English)", "en")
     class English(context: MangaLoaderContext) : MangaFireParser(context, MangaParserSource.MANGAFIRE_EN, "en")
 
