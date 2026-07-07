@@ -1,7 +1,6 @@
 package org.koitharu.kotatsu.parsers.site.kotatsu.all.hentais
 
 import org.json.JSONObject
-import org.jsoup.Jsoup
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaParserAuthProvider
 import org.koitharu.kotatsu.parsers.MangaSourceParser
@@ -35,9 +34,6 @@ internal class NHentaiParser(context: MangaLoaderContext) :
 
     override val filterCapabilities = MangaListFilterCapabilities(
         isSearchSupported = true,
-        isSearchWithFiltersSupported = true,
-        isMultipleTagsSupported = true,
-        isAuthorSearchSupported = true,
     )
 
     private val preferredServerKey = ConfigKey.PreferredImageServer(
@@ -68,11 +64,8 @@ internal class NHentaiParser(context: MangaLoaderContext) :
         )
     }
 
-    // Cached popular tags
-    private var popularTags: Set<MangaTag>? = null
-
     override suspend fun getFilterOptions() = MangaListFilterOptions(
-        availableTags = getPopularTags(),
+        availableTags = emptySet(),
         availableLocales = setOf(
             Locale.ENGLISH,
             Locale.JAPANESE,
@@ -80,28 +73,6 @@ internal class NHentaiParser(context: MangaLoaderContext) :
         ),
     )
 
-    private suspend fun getPopularTags(): Set<MangaTag> {
-        popularTags?.let { return it }
-        return try {
-            val doc = Jsoup.parse(
-                webClient.httpGet("https://$domain/tags?sort=popular").parseHtml().toString()
-            )
-            val tags = doc.select("section#tag-container a.tag")
-                .mapNotNull { element ->
-                    val name = element.text()
-                    if (name.isBlank()) null
-                    else MangaTag(
-                        title = name.replace("-", " ").replaceFirstChar { it.uppercase() },
-                        key = name,  // raw tag name, will be used as tag:"name"
-                        source = source,
-                    )
-                }.toSet()
-            popularTags = tags
-            tags
-        } catch (_: Exception) {
-            emptySet()
-        }
-    }
 
     private suspend fun ensureNhConfig() {
         if (imageServer.isBlank() || thumbServer.isBlank()) {
