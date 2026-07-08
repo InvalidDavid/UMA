@@ -1,12 +1,13 @@
 package org.koitharu.kotatsu.parsers.site.kotatsu.en
 
-import okhttp3.Headers
+import org.jsoup.nodes.Document
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
-import org.koitharu.kotatsu.parsers.model.MangaParserSource
+import org.koitharu.kotatsu.parsers.model.*
 import org.koitharu.kotatsu.parsers.parsers.MadaraParser
-import java.util.Base64
-import kotlin.random.Random
+import org.koitharu.kotatsu.parsers.util.*
+import java.text.SimpleDateFormat
+import java.util.*
 
 @MangaSourceParser("AQUAMANGA", "AquaManga", "en")
 internal class AquaManga(context: MangaLoaderContext) :
@@ -15,38 +16,144 @@ internal class AquaManga(context: MangaLoaderContext) :
     override val withoutAjax = true
     override val stylePage = ""
 
-    override fun getRequestHeaders(): Headers = super.getRequestHeaders().newBuilder()
-        .set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
-        .set("Accept-Language", "en-US,en;q=0.5")
-        .set("Referer", "https://$domain/")
-        .set("Sec-Fetch-Dest", "document")
-        .set("Sec-Fetch-Mode", "navigate")
-        .set("Sec-Fetch-Site", "same-origin")
-        .set("Upgrade-Insecure-Requests", "1")
-        .set("X-Requested-With", randomValue)
-        .build()
+    override val selectChapter = ".aqua-ch-item"
 
-    private fun getRandomSubstring(input: String, length: Int): String {
-        val startIndex = Random.nextInt(0, input.length - length + 1)
-        return input.substring(startIndex, startIndex + length)
+    override val availableSortOrders: EnumSet<SortOrder> = EnumSet.of(
+        SortOrder.UPDATED,
+        SortOrder.POPULARITY,
+        SortOrder.NEWEST,
+        SortOrder.ALPHABETICAL,
+    )
+
+    override suspend fun getFilterOptions() = MangaListFilterOptions(
+        availableTags = setOf(
+            MangaTag("Academy", "academy", source),
+            MangaTag("Action", "action", source),
+            MangaTag("Adaptation", "adaptation", source),
+            MangaTag("Adventure", "adventure", source),
+            MangaTag("Comedy", "comedy", source),
+            MangaTag("Cooking", "cooking", source),
+            MangaTag("Crime", "crime", source),
+            MangaTag("Cultivation", "cultivation", source),
+            MangaTag("Delinquents", "delinquents", source),
+            MangaTag("Demons", "demons", source),
+            MangaTag("Drama", "drama", source),
+            MangaTag("Dungeons", "dungeons", source),
+            MangaTag("Ecchi", "ecchi", source),
+            MangaTag("Fantasy", "fantasy", source),
+            MangaTag("Game", "game", source),
+            MangaTag("Gore", "gore", source),
+            MangaTag("Harem", "harem", source),
+            MangaTag("Historical", "historical", source),
+            MangaTag("Horror", "horror", source),
+            MangaTag("Isekai", "isekai", source),
+            MangaTag("Josei", "josei", source),
+            MangaTag("Magic", "magic", source),
+            MangaTag("Manga", "manga", source),
+            MangaTag("Manhua", "manhua", source),
+            MangaTag("Manhwa", "manhwa", source),
+            MangaTag("Martial Arts", "martial-arts", source),
+            MangaTag("Mecha", "mecha", source),
+            MangaTag("Medical", "medical", source),
+            MangaTag("Military", "military", source),
+            MangaTag("Monsters", "monsters", source),
+            MangaTag("Murim", "murim", source),
+            MangaTag("Music", "music", source),
+            MangaTag("Mystery", "mystery", source),
+            MangaTag("Necromancer", "necromancer", source),
+            MangaTag("Ninja", "ninja", source),
+            MangaTag("Office Workers", "office-workers", source),
+            MangaTag("OP-MC", "op-mc", source),
+            MangaTag("Overpowered", "overpowered", source),
+            MangaTag("Philosophical", "philosophical", source),
+            MangaTag("Post-Apocalyptic", "post-apocalyptic", source),
+            MangaTag("Psychological", "psychological", source),
+            MangaTag("Rebirth", "rebirth", source),
+            MangaTag("Regression", "regression", source),
+            MangaTag("Reincarnation", "reincarnation", source),
+            MangaTag("Returner", "returner", source),
+            MangaTag("Revenge", "revenge", source),
+            MangaTag("Romance", "romance", source),
+            MangaTag("School Life", "school-life", source),
+            MangaTag("Sci-fi", "sci-fi", source),
+            MangaTag("Seinen", "seinen", source),
+            MangaTag("Shounen", "shounen", source),
+            MangaTag("Slice-of-Life", "slice-of-life", source),
+            MangaTag("Sports", "sports", source),
+            MangaTag("Super Power", "super-power", source),
+            MangaTag("Superhero", "superhero", source),
+            MangaTag("Supernatural", "supernatural", source),
+            MangaTag("Survival", "survival", source),
+            MangaTag("System", "system", source),
+            MangaTag("Thriller", "thriller", source),
+            MangaTag("Time Travel", "time-travel", source),
+            MangaTag("Tower", "tower", source),
+            MangaTag("Tragedy", "tragedy", source),
+            MangaTag("Vampire", "vampire", source),
+            MangaTag("Video Games", "video-games", source),
+            MangaTag("Villainess", "villainess", source),
+            MangaTag("Virtual Reality", "virtual-reality", source),
+            MangaTag("Voilence", "voilence", source),
+            MangaTag("Webcomic", "webcomic", source),
+            MangaTag("Wuxia", "wuxia", source),
+            MangaTag("Zombies", "zombies", source),
+        ),
+        availableStates = EnumSet.of(MangaState.ONGOING, MangaState.FINISHED),
+        availableContentTypes = EnumSet.of(ContentType.MANGA, ContentType.MANHWA, ContentType.MANHUA),
+    )
+
+    override suspend fun getDetails(manga: Manga): Manga {
+        val fullUrl = manga.url.toAbsoluteUrl(domain)
+        val doc = webClient.httpGet(fullUrl).parseHtml()
+
+        val title = doc.selectFirstOrThrow(".aqua-series-info__title").text()
+        val thumbnail = doc.selectFirstOrThrow(".aqua-series-cover__img").requireSrc()
+        val description = doc.selectFirst(".aqua-series-synopsis")?.html().orEmpty()
+        val status = doc.selectFirst(".aqua-series-meta__status")?.text()
+        val genres = doc.select(".aqua-series-genre-pill").map { it.text() }.toSet()
+        val author = doc.selectFirst(".aqua-series-info__creator-value a")?.ownText()
+        val artist = doc.selectFirst(".aqua-series-info__creator-value a")?.ownText()
+
+        val tags = genres.mapTo(mutableSetOf()) { MangaTag(title = it, key = it, source = source) }
+        val statusText = status?.lowercase().orEmpty()
+        val state = when (statusText) {
+            in ongoing -> MangaState.ONGOING
+            in finished -> MangaState.FINISHED
+            in abandoned -> MangaState.ABANDONED
+            in paused -> MangaState.PAUSED
+            else -> null
+        }
+
+        val chapters = getChapters(manga, doc)
+        return manga.copy(
+            title = title,
+            coverUrl = thumbnail,
+            description = description,
+            tags = tags,
+            state = state,
+            authors = setOfNotNull(author, artist).filter { it.isNotBlank() }.toSet(),
+            chapters = chapters,
+        )
     }
 
-    private val randomLength = Random.Default.nextInt(13, 21)
-
-    private val decodedString = Base64.getDecoder()
-        .decode(LITTLE_BIT_CURSED_VALUE)
-        .toString(Charsets.UTF_8)
-        .trim()
-
-    private val randomStringValue = getRandomSubstring(decodedString, randomLength)
-
-    private val randomValue = when {
-        Random.nextInt(1, 11) == 1 -> "org.chromium.chrome"
-        else -> randomStringValue
-    }
-
-    private companion object {
-        private const val LITTLE_BIT_CURSED_VALUE =
-            "ICAgSUFBZ0FFa0FRd0JCQUdjQVNRQkRBRUVBWndCUkFGVUFUZ0JDQUZFQVZRQnNBRUlBVVFCWEFHUUFRZ0JSQURBQVJnQkNBRk1BVlFCR0FFSUFXZ0F3QUVZQVJBQlJBRlVBUmdCVUFGVUFWUUJLQUVVQVVRQlZBRllBUmdCUkFGWUFjQUF6QUZFQWF3QndBRUlBVWdCVkFERUFRZ0JWQUZZQVJnQkRBR0lBYXdCR0FFWUFZUUF3QUVZQVVnQmtBREFBU2dCREFGRUFWUUJrQUdvQVVRQldBRTRBVWdCUkFHc0FVZ0JDQUZJQVZRQnNBRUlBVlFBeUFHUUFRd0JWQUdzQVJnQkhBRllBVlFCR0FGTUFXZ0F3QUVvQU1RQlJBRlVBV2dCR0FGRUFWZ0JhQUZJQVVRQnJBRGtBUWdCU0FGVUFiQUJDQUZZQVZnQkdBRU1BVmdBd0FFWUFSZ0JPQUVVQVJnQldBRm9BTUFCS0FGTUFVUUJWQUdRQWVnQlJBRllBVmdCdUFGRUFhd0JPQUVJQVVnQnJBR3dBUWdCV0FHd0FSZ0JEQUZZQU1BQkdBRVlBVXdCVkFFWUFWd0JrQURBQVNnQXhBRkVBVlFCa0FGSUFVUUJXQUVZQU13QlJBR3dBVWdCQ0FGSUFNd0JPQUVJQVZRQnRBR1FBUXdCU0FEQUFSZ0JIQUZVQVZRQkdBRmNBVlFCVkFFb0FTQUJSQUZVQVdnQktBRkVBVmdCYUFGSUFVUUJzQUZvQVFnQlNBRmNBT1FCQ0FGb0FSZ0JHQUVNQVZRQnJBRVlBUndCV0FGVUFSZ0JYQUZvQU1BQktBRFVBVVFCVkFGb0FSZ0JSQUZZQVdnQnVBRkVBYXdCa0FFSUFVZ0JGQURFQVFnQldBRllBUmdCREFHTUFhd0JHQUVZQVlnQXdBRVlBVWdCYUFEQUFTZ0JVQUZFQVZRQlNBRW9BVVFCV0FGSUFiZ0JSQUdzQVRnQkNBRklBYkFCc0FFSUFWQUJXQUVZQVF3QlNBREFBUmdCR0FGTUFWUUJHQUdFQVZRQlZBRW9BVndCUkFGVUFWZ0JhQUZFQVZnQktBRklBVVFCdEFHZ0FRZ0JTQUVVQVJnQkNBRlVBYlFCa0FFTUFZd0JyQUVZQVJ3QlNBRlVBUmdCWEFGVUFWUUJLQUV3QVVRQlZBRlVBTUFCUkFGWUFWZ0JTQUZFQWJBQmFBRUlBVWdBd0FERUFRZ0JhQUVnQVpBQkRBRlVBYXdCR0FFY0FWd0JWQUVZQVZBQmFBREFBU2dBeEFGRUFWUUJhQUVZQVVRQlhBRVlBYmdCUkFHc0FaQUJDQUZJQVZRQnNBRUlBVmdCWEFHUUFRd0JrQUVVQVJnQkZBR0VBTUFCR0FGSUFXZ0F3QUVvQVZ3QlJBRlVBVWdCQ0FGRUFWZ0JLQUc0QVVRQnJBRklBUWdCU0FHc0FNUUJDQUZRQVZRQkdBRU1BVWdBd0FFWUFSZ0JoQURBQVJnQlhBR1FBTUFCS0FGY0FVUUJWQUZZQVdnQlJBRllBWkFCdUFGRUFiQUJhQUVJQVVnQnNBRllBUWdCVkFESUFaQUJEQUZjQWF3QkdBRWNBVWdCVkFFWUFWd0JWQUZVQVNnQm9BRkVBVlFCV0FGb0FVUUJXQUZZQVVnQlJBR3dBYUFCQ0FGSUFhd0JzQUVJQVZnQlhBR1FBUXdCVkFHc0FSZ0JJQUdRQU1BQkdBR29BVVFCVkFFb0FSQUJSQUZVQVdnQktBRkVBVmdCS0FGSUFVUUJ1QUU0QVFnQlNBRlVBYkFCQ0FGWUFNUUJHQUVNQVZnQnJBRVlBUmdCWEFGVUFSZ0JTQUdRQU1BQktBRkFBVVFCVkFGb0FWZ0JSQUZZQVNnQnVBRkVBYXdCc0FFSUFVZ0JyQURFQVFnQldBR3dBUmdCREFGSUFNQUJHQUVZQVRnQkZBRVlBV0FCYUFEQUFSZ0F6QUZFQVZRQldBRm9BVVFCVkFEVUFRZ0JSQUd3QVNnQkNBRklBYkFCV0FFSUFWd0JyQUVZQVFnQmxBR3NBUmdCSEFGSUFWUUJHQUZjQVdnQXdBRW9BVUFCUkFGVUFXZ0JLQUZFQVZnQldBRklBVVFCdUFFb0FRZ0JTQUdzQWJBQkNBRlVBVndCa0FFTUFWUUF3QUVZQVJ3QldBRlVBUmdCWEFGb0FNQUJLQUVRQVVRQlZBRm9BYWdCUkFGY0FTZ0J1QUZFQWJRQjBBRUlBVWdCVkFERUFRZ0JXQUZnQVpBQkRBR01BYXdCR0FFWUFWd0JWQUVZQVV3QmFBREFBU2dCV0FGRUFWUUJhQUZZQVVRQldBRW9BYmdCUkFHd0FUZ0JDQUZJQWJBQldBRUlBVmdCc0FFWUFRd0JUQURBQVJnQkpBRllBVlFCR0FGWUFWUUJWQUVvQVZ3QlJBRlVBV2dCYUFGRUFWd0JPQUc0QVVRQnNBRW9BUWdCU0FHd0FiQUJDQUZVQWJRQmtBRUlBWlFCckFFWUFSd0JTQUZVQVJnQm9BR1FBTUFCS0FFd0FVUUJWQUZZQVNnQlJBRllBVmdCdUFGRUFXQUJzQUVJQVVnQlVBRklBUWdCVkFGY0FaQUJEQUZZQVJRQkdBRWNBVmdCVkFFWUFVd0JhQURBQVNnQkVBRkVBVlFCYUFIWUFVUUJWQURFQVFnQlJBR3NBWkFCQ0FGSUFWZ0JHQUVJQVZnQldBRVlBUXdCV0FHc0FSZ0JHQUZjQVZRQkdBRlFBV2dBd0FFb0FVd0JSQUZVQVdnQldBRkVBVmdCS0FHNEFVUUJ1QUZZQVFnQlNBR3NBVmdCQ0FGWUFiQUJHQUVNQVVnQnJBRVlBUlFCaEFEQUFSZ0JXQUZFQVZRQktBRlVBVVFCVkFGWUFSZ0JSQUZZQWNBQXpBRkVBYXdCd0FFSUFVZ0JWQURFQVFnQlZBRllBUmdCREFHSUFhd0JHQUVZQVlRQXdBRVlBVWdCa0FEQUFTZ0JEQUZFQVZRQmtBR29BVVFCV0FFNEFVZ0JSQUdzQVNnQkNBRklBUkFCQ0FFSUFWUUJHQUVZQVFnQmFBREFBUmdCRUFGRUFWUUJHQUVvQVVRQlZBRVlBYmdCUkFGVUFUZ0JDQUZFQVZRQnNBRUlBVVFCWEFHTUFad0JKQUVNQVFRQm5BRWtBUXdCQkFEMEFJQUFnQUNBQUlBQT0gICA="
+    override suspend fun getChapters(manga: Manga, doc: Document): List<MangaChapter> {
+        val dateFormat = SimpleDateFormat("MMM d, yyyy", Locale.US)
+        return doc.select(selectChapter).mapChapters(reversed = true) { i, el ->
+            val a = el.selectFirstOrThrow("a")
+            val href = a.attrAsRelativeUrl("href")
+            val name = el.selectFirstOrThrow(".aqua-ch-item__name").text()
+            val dateText = el.selectFirst(".aqua-ch-item__time")?.text()
+            MangaChapter(
+                id = generateUid(href),
+                url = href + stylePage,
+                title = name,
+                number = i + 1f,
+                volume = 0,
+                uploadDate = parseChapterDate(dateFormat, dateText),
+                source = source,
+                scanlator = null,
+                branch = null,
+            )
+        }
     }
 }
