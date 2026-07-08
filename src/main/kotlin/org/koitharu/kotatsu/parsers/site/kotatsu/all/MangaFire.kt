@@ -25,6 +25,8 @@ import org.koitharu.kotatsu.parsers.util.generateUid
 import org.koitharu.kotatsu.parsers.util.parseJson
 import java.util.EnumSet
 
+// TODO: improve perfomance
+
 internal abstract class MangaFireParser(
     context: MangaLoaderContext,
     source: MangaParserSource,
@@ -246,6 +248,7 @@ internal abstract class MangaFireParser(
         val hid = extractHid(manga.url)
         val detailsJson = apiClient.httpGet("https://$domain/api/titles/$hid").parseJson()
         val data = detailsJson.getJSONObject("data")
+        val hasVolumes = data.optBoolean("hasVolumes", false)
 
         val title = data.getString("title")
         val poster = data.optJSONObject("poster")
@@ -297,7 +300,7 @@ internal abstract class MangaFireParser(
             tags.find { it.title == name }
         }.toSet()
 
-        val chapters = fetchChapters(hid)
+        val chapters = fetchChapters(hid, hasVolumes)
 
         return manga.copy(
             title = title,
@@ -318,7 +321,7 @@ internal abstract class MangaFireParser(
         )
     }
 
-    private suspend fun fetchChapters(hid: String): List<MangaChapter> {
+    private suspend fun fetchChapters(hid: String, hasVolumes: Boolean): List<MangaChapter> {
         val chapters = mutableListOf<MangaChapter>()
         var page = 1
         var lastPage: Int
@@ -331,21 +334,18 @@ internal abstract class MangaFireParser(
 
             for (i in 0 until items.length()) {
                 val chObj = items.getJSONObject(i)
-
                 if (chObj.getString("language") != siteLang) continue
 
                 val id = chObj.getInt("id")
                 val number = chObj.getDouble("number").toFloat()
                 val name = chObj.optString("name", null)
                 val createdAt = chObj.optLong("createdAt", 0L) * 1000L
-                val type = chObj.getString("type") // "official" or "unofficial" or others
+                val type = chObj.getString("type")
                 val chapterUrl = "/title/$hid/$id"
                 val displayName = buildString {
                     append("Ch. ")
                     append(number.toString().removeSuffix(".0"))
-                    if (!name.isNullOrBlank()) {
-                        append(" - $name")
-                    }
+                    if (!name.isNullOrBlank()) append(" - $name")
                 }
                 chapters.add(
                     MangaChapter(
@@ -356,7 +356,7 @@ internal abstract class MangaFireParser(
                         url = chapterUrl,
                         scanlator = null,
                         uploadDate = createdAt,
-                        branch = type, // store raw type temporarily
+                        branch = type,
                         source = source,
                     )
                 )
@@ -364,17 +364,56 @@ internal abstract class MangaFireParser(
             page++
         } while (page <= lastPage)
 
-        val distinctTypes = chapters.map { it.branch }.distinct()
-        val useGroups = distinctTypes.size > 1
+        if (hasVolumes) {
+            try {
+                val volumesResponse = apiClient.httpGet(
+                    "https://$domain/api/titles/$hid/volumes?language=$siteLang"
+                ).parseJson()
+                val volumesItems = volumesResponse.getJSONArray("items")
+                for (i in 0 until volumesItems.length()) {
+                    val volObj = volumesItems.getJSONObject(i)
+                    if (volObj.getString("language") != siteLang) continue
+
+                    val volId = volObj.getInt("id")
+                    val volNumber = volObj.getDouble("number").toFloat()
+                    val volName = volObj.optString("name", "").takeIf { it.isNotBlank() }
+                    val chapterCount = volObj.optInt("chapterCount", 0)
+
+                    val title = buildString {
+                        append("Vol. ")
+                        append(volNumber.toString().removeSuffix(".0"))
+                        if (!volName.isNullOrBlank()) append(" - $volName")
+                        if (chapterCount > 0) append(" ($chapterCount chapters)")
+                    }
+
+                    val volUrl = "/title/$hid/vol/$volId"
+
+                    chapters.add(
+                        MangaChapter(
+                            id = generateUid(volUrl),
+                            title = title,
+                            number = volNumber,
+                            volume = 0,
+                            url = volUrl,
+                            scanlator = "Volume",
+                            uploadDate = 0L,
+                            branch = "Volume",
+                            source = source,
+                        )
+                    )
+                }
+            } catch (index: Exception) {
+                throw Exception(index)
+            }
+        }
+
+        val distinctBranches = chapters.map { it.branch }.distinct()
+        val useGroups = distinctBranches.size > 1
 
         return chapters
             .map { chapter ->
                 chapter.copy(
-                    branch = if (useGroups) {
-                        (chapter.branch ?: "").replaceFirstChar { it.uppercase() }
-                    } else {
-                        null
-                    }
+                    branch = if (useGroups) (chapter.branch ?: "").replaceFirstChar { it.uppercase() } else null
                 )
             }
             .sortedBy { it.number }
@@ -382,7 +421,10 @@ internal abstract class MangaFireParser(
 
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
         val chapterId = chapter.url.substringAfterLast("/") // numeric ID
-        val response = apiClient.httpGet("https://$domain/api/chapters/$chapterId").parseJson()
+        val isVolume = chapter.url.contains("/vol/")
+        val endpoint = if (isVolume) "volumes" else "chapters"
+
+        val response = apiClient.httpGet("https://$domain/api/$endpoint/$chapterId").parseJson()
         val pagesArray = response.getJSONObject("data").getJSONArray("pages")
         val pages = ArrayList<MangaPage>(pagesArray.length())
         for (i in 0 until pagesArray.length()) {
