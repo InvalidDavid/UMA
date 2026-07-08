@@ -24,8 +24,8 @@ import org.koitharu.kotatsu.parsers.network.OkHttpWebClient
 import org.koitharu.kotatsu.parsers.util.generateUid
 import org.koitharu.kotatsu.parsers.util.parseJson
 import java.util.EnumSet
-
-// TODO: improve perfomance
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 
 internal abstract class MangaFireParser(
     context: MangaLoaderContext,
@@ -243,12 +243,15 @@ internal abstract class MangaFireParser(
         }
         return mangas
     }
-
-    override suspend fun getDetails(manga: Manga): Manga {
+    override suspend fun getDetails(manga: Manga): Manga = coroutineScope {
         val hid = extractHid(manga.url)
+
         val detailsJson = apiClient.httpGet("https://$domain/api/titles/$hid").parseJson()
         val data = detailsJson.getJSONObject("data")
+
         val hasVolumes = data.optBoolean("hasVolumes", false)
+
+        val chaptersDeferred = async { fetchChapters(hid, hasVolumes) }
 
         val title = data.getString("title")
         val poster = data.optJSONObject("poster")
@@ -271,7 +274,6 @@ internal abstract class MangaFireParser(
             (0 until arr.length()).map { arr.getString(it) }
         } ?: emptyList()
 
-        // putting rating into description, adding it via "rating" does not work
         val raw = data.optDouble("rating", -1.0)
         val ratingValue = if (raw >= 0.0) raw.toFloat() else null
 
@@ -300,9 +302,9 @@ internal abstract class MangaFireParser(
             tags.find { it.title == name }
         }.toSet()
 
-        val chapters = fetchChapters(hid, hasVolumes)
+        val chapters = chaptersDeferred.await()
 
-        return manga.copy(
+        manga.copy(
             title = title,
             coverUrl = cover ?: manga.coverUrl,
             authors = setOfNotNull(authors),
@@ -323,24 +325,27 @@ internal abstract class MangaFireParser(
 
     private suspend fun fetchChapters(hid: String, hasVolumes: Boolean): List<MangaChapter> {
         val chapters = mutableListOf<MangaChapter>()
+        val base = "https://$domain/api/titles/$hid"
+
         var page = 1
         var lastPage: Int
         do {
-            val url = "https://$domain/api/titles/$hid/chapters?language=$siteLang&sort=number&order=desc&page=$page&limit=200"
-            val response = apiClient.httpGet(url).parseJson()
-            val items = response.getJSONArray("items")
-            val meta = response.optJSONObject("meta")
+            val json = apiClient.httpGet(
+                "$base/chapters?language=$siteLang&sort=number&order=desc&page=$page&limit=200"
+            ).parseJson()
+            val items = json.getJSONArray("items")
+            val meta = json.optJSONObject("meta")
             lastPage = meta?.optInt("lastPage", 1) ?: 1
 
             for (i in 0 until items.length()) {
-                val chObj = items.getJSONObject(i)
-                if (chObj.getString("language") != siteLang) continue
+                val ch = items.getJSONObject(i)
+                if (ch.getString("language") != siteLang) continue
 
-                val id = chObj.getInt("id")
-                val number = chObj.getDouble("number").toFloat()
-                val name = chObj.optString("name", null)
-                val createdAt = chObj.optLong("createdAt", 0L) * 1000L
-                val type = chObj.getString("type")
+                val id = ch.getInt("id")
+                val number = ch.getDouble("number").toFloat()
+                val name = ch.optString("name", null)
+                val createdAt = ch.optLong("createdAt", 0L) * 1000L
+                val type = ch.getString("type")
                 val chapterUrl = "/title/$hid/$id"
                 val displayName = buildString {
                     append("Ch. ")
@@ -366,35 +371,31 @@ internal abstract class MangaFireParser(
 
         if (hasVolumes) {
             try {
-                val volumesResponse = apiClient.httpGet(
-                    "https://$domain/api/titles/$hid/volumes?language=$siteLang"
-                ).parseJson()
-                val volumesItems = volumesResponse.getJSONArray("items")
-                for (i in 0 until volumesItems.length()) {
-                    val volObj = volumesItems.getJSONObject(i)
-                    if (volObj.getString("language") != siteLang) continue
+                val volJson = apiClient.httpGet("$base/volumes?language=$siteLang").parseJson()
+                val volItems = volJson.getJSONArray("items")
+                for (i in 0 until volItems.length()) {
+                    val vol = volItems.getJSONObject(i)
+                    if (vol.getString("language") != siteLang) continue
 
-                    val volId = volObj.getInt("id")
-                    val volNumber = volObj.getDouble("number").toFloat()
-                    val volName = volObj.optString("name", "").takeIf { it.isNotBlank() }
-                    val chapterCount = volObj.optInt("chapterCount", 0)
+                    val volId = vol.getInt("id")
+                    val volNumber = vol.getDouble("number").toFloat()
+                    val volName = vol.optString("name", "").takeIf { it.isNotBlank() }
+                    val chapterCount = vol.optInt("chapterCount", 0)
 
                     val title = buildString {
                         append("Vol. ")
                         append(volNumber.toString().removeSuffix(".0"))
-                        if (!volName.isNullOrBlank()) append(" - $volName")
+                        if (volName != null) append(" - $volName")
                         if (chapterCount > 0) append(" ($chapterCount chapters)")
                     }
 
-                    val volUrl = "/title/$hid/vol/$volId"
-
                     chapters.add(
                         MangaChapter(
-                            id = generateUid(volUrl),
+                            id = generateUid("/title/$hid/vol/$volId"),
                             title = title,
                             number = volNumber,
                             volume = 0,
-                            url = volUrl,
+                            url = "/title/$hid/vol/$volId",
                             scanlator = "Volume",
                             uploadDate = 0L,
                             branch = "Volume",
@@ -402,8 +403,7 @@ internal abstract class MangaFireParser(
                         )
                     )
                 }
-            } catch (index: Exception) {
-                throw Exception(index)
+            } catch (_: Exception) {
             }
         }
 
