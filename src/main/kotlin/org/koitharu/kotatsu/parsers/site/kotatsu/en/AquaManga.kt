@@ -99,7 +99,6 @@ internal class AquaManga(context: MangaLoaderContext) :
             MangaTag("Zombies", "zombies", source),
         ),
         availableStates = EnumSet.of(MangaState.ONGOING, MangaState.FINISHED),
-        availableContentTypes = EnumSet.of(ContentType.MANGA, ContentType.MANHWA, ContentType.MANHUA),
     )
 
     override suspend fun getDetails(manga: Manga): Manga {
