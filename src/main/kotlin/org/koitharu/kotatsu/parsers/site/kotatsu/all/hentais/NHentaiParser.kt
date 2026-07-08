@@ -34,6 +34,7 @@ internal class NHentaiParser(context: MangaLoaderContext) :
 
     override val filterCapabilities = MangaListFilterCapabilities(
         isSearchSupported = true,
+        isSearchWithFiltersSupported = true,
     )
 
     private val preferredServerKey = ConfigKey.PreferredImageServer(
@@ -52,7 +53,6 @@ internal class NHentaiParser(context: MangaLoaderContext) :
         keys.add(preferredServerKey)
     }
 
-    // Apply selected server – used later for image requests
     private val selectedServer: String
         get() = config[preferredServerKey].toString()
 
@@ -63,6 +63,7 @@ internal class NHentaiParser(context: MangaLoaderContext) :
             "zh" to "chinese",
         )
     }
+
 
     override suspend fun getFilterOptions() = MangaListFilterOptions(
         availableTags = emptySet(),
@@ -91,7 +92,6 @@ internal class NHentaiParser(context: MangaLoaderContext) :
         }
     }
 
-
     override suspend fun getListPage(
         page: Int,
         order: SortOrder,
@@ -99,7 +99,6 @@ internal class NHentaiParser(context: MangaLoaderContext) :
     ): List<Manga> {
         ensureNhConfig()
 
-        // Language filter
         val langQuery = filter.locale?.let { loc ->
             val langKey = loc.language.lowercase()
             LANG_MAP[langKey]?.let { "language:$it" }
@@ -125,11 +124,6 @@ internal class NHentaiParser(context: MangaLoaderContext) :
                 val queryParts = mutableListOf<String>()
                 if (!filter.query.isNullOrBlank()) queryParts.add(filter.query!!)
                 if (langQuery != null) queryParts.add(langQuery)
-
-                // Add selected tags as tag:"name"
-                filter.tags.forEach { tag ->
-                    queryParts.add("tag:\"${tag.key}\"")
-                }
 
                 val finalQuery = queryParts.joinToString(" ").ifBlank { "\"\"" }
                 val sort = when (order) {
