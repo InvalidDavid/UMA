@@ -44,6 +44,11 @@ internal class Mangadotnet(context: MangaLoaderContext) :
         "Wuxia", "Yaoi", "Yuri", "Zombies"
     )
 
+    override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
+        super.onCreateConfig(keys)
+        keys.add(userAgentKey)
+    }
+
     // RSC decoder
     private fun decodeRsc(flat: JSONArray): Any? {
         val cache = arrayOfNulls<Any>(flat.length())
@@ -240,30 +245,30 @@ internal class Mangadotnet(context: MangaLoaderContext) :
                 else -> null
             }
         }
-        val hiatus = mangaInfo["hiatus"] as? String
-        val status = mangaInfo["status"] as? String
+
         val genres = (mangaInfo["genres"] as? List<*>)?.filterIsInstance<String>()?.mapNotNull { it.trim().ifBlank { null } }.orEmpty()
         val altTitles = (mangaInfo["alt_titles"] as? List<*>)?.filterIsInstance<String>()?.mapNotNull { it.trim().ifBlank { null } }?.toSet().orEmpty()
         val origin = mangaInfo["country_of_origin"] as? String
-        val ratingValue = (mangaInfo["avg_rating"] as? Number)?.toFloat()
         val authorRaw = mangaInfo["authors"] as? String
         val author = parseJsonArrayString(authorRaw)?.joinToString(", ") ?: authorRaw
-        val year = (mangaInfo["year"] as? Number)?.toInt()
-        val chapterCount = (mangaInfo["chapter_count"] as? Number)?.toInt()
-        val trackedCount = (mangaInfo["tracked_count"] as? Number)?.toInt()
-        val contentRating = mangaInfo["content_rating"] as? String
-        val ratingCount = (mangaInfo["rating_count"] as? Number)?.toInt()
 
+        val statusText = mangaInfo["status_text"] as? String
+        val status = mangaInfo["status"] as? String
         val state = when {
-            "One Shot" in genres -> MangaState.FINISHED
-            hiatus.equals("Yes", ignoreCase = true) -> MangaState.PAUSED
-            else -> when (status?.lowercase()) {
+            !statusText.isNullOrBlank() -> when (statusText.lowercase()) {
                 "ongoing" -> MangaState.ONGOING
                 "completed" -> MangaState.FINISHED
+                "hiatus" -> MangaState.PAUSED
                 else -> null
             }
+            !status.isNullOrBlank() -> when (status.lowercase()) {
+                "ongoing" -> MangaState.ONGOING
+                "completed" -> MangaState.FINISHED
+                "hiatus" -> MangaState.PAUSED
+                else -> null
+            }
+            else -> null
         }
-
         val tagSet = genres.mapTo(LinkedHashSet(genres.size)) { MangaTag(key = it, title = it, source = source) }
         when (origin) {
             "JP" -> tagSet.add(MangaTag("Manga", "Manga", source))
@@ -282,50 +287,8 @@ internal class Mangadotnet(context: MangaLoaderContext) :
                 .forEach { tagSet.add(MangaTag(it, it, source)) }
         }
 
-        val anilistId = (mangaInfo["anilist_id"] as? Number)?.toLong()
-        val malId = (mangaInfo["mal_id"] as? Number)?.toLong()
-        val mangadexId = mangaInfo["mangadex_id"] as? String
-        val mangaupdatesId = mangaInfo["mangaupdates_id"] as? String
-        val kitsuId = (mangaInfo["kitsu_id"] as? Number)?.toLong()
-        val mangabakaId = (mangaInfo["mangabaka_id"] as? Number)?.toLong()
-        val sourceUrl = mangaInfo["source_url"] as? String
-
-        val richDescription = buildString {
-            ratingValue?.let { rating ->
-                val stars = (rating / 2).toInt().coerceIn(0, 5)
-                append("${"★".repeat(stars)}${"☆".repeat(5 - stars)} $rating\n\n")
-            }
-            val metaInfo = buildList {
-                year?.let { add("**Year:** $it") }
-                chapterCount?.let { add("**Chapters:** $it") }
-                trackedCount?.let { add("**Tracked:** $it") }
-                contentRating?.let { add("**Content Rating:** ${it.replaceFirstChar { c -> c.uppercase() }}") }
-                ratingCount?.takeIf { it > 0 }?.let { add("$it ratings") }
-            }
-            if (metaInfo.isNotEmpty()) {
-                append(metaInfo.joinToString(" · "), "\n\n")
-            }
-            description?.let {
-                append(it.replace("\r\n", "\n").replace(Regex("\n{3,}"), "\n\n").trim(), "\n\n")
-            }
-            val links = buildList {
-                anilistId?.let { add("[AniList](https://anilist.co/manga/$it)") }
-                malId?.let { add("[MyAnimeList](https://myanimelist.net/manga/$it)") }
-                mangadexId?.let { add("[MangaDex](https://mangadex.org/title/$it)") }
-                mangaupdatesId?.let { add("[MangaUpdates](https://www.mangaupdates.com/series/$it)") }
-                kitsuId?.let { add("[Kitsu](https://kitsu.app/manga/$it)") }
-                mangabakaId?.let { add("[MangaBaka](https://mangabaka.org/$it)") }
-                sourceUrl?.let { add("[Source]($it)") }
-            }
-            if (links.isNotEmpty()) {
-                append("\n**Links:**\n")
-                links.forEach { append("- ", it, "\n") }
-            }
-            if (altTitles.isNotEmpty()) {
-                append("\n**Alternative Names:**\n")
-                altTitles.forEach { append("- ", it, "\n") }
-            }
-        }.trim()
+        val rawRating = (mangaInfo["avg_rating"] as? Number)?.toDouble() ?: -1.0
+        val rating = if (rawRating >= 0.0) (rawRating / 10.0).toFloat() else RATING_UNKNOWN
 
         val chapters = fetchChapters(manga.url)
 
@@ -333,7 +296,8 @@ internal class Mangadotnet(context: MangaLoaderContext) :
             title = title,
             coverUrl = coverUrl,
             largeCoverUrl = largeCoverUrl,
-            description = richDescription,
+            rating=rating,
+            description = description,
             altTitles = altTitles,
             tags = tagSet,
             state = state,
