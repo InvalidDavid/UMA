@@ -39,7 +39,7 @@ internal abstract class MangaFireParser(
         SortOrder.UPDATED, // chapter update
         SortOrder.POPULARITY, // most views
         SortOrder.RATING, // rating score
-        SortOrder.ADDED, // created manga
+        SortOrder.NEWEST, // created manga
         SortOrder.ALPHABETICAL, // title asc
         SortOrder.RELEVANCE, // relevance sc
         SortOrder.POPULARITY_WEEK,
@@ -70,7 +70,6 @@ internal abstract class MangaFireParser(
         isTagsExclusionSupported = true,
         isSearchSupported = true,
         isSearchWithFiltersSupported = true,
-        isYearSupported = true,
         isYearRangeSupported = true,
     )
 
@@ -155,10 +154,22 @@ internal abstract class MangaFireParser(
         order: SortOrder,
         filter: MangaListFilter,
     ): List<Manga> {
-        val url = StringBuilder("https://$domain/api/titles?page=$page&limit=50")
+        val urlBuilder = okhttp3.HttpUrl.Builder()
+            .scheme("https")
+            .host(domain)
+            .addPathSegments("api/titles")
+            .addQueryParameter("page", page.toString())
+            .addQueryParameter("limit", "50")
 
         if (!filter.query.isNullOrBlank()) {
-            url.append("&keyword=").append(filter.query)
+            urlBuilder.addQueryParameter("keyword", filter.query)
+        }
+
+        if (filter.yearFrom > 0) {
+            urlBuilder.addQueryParameter("year_from", filter.yearFrom.toString())
+        }
+        if (filter.yearTo > 0) {
+            urlBuilder.addQueryParameter("year_to", filter.yearTo.toString())
         }
 
         filter.types.forEach { type ->
@@ -169,7 +180,7 @@ internal abstract class MangaFireParser(
                 ContentType.OTHER -> "other"
                 else -> null
             }
-            value?.let { url.append("&types[]=$it") }
+            value?.let { urlBuilder.addQueryParameter("types[]", it) }
         }
 
         filter.demographics.forEach { demo ->
@@ -180,42 +191,43 @@ internal abstract class MangaFireParser(
                 Demographic.SHOUNEN -> "268918"
                 else -> null
             }
-            id?.let { url.append("&demographics[]=$it") }
+            id?.let { urlBuilder.addQueryParameter("demographics[]", it) }
         }
 
-        filter.tags.forEach { url.append("&genres_in[]=").append(it.key) }
-        filter.tagsExclude.forEach { url.append("&genres_ex[]=").append(it.key) }
+        filter.tags.forEach { urlBuilder.addQueryParameter("genres_in[]", it.key) }
+        filter.tagsExclude.forEach { urlBuilder.addQueryParameter("genres_ex[]", it.key) }
 
-        filter.states.forEach {
-            url.append("&statuses[]=").append(
-                when (it) {
-                    MangaState.ONGOING -> "releasing"
-                    MangaState.FINISHED -> "finished"
-                    MangaState.ABANDONED -> "discontinued"
-                    MangaState.PAUSED -> "on_hiatus"
-                    MangaState.UPCOMING -> "not_yet_released"
-                    else -> ""
-                }
-            )
+        filter.states.forEach { state ->
+            val apiState = when (state) {
+                MangaState.ONGOING -> "releasing"
+                MangaState.FINISHED -> "finished"
+                MangaState.ABANDONED -> "discontinued"
+                MangaState.PAUSED -> "on_hiatus"
+                MangaState.UPCOMING -> "not_yet_released"
+                else -> null
+            }
+            apiState?.let { urlBuilder.addQueryParameter("statuses[]", it) }
         }
-
-        filter.yearFrom.let { url.append("&year_from=$it") }
-        filter.yearTo.let { url.append("&year_to=$it") }
 
         val sortParam = when (order) {
-            SortOrder.UPDATED -> "order[chapter_updated_at]=desc"
-            SortOrder.POPULARITY -> "order[views_total]=desc"
-            SortOrder.RATING -> "order[score]=desc"
-            SortOrder.ADDED -> "order[created_at]=desc"
-            SortOrder.ALPHABETICAL -> "order[title]=asc"
-            SortOrder.RELEVANCE -> "order[relevance]=desc"
-            SortOrder.POPULARITY_WEEK -> "order[views_7d]=desc"
-            SortOrder.POPULARITY_MONTH -> "order[views_30d]=desc"
-            else -> ""
+            SortOrder.UPDATED -> "chapter_updated_at" to "desc"
+            SortOrder.POPULARITY -> "views_total" to "desc"
+            SortOrder.RATING -> "score" to "desc"
+            SortOrder.NEWEST -> "created_at" to "desc"
+            SortOrder.ALPHABETICAL -> "title" to "asc"
+            SortOrder.RELEVANCE -> "relevance" to "desc"
+            SortOrder.POPULARITY_WEEK -> "views_7d" to "desc"
+            SortOrder.POPULARITY_MONTH -> "views_30d" to "desc"
+            else -> null
         }
-        if (sortParam.isNotEmpty()) url.append("&").append(sortParam)
 
-        val response = apiClient.httpGet(url.toString()).parseJson()
+        sortParam?.let { (field, dir) ->
+            urlBuilder.addQueryParameter("order[$field]", dir)
+        }
+
+        val url = urlBuilder.build().toString()
+
+        val response = apiClient.httpGet(url).parseJson()
         val items = response.getJSONArray("items")
         val mangas = mutableListOf<Manga>()
         for (i in 0 until items.length()) {
@@ -248,7 +260,6 @@ internal abstract class MangaFireParser(
         }
         return mangas
     }
-
     override suspend fun getDetails(manga: Manga): Manga = coroutineScope {
         val hid = extractHid(manga.url)
 
@@ -267,16 +278,12 @@ internal abstract class MangaFireParser(
         val synopsisHtml = data.optString("synopsisHtml", null)
         val status = data.optString("status", null)
         val type = data.optString("type", null)
-
-        // Authors & Artists
-        val authors = data.optJSONArray("authors")?.let { arr ->
+        val authorsList = data.optJSONArray("authors")?.let { arr ->
             (0 until arr.length()).map { arr.getJSONObject(it).getString("title") }
-        }?.joinToString()
-        val artists = data.optJSONArray("artists")?.let { arr ->
+        }.orEmpty()
+        val artistsList = data.optJSONArray("artists")?.let { arr ->
             (0 until arr.length()).map { arr.getJSONObject(it).getString("title") }
-        }?.joinToString()
-        val authorSet = setOfNotNull(authors, artists).filter { it.isNotBlank() }.toSet()
-
+        }.orEmpty()
         val genres = data.optJSONArray("genres")?.let { arr ->
             (0 until arr.length()).map { arr.getJSONObject(it).getString("title") }
         }
@@ -287,24 +294,10 @@ internal abstract class MangaFireParser(
             (0 until arr.length()).map { arr.getString(it) }
         } ?: emptyList()
 
-        val raw = data.optDouble("rating", -1.0)
-        val ratingValue = if (raw >= 0.0) raw.toFloat() else null
+        val rawRating = data.optDouble("rating", -1.0)
+        val rating = if (rawRating >= 0.0) (rawRating / 10.0).toFloat() else RATING_UNKNOWN
 
         val synopsisText = synopsisHtml?.let { Jsoup.parseBodyFragment(it).text() } ?: ""
-
-        val richDescription = buildString {
-            ratingValue?.let { rating ->
-                val stars = (rating / 2.0).toInt().coerceIn(0, 5)
-                append("${"★".repeat(stars)}${"☆".repeat(5 - stars)} $rating\n\n")
-            }
-            if (synopsisText.isNotBlank()) {
-                append(synopsisText.trim(), "\n\n")
-            }
-            if (altTitlesArray.isNotEmpty()) {
-                append("Alternative Names:\n")
-                altTitlesArray.forEach { append("- ", it, "\n") }
-            }
-        }.trim()
 
         val genreList = buildList {
             type?.let { add(it.replaceFirstChar { c -> c.uppercase() }) }
@@ -320,8 +313,9 @@ internal abstract class MangaFireParser(
         manga.copy(
             title = title,
             coverUrl = cover ?: manga.coverUrl,
-            authors = authorSet,
-            description = richDescription,
+            authors = (authorsList + artistsList).toSet(),
+            description = synopsisText.trim(),
+            rating = rating,
             state = when (status?.lowercase()) {
                 "releasing" -> MangaState.ONGOING
                 "finished" -> MangaState.FINISHED
