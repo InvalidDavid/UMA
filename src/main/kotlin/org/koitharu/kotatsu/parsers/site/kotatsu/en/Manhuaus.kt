@@ -8,6 +8,7 @@ import org.koitharu.kotatsu.parsers.model.MangaListFilterOptions
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import org.koitharu.kotatsu.parsers.model.MangaTag
 import org.koitharu.kotatsu.parsers.parsers.MadaraParser
+import okhttp3.Interceptor
 
 @MangaSourceParser("MANHUAUS", "Manhuaus", "en")
 internal class Manhuaus(context: MangaLoaderContext):
@@ -21,6 +22,12 @@ internal class Manhuaus(context: MangaLoaderContext):
         isAuthorSearchSupported = true,
         isSearchWithFiltersSupported = true,
         isYearSupported = false,
+    )
+
+    override fun intercept(chain: Interceptor.Chain) = chain.proceed(
+        chain.request().newBuilder()
+            .header("Referer", "https://$domain/")
+            .build()
     )
 
     override suspend fun getFilterOptions() = MangaListFilterOptions(
