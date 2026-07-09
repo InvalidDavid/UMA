@@ -10,9 +10,6 @@ import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.PagedMangaParser
 import org.koitharu.kotatsu.parsers.exception.ParseException
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import org.koitharu.kotatsu.parsers.model.ContentType
 import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaChapter
@@ -38,6 +35,7 @@ import java.security.MessageDigest
 import java.time.ZoneOffset
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
+import java.util.ArrayList
 import java.util.Calendar
 import java.util.EnumSet
 import java.util.HashSet
@@ -53,47 +51,6 @@ internal class Mangataro(context: MangaLoaderContext) :
     private val chapterNumberRegex = Regex("""(\d+(?:\.\d+)?)""")
 
     private val tokenFormatter = DateTimeFormatter.ofPattern("yyyyMMddHH", Locale.US)
-
-    private val genreTags by lazy {
-        setOf(
-            tag("7", "Action"),
-            tag("19", "Adventure"),
-            tag("41", "Award Winning"),
-            tag("49", "Boys Love"),
-            tag("62", "Comedy"),
-            tag("79", "Drama"),
-            tag("83", "Ecchi"),
-            tag("87", "Erotica"),
-            tag("91", "Fantasy"),
-            tag("93", "Full Color"),
-            tag("100", "Girls Love"),
-            tag("104", "Harem"),
-            tag("108", "Historical"),
-            tag("109", "Horror"),
-            tag("114", "Isekai"),
-            tag("116", "Josei"),
-            tag("123", "Long Strip"),
-            tag("134", "Manga"),
-            tag("136", "Manhua"),
-            tag("137", "Manhwa"),
-            tag("138", "Martial Arts"),
-            tag("152", "Mystery"),
-            tag("159", "One-shot"),
-            tag("170", "Psychological"),
-            tag("173", "Reincarnation"),
-            tag("175", "Romance"),
-            tag("178", "School"),
-            tag("180", "Sci-Fi"),
-            tag("181", "Seinen"),
-            tag("184", "Shoujo"),
-            tag("186", "Shounen"),
-            tag("190", "Slice of Life"),
-            tag("194", "Sports"),
-            tag("198", "Supernatural"),
-            tag("206", "Time Travel"),
-            tag("220", "Web Comic"),
-        )
-    }
 
     override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
         super.onCreateConfig(keys)
@@ -112,11 +69,15 @@ internal class Mangataro(context: MangaLoaderContext) :
             isSearchSupported = true,
             isSearchWithFiltersSupported = true,
             isMultipleTagsSupported = true,
+            isYearSupported = true,
         )
 
     override suspend fun getFilterOptions() = MangaListFilterOptions(
         availableTags = genreTags,
+        availableStates = EnumSet.of(MangaState.ONGOING, MangaState.FINISHED),
+        availableContentTypes = EnumSet.of(ContentType.MANGA, ContentType.MANHWA, ContentType.MANHUA, ContentType.OTHER),
     )
+
 
     override suspend fun getListPage(
         page: Int,
@@ -126,10 +87,41 @@ internal class Mangataro(context: MangaLoaderContext) :
         val payload = JSONObject().apply {
             put("page", page)
             put("search", filter.query.orEmpty())
-            put("years", "[]")
+
+            // Year
+            val yearArray = JSONArray()
+            if (filter.year > 0) yearArray.put(filter.year.toString())
+            put("years", yearArray.toString())
+
+            // Genres (tags)
             put("genres", filter.tags.toGenrePayload())
-            put("types", "[]")
-            put("statuses", "[]")
+
+            // Types
+            val typeArray = JSONArray()
+            filter.types.forEach { ct ->
+                val apiType = when (ct) {
+                    ContentType.MANGA -> "Manga"
+                    ContentType.MANHWA -> "Manhwa"
+                    ContentType.MANHUA -> "Manhua"
+                    ContentType.OTHER -> "Novel"
+                    else -> null
+                }
+                if (apiType != null) typeArray.put(apiType)
+            }
+            put("types", typeArray.toString())
+
+            // Statuses
+            val statusArray = JSONArray()
+            filter.states.forEach { state ->
+                val apiStatus = when (state) {
+                    MangaState.ONGOING -> "Ongoing"
+                    MangaState.FINISHED -> "Completed"
+                    else -> null
+                }
+                if (apiStatus != null) statusArray.put(apiStatus)
+            }
+            put("statuses", statusArray.toString())
+
             put("sort", order.toApiSort())
             put("genreMatchMode", "any")
         }
@@ -157,64 +149,53 @@ internal class Mangataro(context: MangaLoaderContext) :
         val chapters = loadChapters(mangaId, detailUrl)
         return manga.copy(
             description = description,
-            tags = if (tags.isEmpty()) manga.tags else tags,
-            authors = if (authors.isEmpty()) manga.authors else authors,
-            altTitles = if (altTitles.isEmpty()) manga.altTitles else altTitles,
+            tags = tags.ifEmpty { manga.tags },
+            authors = authors.ifEmpty { manga.authors },
+            altTitles = altTitles.ifEmpty { manga.altTitles },
             state = state,
             rating = rating,
             chapters = chapters,
         )
     }
 
-    private suspend fun loadChapters(
-        mangaId: String,
-        referer: String,
-    ): List<MangaChapter> = coroutineScope {
-
+    private suspend fun loadChapters(mangaId: String, referer: String): List<MangaChapter> {
         val headers = Headers.headersOf("Referer", referer)
-
-        val offsets = listOf(0, 100, 200, 300)
-
-        val chapters = offsets.map { offset ->
-            async {
-                val (token, timestamp) = generateChapterToken()
-
-                val url = buildChapterUrl(
-                    mangaId,
-                    offset,
-                    100,
-                    token,
-                    timestamp,
-                )
-
-                val raw = webClient.httpGet(url, headers)
-                    .parseRaw()
-                    .trim()
-
-                val json = raw.toJsonObjectOrNull()
-                    ?: return@async emptyList()
-
-                if (!json.optBoolean("success")) {
-                    return@async emptyList()
+        val result = ArrayList<MangaChapter>()
+        val seenIds = HashSet<String>()
+        var offset = 0
+        val limit = 500
+        var expectedTotal = Int.MAX_VALUE
+        while (offset < expectedTotal) {
+            val (token, timestamp) = generateChapterToken()
+            val requestUrl = buildChapterUrl(mangaId, offset, limit, token, timestamp)
+            val raw = webClient.httpGet(requestUrl, headers).parseRaw().trim()
+            if (raw.isEmpty()) {
+                break
+            }
+            val json = runCatching { JSONObject(raw) }.getOrNull() ?: break
+            if (!json.optBoolean("success", false)) {
+                break
+            }
+            expectedTotal = json.optInt("total", expectedTotal)
+            val chaptersArray = json.optJSONArray("chapters") ?: break
+            if (chaptersArray.length() == 0) {
+                break
+            }
+            for (i in 0 until chaptersArray.length()) {
+                val item = chaptersArray.getJSONObject(i)
+                val key = item.optString("id").ifEmpty { item.optString("url") }
+                if (!seenIds.add(key)) {
+                    continue
                 }
-
-                val array = json.optJSONArray("chapters")
-                    ?: return@async emptyList()
-
-                List(array.length()) { i ->
-                    array.getJSONObject(i)
-                        .toMangaChapter(
-                            (offset + i + 1).toFloat()
-                        )
-                }
+                val fallbackNumber = (offset + i + 1).toFloat()
+                result.add(item.toMangaChapter(fallbackNumber))
+            }
+            offset += chaptersArray.length()
+            if (!json.optBoolean("has_more", false)) {
+                break
             }
         }
-
-        chapters
-            .awaitAll()
-            .flatten()
-            .distinctBy { it.id }
-            .sortedBy { it.number }
+        return result
     }
 
     private fun buildChapterUrl(
@@ -239,19 +220,16 @@ internal class Mangataro(context: MangaLoaderContext) :
             .toString()
     }
 
-    private val md5 = MessageDigest.getInstance("MD5")
-
-    private fun generateChapterToken(): Pair<String,String> {
-        val timestamp = (System.currentTimeMillis()/1000L).toString()
-        val hourKey = ZonedDateTime.now(ZoneOffset.UTC)
-            .format(tokenFormatter)
-
-        val input = timestamp + "mng_ch_$hourKey"
-
-        val token = md5.digest(input.toByteArray())
+    private fun generateChapterToken(): Pair<String, String> {
+        val timestamp = (System.currentTimeMillis() / 1000L).toString()
+        val hourKey = ZonedDateTime.now(ZoneOffset.UTC).format(tokenFormatter)
+        val secret = "mng_ch_$hourKey"
+        val hashInput = timestamp + secret
+        val token = MessageDigest
+            .getInstance("MD5")
+            .digest(hashInput.toByteArray())
             .toHex()
-            .substring(0,16)
-
+            .substring(0, 16)
         return token to timestamp
     }
 
@@ -626,10 +604,10 @@ internal class Mangataro(context: MangaLoaderContext) :
         }
         val ids = LinkedHashSet<String>(size)
         for (tag in this) {
-            val numericKey = tag.key?.toIntOrNull()?.let { it.toString() }
+            val numericKey = tag.key.toIntOrNull()?.toString()
                 ?: genreTags.firstOrNull { ref ->
-                    ref.title.equals(tag.title, ignoreCase = true)
-                }?.key?.toIntOrNull()?.let { it.toString() }
+                                ref.title.equals(tag.title, ignoreCase = true)
+                            }?.key?.toIntOrNull()?.toString()
             if (numericKey != null) {
                 ids.add(numericKey)
             }
@@ -672,5 +650,212 @@ internal class Mangataro(context: MangaLoaderContext) :
         return attrAsAbsoluteUrlOrNull("data-src")
             ?: attrAsAbsoluteUrlOrNull("data-lazy-src")
             ?: attrAsAbsoluteUrlOrNull("src")
+    }
+
+    private val genreTags by lazy {
+        setOf(
+            tag("7", "Action"),
+            tag("12", "Adventure"),
+            tag("17", "Award Winning"),
+            tag("80", "Boys Love"),
+            tag("20", "Comedy"),
+            tag("8", "Drama"),
+            tag("40", "Ecchi"),
+            tag("71", "Erotica"),
+            tag("2", "Fantasy"),
+            tag("34", "Full Color"),
+            tag("49", "Girls Love"),
+            tag("64", "Harem"),
+            tag("18", "Historical"),
+            tag("44", "Horror"),
+            tag("3", "Isekai"),
+            tag("43", "Josei"),
+            tag("1172", "Long Strip"),
+            tag("14", "Manga"),
+            tag("33", "Manhua"),
+            tag("6", "Manhwa"),
+            tag("4", "Martial Arts"),
+            tag("24", "Mystery"),
+            tag("48", "One-shot"),
+            tag("26", "Psychological"),
+            tag("5", "Reincarnation"),
+            tag("29", "Romance"),
+            tag("10", "School"),
+            tag("15", "Sci-Fi"),
+            tag("19", "Seinen"),
+            tag("42", "Shoujo"),
+            tag("13", "Shounen"),
+            tag("47", "Slice of Life"),
+            tag("25", "Sports"),
+            tag("9", "Supernatural"),
+            tag("32", "Time Travel"),
+            tag("39", "Webtoon"),
+            tag("2094", "4-Koma"),
+            tag("1050", "Abandoned Children"),
+            tag("2386", "Ability Steal"),
+            tag("2397", "Absent Parents"),
+            tag("4012", "Academy"),
+            tag("999", "Accelerated Growth"),
+            tag("1351", "Adaptation"),
+            tag("1000", "Adapted to Anime"),
+            tag("5072", "Adapted to Drama CD"),
+            tag("1001", "Adapted to Game"),
+            tag("5069", "Adapted to Manga"),
+            tag("963", "Adapted to Manhua"),
+            tag("1002", "Adapted to Manhwa"),
+            tag("5070", "Adapted to Visual Novel"),
+            tag("1058", "Adopted Children"),
+            tag("88", "Adult"),
+            tag("16", "Adult Cast"),
+            tag("2861", "Age Regression"),
+            tag("964", "Alchemy"),
+            tag("965", "Aliens"),
+            tag("966", "Alternate World"),
+            tag("2862", "Ancient Times"),
+            tag("1135", "Animals"),
+            tag("2096", "Anthology"),
+            tag("93", "Anthropomorphic"),
+            tag("5071", "Appearance Different from Actual Age"),
+            tag("1037", "Aristocracy"),
+            tag("2387", "Army"),
+            tag("1005", "Army Building"),
+            tag("1047", "Arranged Marriage"),
+            tag("2401", "Arrogant Characters"),
+            tag("4551", "Artbook"),
+            tag("4004", "Artifacts"),
+            tag("2863", "Assassins"),
+            tag("98", "Avant Garde"),
+            tag("5279", "Battle Academy"),
+            tag("2388", "Battle Competition"),
+            tag("1137", "BD"),
+            tag("968", "Beast Companions"),
+            tag("969", "Beautiful Female Lead"),
+            tag("2864", "Betrayal"),
+            tag("971", "Blacksmith"),
+            tag("4237", "Boys' Love"),
+            tag("1038", "Brotherhood"),
+            tag("2398", "Business Management"),
+            tag("1006", "Calm Protagonist"),
+            tag("2392", "Cautious Protagonist"),
+            tag("94", "CGDCT"),
+            tag("4929", "Character growth"),
+            tag("51", "Childcare"),
+            tag("4818", "Children's"),
+            tag("2393", "Cold Love Interests"),
+            tag("2394", "Cold Protagonist"),
+            tag("92", "Combat Sports"),
+            tag("2118", "Cooking"),
+            tag("1753", "Crime"),
+            tag("81", "Crossdressing"),
+            tag("2395", "Cruel Characters"),
+            tag("1039", "Cunning Protagonist"),
+            tag("4817", "Cute Stuffs"),
+            tag("4930", "Dark"),
+            tag("1044", "Death of Loved Ones"),
+            tag("52", "Delinquents"),
+            tag("1376", "Demons"),
+            tag("975", "Dense Protagonist"),
+            tag("58", "Detective"),
+            tag("4008", "Devoted love interests"),
+            tag("79", "Doujinshi"),
+            tag("1040", "Dragons"),
+            tag("1048", "Drugs"),
+            tag("4795", "Dungeon"),
+            tag("1011", "Dungeons"),
+            tag("66", "Educational"),
+            tag("976", "Elemental Magic"),
+            tag("4010", "Elves"),
+            tag("4005", "Family"),
+            tag("59", "Gag Humor"),
+            tag("36", "Game"),
+            tag("979", "Game Elements"),
+            tag("106", "Gender Bender"),
+            tag("2093", "Genderswap"),
+            tag("1134", "Ghosts"),
+            tag("4739", "Gyaru"),
+            tag("76", "High Stakes Game"),
+            tag("82", "Hentai"),
+            tag("4932", "Human nonhuman relationship"),
+            tag("95", "Idols (Female)"),
+            tag("101", "Idols (Male)"),
+            tag("109", "Indonesian"),
+            tag("91", "Iyashikei"),
+            tag("107", "Kids"),
+            tag("4006", "Kingdoms"),
+            tag("1020", "Level System"),
+            tag("55", "Light Novel"),
+            tag("4207", "Loli"),
+            tag("89", "Lolicon"),
+            tag("1173", "Web Comic"),
+            tag("41", "Love Polygon"),
+            tag("100", "Love Status Quo"),
+            tag("2061", "Mafia"),
+            tag("35", "Magic"),
+            tag("2095", "Magical Girls"),
+            tag("68", "Magical Sex Shift"),
+            tag("97", "Mahou Shoujo"),
+            tag("4933", "Male"),
+            tag("4792", "Mangataro Exclusive"),
+            tag("1414", "Monster Girls"),
+            tag("37", "Monsters"),
+            tag("1024", "Multiple POV"),
+            tag("38", "Murim"),
+            tag("83", "Music"),
+            tag("53", "Mythology"),
+            tag("4601", "Ninja"),
+            tag("103", "OEL"),
+            tag("2062", "Office Workers"),
+            tag("4834", "Official Colored"),
+            tag("4210", "Oneshot"),
+            tag("50", "Organized Crime"),
+            tag("70", "Otaku Culture"),
+            tag("21", "Parody"),
+            tag("72", "Performing Arts"),
+            tag("105", "Pets"),
+            tag("63", "Philosophical"),
+            tag("1136", "Police"),
+            tag("1557", "Post-Apocalyptic"),
+            tag("102", "Racing"),
+            tag("4014", "Reincarnated in another world"),
+            tag("61", "Reverse Harem"),
+            tag("28", "Romantic Subtext"),
+            tag("60", "Samurai"),
+            tag("73", "School Life"),
+            tag("1413", "Self-Published"),
+            tag("4116", "Sexual Violence"),
+            tag("90", "Shoujo Ai"),
+            tag("104", "Shounen Ai"),
+            tag("54", "Showbiz"),
+            tag("4009", "Skill books"),
+            tag("85", "Smut"),
+            tag("84", "Space"),
+            tag("77", "Strategy Game"),
+            tag("22", "Super Power"),
+            tag("4098", "Superhero"),
+            tag("56", "Survival"),
+            tag("75", "Suspense"),
+            tag("995", "Sword And Magic"),
+            tag("27", "Team Sports"),
+            tag("591", "Thai"),
+            tag("1341", "Thriller"),
+            tag("4742", "Traditional Games"),
+            tag("65", "Tragedy"),
+            tag("4011", "Transported to another world"),
+            tag("110", "Urban Fantasy"),
+            tag("45", "Vampire"),
+            tag("2102", "Vampires"),
+            tag("31", "Video Game"),
+            tag("1366", "Video Games"),
+            tag("62", "Villainess"),
+            tag("4485", "Virtual Reality"),
+            tag("57", "Visual Arts"),
+            tag("69", "Workplace"),
+            tag("1350", "Wuxia"),
+            tag("2391", "Xianxia"),
+            tag("962", "Xuanhuan"),
+            tag("86", "Yaoi"),
+            tag("99", "Yuri"),
+            tag("1342", "Zombies"),
+        )
     }
 }
