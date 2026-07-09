@@ -141,7 +141,7 @@ internal class AquaManga(context: MangaLoaderContext) :
             val a = el.selectFirstOrThrow("a")
             val href = a.attrAsRelativeUrl("href")
             val name = el.selectFirstOrThrow(".aqua-ch-item__name").text()
-            val dateText = el.selectFirst(".aqua-ch-item__time")?.text()
+            val dateText = el.selectFirst(".aqua-ch-item__time")?.text() // doesn't really work idk
             MangaChapter(
                 id = generateUid(href),
                 url = href + stylePage,
