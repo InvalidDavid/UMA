@@ -136,23 +136,60 @@ internal class AquaManga(context: MangaLoaderContext) :
     }
 
     override suspend fun getChapters(manga: Manga, doc: Document): List<MangaChapter> {
-        val dateFormat = SimpleDateFormat("MMM d, yyyy", Locale.ROOT).apply { timeZone = TimeZone.getTimeZone("UTC") }
         return doc.select(selectChapter).mapChapters(reversed = true) { i, el ->
             val a = el.selectFirstOrThrow("a")
             val href = a.attrAsRelativeUrl("href")
             val name = el.selectFirstOrThrow(".aqua-ch-item__name").text()
-            val dateText = el.selectFirst(".aqua-ch-item__time")?.text() // doesn't really work idk
+            val dateText = el.selectFirst(".aqua-ch-item__time")?.text()?.trim()
             MangaChapter(
                 id = generateUid(href),
                 url = href + stylePage,
                 title = name,
                 number = i + 1f,
                 volume = 0,
-                uploadDate = parseChapterDate(dateFormat, dateText),
+                uploadDate = parseChapterDate(dateText),
                 source = source,
                 scanlator = null,
                 branch = null,
             )
         }
+    }
+
+    private fun parseChapterDate(text: String?): Long {
+        if (text.isNullOrBlank()) return 0L
+
+        val relativeRegex = Regex(
+            """(\d+)\s+(years?|months?|weeks?|days?|hours?|mins?|minutes?|sec(?:onds?)?)\s+ago""",
+            RegexOption.IGNORE_CASE
+        )
+        val match = relativeRegex.matchEntire(text)
+        if (match != null) {
+            val number = match.groupValues[1].toInt()
+            val unit = match.groupValues[2].lowercase()
+            val cal = Calendar.getInstance()
+            when {
+                unit.startsWith("year")   -> cal.add(Calendar.YEAR, -number)
+                unit.startsWith("month")  -> cal.add(Calendar.MONTH, -number)
+                unit.startsWith("week")   -> cal.add(Calendar.DAY_OF_MONTH, -number * 7)
+                unit.startsWith("day")    -> cal.add(Calendar.DAY_OF_MONTH, -number)
+                unit.startsWith("hour")   -> cal.add(Calendar.HOUR, -number)
+                unit.startsWith("min")    -> cal.add(Calendar.MINUTE, -number)
+                unit.startsWith("sec")    -> cal.add(Calendar.SECOND, -number)
+            }
+            return cal.timeInMillis
+        }
+
+        val formats = listOf(
+            SimpleDateFormat("MMM d, yyyy", Locale.ROOT).apply { timeZone = TimeZone.getTimeZone("UTC") },
+            SimpleDateFormat("MMM dd, yyyy", Locale.ROOT).apply { timeZone = TimeZone.getTimeZone("UTC") },
+            SimpleDateFormat("MMMM d, yyyy", Locale.ROOT).apply { timeZone = TimeZone.getTimeZone("UTC") },
+        )
+        for (fmt in formats) {
+            try {
+                return fmt.parse(text)?.time ?: 0L
+            } catch (_: Exception) {}
+        }
+
+        return 0L
     }
 }
