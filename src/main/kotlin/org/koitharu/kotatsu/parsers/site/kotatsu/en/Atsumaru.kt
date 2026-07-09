@@ -11,6 +11,8 @@ import org.koitharu.kotatsu.parsers.core.PagedMangaParser
 import org.koitharu.kotatsu.parsers.model.*
 import org.koitharu.kotatsu.parsers.util.*
 import java.util.*
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 
 @MangaSourceParser("ATSUMARU", "Atsumaru", "en")
 internal class Atsumaru(context: MangaLoaderContext) :
@@ -251,102 +253,129 @@ internal class Atsumaru(context: MangaLoaderContext) :
 
     // limit tags to 20
     override suspend fun getDetails(manga: Manga): Manga {
-        val mangaId = manga.url.substringAfterLast("/")
-        val pageJson = webClient.httpGet("$baseUrl/api/manga/page?id=$mangaId", apiHeaders).parseJson()
-        val mangaPage = pageJson.optJSONObject("mangaPage") ?: return manga
+        detailsCache[manga.url]?.let { return it }
 
-        val title = mangaPage.optString("title").ifEmpty { mangaPage.optString("englishTitle", manga.title) }
-        val description = mangaPage.optString("synopsis") ?: manga.description
+        val result = coroutineScope {
+            val mangaId = manga.url.substringAfterLast("/")
 
-        val posterObj = mangaPage.optJSONObject("poster")
-        val posterImage = posterObj?.optString("mediumImage")
-        val coverUrl = if (!posterImage.isNullOrEmpty()) {
-            "https://$domain/static/$posterImage"
-        } else manga.coverUrl
-
-        val authors = mangaPage.optJSONArray("authors")?.let { arr ->
-            (0 until arr.length()).mapNotNull { arr.optJSONObject(it)?.optString("name") }.toSet()
-        } ?: emptySet()
-
-        val statusText = mangaPage.optString("status").orEmpty()
-        val state = when (statusText.lowercase()) {
-            "ongoing" -> MangaState.ONGOING
-            "completed" -> MangaState.FINISHED
-            "hiatus" -> MangaState.PAUSED
-            "canceled" -> MangaState.ABANDONED
-            else -> manga.state
-        }
-
-        val tagSet = mutableSetOf<MangaTag>()
-        mangaPage.optJSONArray("genres")?.let { arr ->
-            for (i in 0 until minOf(arr.length(), 10)) {
-                val obj = arr.optJSONObject(i) ?: continue
-                val name = obj.optString("name").takeIf { it.isNotEmpty() } ?: continue
-                tagSet.add(MangaTag(name, "genre:${obj.optString("id")}", source))
+            val pageDeferred = async {
+                webClient.httpGet("$baseUrl/api/manga/page?id=$mangaId", apiHeaders).parseJson()
             }
-        }
-        mangaPage.optJSONArray("tags")?.let { arr ->
-            for (i in 0 until minOf(arr.length(), 10)) {
-                val obj = arr.optJSONObject(i) ?: continue
-                val name = obj.optString("name").takeIf { it.isNotEmpty() } ?: continue
-                tagSet.add(MangaTag(name, "tag:${obj.optString("id")}", source))
+            val chaptersDeferred = async {
+                webClient.httpGet("$baseUrl/api/manga/allChapters?mangaId=$mangaId", apiHeaders).parseJson()
             }
-        }
 
-        val chaptersJson = webClient.httpGet("$baseUrl/api/manga/allChapters?mangaId=$mangaId", apiHeaders).parseJson()
-        val chaptersArray = chaptersJson.optJSONArray("chapters") ?: JSONArray()
-        val scanlators = mutableMapOf<String, String>()
-        mangaPage.optJSONArray("scanlators")?.let { scanArr ->
-            for (i in 0 until scanArr.length()) {
-                val sc = scanArr.optJSONObject(i) ?: continue
-                val id = sc.optString("id").takeIf { it.isNotEmpty() } ?: continue
-                val name = sc.optString("name").takeIf { it.isNotEmpty() } ?: continue
-                scanlators[id] = name
+            val pageJson = pageDeferred.await()
+            val mangaPage = pageJson.optJSONObject("mangaPage") ?: return@coroutineScope manga
+
+            val title = mangaPage.optString("title").ifEmpty { mangaPage.optString("englishTitle", manga.title) }
+            val description = mangaPage.optString("synopsis") ?: manga.description
+
+            val rawRating = mangaPage.optDouble("avgRating", -1.0)
+            val rating = if (rawRating >= 0.0) (rawRating / 10.0).toFloat() else RATING_UNKNOWN
+
+            val posterObj = mangaPage.optJSONObject("poster")
+            val posterImage = posterObj?.optString("mediumImage")
+            val coverUrl = if (!posterImage.isNullOrEmpty()) {
+                "https://$domain/static/$posterImage"
+            } else manga.coverUrl
+
+            val authors = mangaPage.optJSONArray("authors")?.let { arr ->
+                (0 until arr.length()).mapNotNull { arr.optJSONObject(it)?.optString("name") }.toSet()
+            } ?: emptySet()
+
+            val statusText = mangaPage.optString("status").orEmpty()
+            val state = when (statusText.lowercase()) {
+                "ongoing" -> MangaState.ONGOING
+                "completed" -> MangaState.FINISHED
+                "hiatus" -> MangaState.PAUSED
+                "canceled" -> MangaState.ABANDONED
+                else -> manga.state
             }
-        }
 
-        val chapters = (0 until chaptersArray.length()).map { i ->
-            val ch = chaptersArray.getJSONObject(i)
-            val chId = ch.getString("id")
-            val number = ch.optDouble("number", 0.0).toFloat()
-            val chTitle = ch.optString("title")
-            val scanId = ch.optString("scanlationMangaId").nullIfEmpty()
-            val scanName = scanId?.let { scanlators[it] }
-            val createdAt = ch.optLong("createdAt", 0L)
+            val tagSet = mutableSetOf<MangaTag>()
+            mangaPage.optJSONArray("genres")?.let { arr ->
+                for (i in 0 until minOf(arr.length(), 10)) {
+                    val obj = arr.optJSONObject(i) ?: continue
+                    val name = obj.optString("name").takeIf { it.isNotEmpty() } ?: continue
+                    tagSet.add(MangaTag(name, "genre:${obj.optString("id")}", source))
+                }
+            }
+            mangaPage.optJSONArray("tags")?.let { arr ->
+                for (i in 0 until minOf(arr.length(), 10)) {
+                    val obj = arr.optJSONObject(i) ?: continue
+                    val name = obj.optString("name").takeIf { it.isNotEmpty() } ?: continue
+                    tagSet.add(MangaTag(name, "tag:${obj.optString("id")}", source))
+                }
+            }
 
-            MangaChapter(
-                id = generateUid("$mangaId/$chId"),
-                title = chTitle.ifBlank { "Chapter $number" },
-                number = number,
-                volume = 0,
-                url = "$mangaId/$chId",
-                uploadDate = createdAt,
-                source = source,
-                scanlator = scanName,
-                branch = scanName,
+            val chaptersJson = chaptersDeferred.await()
+            val chaptersArray = chaptersJson.optJSONArray("chapters") ?: JSONArray()
+
+            val scanlators = mutableMapOf<String, String>()
+            mangaPage.optJSONArray("scanlators")?.let { scanArr ->
+                for (i in 0 until scanArr.length()) {
+                    val sc = scanArr.optJSONObject(i) ?: continue
+                    val id = sc.optString("id").takeIf { it.isNotEmpty() } ?: continue
+                    val name = sc.optString("name").takeIf { it.isNotEmpty() } ?: continue
+                    scanlators[id] = name
+                }
+            }
+
+            val chapters = (0 until chaptersArray.length()).map { i ->
+                val ch = chaptersArray.getJSONObject(i)
+                val chId = ch.getString("id")
+                val number = ch.optDouble("number", 0.0).toFloat()
+                val chTitle = ch.optString("title")
+                val scanId = ch.optString("scanlationMangaId").nullIfEmpty()
+                val scanName = scanId?.let { scanlators[it] }
+                val createdAt = ch.optLong("createdAt", 0L)
+
+                MangaChapter(
+                    id = generateUid("$mangaId/$chId"),
+                    title = chTitle.ifBlank { "Chapter $number" },
+                    number = number,
+                    volume = 0,
+                    url = "$mangaId/$chId",
+                    uploadDate = createdAt,
+                    source = source,
+                    scanlator = scanName,
+                    branch = scanName,
+                )
+            }.reversed()
+
+            val groupedChapters = if (chapters.map { it.branch }.distinct().size > 1) {
+                chapters.map { it.copy(branch = it.branch ?: "Unknown") }
+            } else {
+                chapters.map { it.copy(branch = null, scanlator = null) }
+            }
+
+            val altTitles = mangaPage.optJSONArray("otherNames")?.let { arr ->
+                (0 until arr.length()).mapNotNull { arr.optString(it) }.toSet()
+            } ?: emptySet()
+
+            manga.copy(
+                title = title,
+                description = description,
+                coverUrl = coverUrl,
+                authors = authors,
+                state = state,
+                tags = tagSet,
+                rating = rating,
+                chapters = groupedChapters,
+                altTitles = altTitles,
             )
-        }.reversed()
-
-        val groupedChapters = if (chapters.map { it.branch }.distinct().size > 1) {
-            chapters.map { it.copy(branch = it.branch ?: "Unknown") }
-        } else {
-            chapters.map { it.copy(branch = null, scanlator = null) }
         }
 
-        val altTitles = mangaPage.optJSONArray("otherNames")?.let { arr ->
-            (0 until arr.length()).mapNotNull { arr.optString(it) }.toSet()
-        } ?: emptySet()
+        detailsCache.put(manga.url, result)
+        return result
+    }
 
-        return manga.copy(
-            title = title,
-            description = description,
-            coverUrl = coverUrl,
-            authors = authors,
-            state = state,
-            tags = tagSet,
-            chapters = groupedChapters,
-            altTitles = altTitles,
-        )
+    @get:Synchronized
+    private val detailsCache = object : LinkedHashMap<String, Manga>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Manga>?): Boolean {
+            return size > 20
+        }
     }
 
     override suspend fun getRelatedManga(seed: Manga): List<Manga> {
