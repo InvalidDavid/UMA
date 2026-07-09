@@ -365,10 +365,10 @@ internal class ProjectSuki(context: MangaLoaderContext) :
         }
 
         val formats = listOf(
-            SimpleDateFormat("MMMM dd, yyyy", Locale.ENGLISH),
-            SimpleDateFormat("MMM dd, yyyy", Locale.ENGLISH),
-            SimpleDateFormat("MMM d, yyyy", Locale.ENGLISH),
-            SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH),
+            SimpleDateFormat("MMMM dd, yyyy", Locale.US),
+            SimpleDateFormat("MMM dd, yyyy", Locale.US),
+            SimpleDateFormat("MMM d, yyyy", Locale.US),
+            SimpleDateFormat("yyyy-MM-dd", Locale.US),
         )
         for (fmt in formats) {
             try {
