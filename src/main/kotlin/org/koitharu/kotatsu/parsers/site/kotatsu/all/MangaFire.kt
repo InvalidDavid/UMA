@@ -393,8 +393,8 @@ internal abstract class MangaFireParser(
                         append("Vol. ")
                         append(volNumber.toString().removeSuffix(".0"))
                         if (volName != null) append(" - $volName")
-                        if (chapterCount > 0) append(" ($chapterCount chapters)")
                     }
+                    val name = if (chapterCount > 0) "$chapterCount chapters" else ""
 
                     chapters.add(
                         MangaChapter(
@@ -403,7 +403,7 @@ internal abstract class MangaFireParser(
                             number = volNumber,
                             volume = 0,
                             url = "/title/$hid/vol/$volId",
-                            scanlator = "Volume",
+                            scanlator = name,
                             uploadDate = 0L,
                             branch = "Volume",
                             source = source,
