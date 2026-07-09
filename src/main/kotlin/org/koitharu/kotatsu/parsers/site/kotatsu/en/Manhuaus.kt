@@ -13,7 +13,7 @@ import org.koitharu.kotatsu.parsers.parsers.MadaraParser
 internal class Manhuaus(context: MangaLoaderContext):
     MadaraParser(context, MangaParserSource.MANHUAUS, "manhuaus.com") {
 
-    override val postReq = true
+    override val postReq = false
 
     override val filterCapabilities = MangaListFilterCapabilities(
         isMultipleTagsSupported = true,
