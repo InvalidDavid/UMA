@@ -39,7 +39,7 @@ internal abstract class MangaFireParser(
         SortOrder.UPDATED, // chapter update
         SortOrder.POPULARITY, // most views
         SortOrder.RATING, // rating score
-        SortOrder.NEWEST, // created manga
+        SortOrder.ADDED, // created manga
         SortOrder.ALPHABETICAL, // title asc
         SortOrder.RELEVANCE, // relevance sc
         SortOrder.POPULARITY_WEEK,
@@ -70,6 +70,8 @@ internal abstract class MangaFireParser(
         isTagsExclusionSupported = true,
         isSearchSupported = true,
         isSearchWithFiltersSupported = true,
+        isYearSupported = true,
+        isYearRangeSupported = true,
     )
 
     companion object {
@@ -197,11 +199,14 @@ internal abstract class MangaFireParser(
             )
         }
 
+        filter.yearFrom.let { url.append("&year_from=$it") }
+        filter.yearTo.let { url.append("&year_to=$it") }
+
         val sortParam = when (order) {
             SortOrder.UPDATED -> "order[chapter_updated_at]=desc"
             SortOrder.POPULARITY -> "order[views_total]=desc"
             SortOrder.RATING -> "order[score]=desc"
-            SortOrder.NEWEST -> "order[created_at]=desc"
+            SortOrder.ADDED -> "order[created_at]=desc"
             SortOrder.ALPHABETICAL -> "order[title]=asc"
             SortOrder.RELEVANCE -> "order[relevance]=desc"
             SortOrder.POPULARITY_WEEK -> "order[views_7d]=desc"
@@ -243,6 +248,7 @@ internal abstract class MangaFireParser(
         }
         return mangas
     }
+
     override suspend fun getDetails(manga: Manga): Manga = coroutineScope {
         val hid = extractHid(manga.url)
 
@@ -261,9 +267,16 @@ internal abstract class MangaFireParser(
         val synopsisHtml = data.optString("synopsisHtml", null)
         val status = data.optString("status", null)
         val type = data.optString("type", null)
+
+        // Authors & Artists
         val authors = data.optJSONArray("authors")?.let { arr ->
             (0 until arr.length()).map { arr.getJSONObject(it).getString("title") }
         }?.joinToString()
+        val artists = data.optJSONArray("artists")?.let { arr ->
+            (0 until arr.length()).map { arr.getJSONObject(it).getString("title") }
+        }?.joinToString()
+        val authorSet = setOfNotNull(authors, artists).filter { it.isNotBlank() }.toSet()
+
         val genres = data.optJSONArray("genres")?.let { arr ->
             (0 until arr.length()).map { arr.getJSONObject(it).getString("title") }
         }
@@ -307,7 +320,7 @@ internal abstract class MangaFireParser(
         manga.copy(
             title = title,
             coverUrl = cover ?: manga.coverUrl,
-            authors = setOfNotNull(authors),
+            authors = authorSet,
             description = richDescription,
             state = when (status?.lowercase()) {
                 "releasing" -> MangaState.ONGOING
