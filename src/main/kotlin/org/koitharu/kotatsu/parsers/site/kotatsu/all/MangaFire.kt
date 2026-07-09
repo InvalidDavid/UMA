@@ -260,74 +260,89 @@ internal abstract class MangaFireParser(
         }
         return mangas
     }
-    override suspend fun getDetails(manga: Manga): Manga = coroutineScope {
-        val hid = extractHid(manga.url)
 
-        val detailsJson = apiClient.httpGet("https://$domain/api/titles/$hid").parseJson()
-        val data = detailsJson.getJSONObject("data")
+    override suspend fun getDetails(manga: Manga): Manga {
+        detailsCache[manga.url]?.let { return it }
 
-        val hasVolumes = data.optBoolean("hasVolumes", false)
+        val result = coroutineScope {
+            val hid = extractHid(manga.url)
 
-        val chaptersDeferred = async { fetchChapters(hid, hasVolumes) }
+            val detailsJson = apiClient.httpGet("https://$domain/api/titles/$hid").parseJson()
+            val data = detailsJson.getJSONObject("data")
 
-        val title = data.getString("title")
-        val poster = data.optJSONObject("poster")
-        val cover = poster?.optString("large")
-            ?: poster?.optString("medium")
-            ?: poster?.optString("small")
-        val synopsisHtml = data.optString("synopsisHtml", null)
-        val status = data.optString("status", null)
-        val type = data.optString("type", null)
-        val authorsList = data.optJSONArray("authors")?.let { arr ->
-            (0 until arr.length()).map { arr.getJSONObject(it).getString("title") }
-        }.orEmpty()
-        val artistsList = data.optJSONArray("artists")?.let { arr ->
-            (0 until arr.length()).map { arr.getJSONObject(it).getString("title") }
-        }.orEmpty()
-        val genres = data.optJSONArray("genres")?.let { arr ->
-            (0 until arr.length()).map { arr.getJSONObject(it).getString("title") }
+            val hasVolumes = data.optBoolean("hasVolumes", false)
+
+            val chaptersDeferred = async { fetchChapters(hid, hasVolumes) }
+
+            val title = data.getString("title")
+            val poster = data.optJSONObject("poster")
+            val cover = poster?.optString("large")
+                ?: poster?.optString("medium")
+                ?: poster?.optString("small")
+            val synopsisHtml = data.optString("synopsisHtml", null)
+            val status = data.optString("status", null)
+            val type = data.optString("type", null)
+            val authorsList = data.optJSONArray("authors")?.let { arr ->
+                (0 until arr.length()).map { arr.getJSONObject(it).getString("title") }
+            }.orEmpty()
+            val artistsList = data.optJSONArray("artists")?.let { arr ->
+                (0 until arr.length()).map { arr.getJSONObject(it).getString("title") }
+            }.orEmpty()
+            val genres = data.optJSONArray("genres")?.let { arr ->
+                (0 until arr.length()).map { arr.getJSONObject(it).getString("title") }
+            }
+            val themes = data.optJSONArray("themes")?.let { arr ->
+                (0 until arr.length()).map { arr.getJSONObject(it).getString("title") }
+            }
+            val altTitlesArray = data.optJSONArray("altTitles")?.let { arr ->
+                (0 until arr.length()).map { arr.getString(it) }
+            } ?: emptyList()
+
+            val rawRating = data.optDouble("rating", -1.0)
+            val rating = if (rawRating >= 0.0) (rawRating / 10.0).toFloat() else RATING_UNKNOWN
+
+            val synopsisText = synopsisHtml?.let { Jsoup.parseBodyFragment(it).text() } ?: ""
+
+            val genreList = buildList {
+                type?.let { add(it.replaceFirstChar { c -> c.uppercase() }) }
+                genres?.let { addAll(it) }
+                themes?.let { addAll(it) }
+            }
+            val genreTags = genreList.mapNotNull { name ->
+                tags.find { it.title == name }
+            }.toSet()
+
+            val chapters = chaptersDeferred.await()
+
+            manga.copy(
+                title = title,
+                coverUrl = cover ?: manga.coverUrl,
+                authors = (authorsList + artistsList).toSet(),
+                description = synopsisText.trim(),
+                rating = rating,
+                state = when (status?.lowercase()) {
+                    "releasing" -> MangaState.ONGOING
+                    "finished" -> MangaState.FINISHED
+                    "discontinued" -> MangaState.ABANDONED
+                    "on_hiatus" -> MangaState.PAUSED
+                    "not_yet_released" -> MangaState.UPCOMING
+                    else -> null
+                },
+                tags = genreTags,
+                altTitles = altTitlesArray.toSet(),
+                chapters = chapters,
+            )
         }
-        val themes = data.optJSONArray("themes")?.let { arr ->
-            (0 until arr.length()).map { arr.getJSONObject(it).getString("title") }
+
+        detailsCache.put(manga.url, result)
+        return result
+    }
+
+    @get:Synchronized
+    private val detailsCache = object : LinkedHashMap<String, Manga>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Manga>?): Boolean {
+            return size > 20
         }
-        val altTitlesArray = data.optJSONArray("altTitles")?.let { arr ->
-            (0 until arr.length()).map { arr.getString(it) }
-        } ?: emptyList()
-
-        val rawRating = data.optDouble("rating", -1.0)
-        val rating = if (rawRating >= 0.0) (rawRating / 10.0).toFloat() else RATING_UNKNOWN
-
-        val synopsisText = synopsisHtml?.let { Jsoup.parseBodyFragment(it).text() } ?: ""
-
-        val genreList = buildList {
-            type?.let { add(it.replaceFirstChar { c -> c.uppercase() }) }
-            genres?.let { addAll(it) }
-            themes?.let { addAll(it) }
-        }
-        val genreTags = genreList.mapNotNull { name ->
-            tags.find { it.title == name }
-        }.toSet()
-
-        val chapters = chaptersDeferred.await()
-
-        manga.copy(
-            title = title,
-            coverUrl = cover ?: manga.coverUrl,
-            authors = (authorsList + artistsList).toSet(),
-            description = synopsisText.trim(),
-            rating = rating,
-            state = when (status?.lowercase()) {
-                "releasing" -> MangaState.ONGOING
-                "finished" -> MangaState.FINISHED
-                "discontinued" -> MangaState.ABANDONED
-                "on_hiatus" -> MangaState.PAUSED
-                "not_yet_released" -> MangaState.UPCOMING
-                else -> null
-            },
-            tags = genreTags,
-            altTitles = altTitlesArray.toSet(),
-            chapters = chapters,
-        )
     }
 
     private suspend fun fetchChapters(hid: String, hasVolumes: Boolean): List<MangaChapter> {
