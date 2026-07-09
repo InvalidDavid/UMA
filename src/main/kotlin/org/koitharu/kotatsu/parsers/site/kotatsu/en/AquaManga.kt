@@ -136,7 +136,7 @@ internal class AquaManga(context: MangaLoaderContext) :
     }
 
     override suspend fun getChapters(manga: Manga, doc: Document): List<MangaChapter> {
-        val dateFormat = SimpleDateFormat("MMM d, yyyy", Locale.US)
+        val dateFormat = SimpleDateFormat("MMM d, yyyy", Locale.ROOT).apply { timeZone = TimeZone.getTimeZone("UTC") }
         return doc.select(selectChapter).mapChapters(reversed = true) { i, el ->
             val a = el.selectFirstOrThrow("a")
             val href = a.attrAsRelativeUrl("href")
