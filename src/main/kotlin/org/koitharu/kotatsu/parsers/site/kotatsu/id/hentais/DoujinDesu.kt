@@ -1,12 +1,13 @@
-package org.koitharu.kotatsu.parsers.site.kotatsu.id
+package org.koitharu.kotatsu.parsers.site.kotatsu.id.hentais
 
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
-import org.koitharu.kotatsu.parsers.model.*
 import org.koitharu.kotatsu.parsers.MangaSourceParser
+import org.koitharu.kotatsu.parsers.model.ContentType
+import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import org.koitharu.kotatsu.parsers.parsers.DoujinDesuParser
 import java.util.EnumSet
 
-@MangaSourceParser("DOUJINDESU", "DoujinDesu", "id")
+@MangaSourceParser("DOUJINDESU", "DoujinDesu", "id", ContentType.HENTAI)
 internal class DoujinDesu(context: MangaLoaderContext) :
     DoujinDesuParser(context, MangaParserSource.DOUJINDESU) {
 
