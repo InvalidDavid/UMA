@@ -3,7 +3,7 @@
 [![Stars][stars-shield]][stars-url]
 [![Issues][issues-shield]][issues-url]
 [![License][license-shield]][license-url]
-
+### Please give the repo a ⭐
 # Sources Requests
 
 Open up an Issue with these contents:
@@ -40,49 +40,10 @@ There are actually two ways, one which you manually update the Plugin from time 
 
 <br>
 
----
+
 
 <details>
-<summary><b>Manually way</b></summary>
-
-<br>
-<details>
-<summary>📥 How to download .jar File</summary>
-
-![Screenshot][img3]
-
-</details>
-<details>
-<summary>📷 Image Turoial</summary>
-
-![Screenshot][img5]
-
-</details>
-
-1. Download the latest version of the Plugin from the [Releases](https://github.com/InvalidDavid/UMA/releases) page.
-Click on the blue Name or press the three dots on the right side and press Download.
-
-
-2. Go back to the App and open up `Explore`
-
-
-3. Click on `three Dots in the top right corner` and select `Manage Sources`
-
-
-4. Go to `Manage Plugins` and press the `Add` / `+` button in the top right corner.
-
-
-5. Select `Import from local storage` and select `UMA.jar` file which you downloaded in the previous step.
-
-And that's it! Select your new sources in the catalog and have fun reading.
-</details>
-
-<br>
-
----
-
-<details>
-<summary><b>Automatically</b></summary>
+<summary><b>Automatically (recommended)</b></summary>
 
 <br>
 
@@ -133,9 +94,48 @@ And that's it! Select your new sources in the catalog and have fun reading.
 
 </details>
 
-</details>
+
 
 ---
+
+<details>
+<summary><b>Manually way</b></summary>
+
+<br>
+<details>
+<summary>📥 How to download .jar File</summary>
+
+![Screenshot][img3]
+
+</details>
+<details>
+<summary>📷 Image Turoial</summary>
+
+![Screenshot][img5]
+
+</details>
+
+1. Download the latest version of the Plugin from the [Releases](https://github.com/InvalidDavid/UMA/releases) page.
+Click on the blue Name or press the three dots on the right side and press Download.
+
+
+2. Go back to the App and open up `Explore`
+
+
+3. Click on `three Dots in the top right corner` and select `Manage Sources`
+
+
+4. Go to `Manage Plugins` and press the `Add` / `+` button in the top right corner.
+
+
+5. Select `Import from local storage` and select `UMA.jar` file which you downloaded in the previous step.
+
+And that's it! Select your new sources in the catalog and have fun reading.
+</details>
+</details>
+
+<br>
+
 
 # Setup
 
