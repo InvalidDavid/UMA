@@ -341,7 +341,7 @@ internal abstract class MangaFireParser(
     @get:Synchronized
     private val detailsCache = object : LinkedHashMap<String, Manga>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Manga>?): Boolean {
-            return size > 20
+            return size > 5
         }
     }
 
