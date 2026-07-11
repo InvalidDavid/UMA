@@ -27,14 +27,12 @@ internal abstract class DoujinDesuParser(
         keys.add(userAgentKey)
     }
 
-    @get:Synchronized
-    private val genresCache = object : LinkedHashMap<String, Set<MangaTag>>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Set<MangaTag>>?): Boolean = size > 3
-    }
+    @Volatile
+    private var genresCache: Set<MangaTag>? = null
 
     @get:Synchronized
     private val detailsCache = object : LinkedHashMap<String, Manga>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Manga>?): Boolean = size > 20
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Manga>?): Boolean = size > 5
     }
 
     override val defaultSortOrder: SortOrder
@@ -58,10 +56,9 @@ internal abstract class DoujinDesuParser(
     )
 
     private suspend fun getOrFetchGenres(): Set<MangaTag> {
-        val cacheKey = "all" // single key since genre list rarely changes
-        genresCache[cacheKey]?.let { return it }
+        genresCache?.let { return it }
         val tags = fetchAvailableTags()
-        genresCache[cacheKey] = tags
+        genresCache = tags
         return tags
     }
 
@@ -307,7 +304,7 @@ internal abstract class DoujinDesuParser(
     private fun generateKey(step: Long): String {
         val input = "doujindesu-scrapers-cannot-read-this-super-secret-salt-2026-v2_$step"
         var n = 0
-        for (i in 0 until input.length) {
+        for (i in input.indices) {
             n = (n shl 5) - n + input[i].code
         }
         var seed = if (n == 0) 123456789L else kotlin.math.abs(n.toLong())
