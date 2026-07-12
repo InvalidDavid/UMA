@@ -17,19 +17,12 @@ internal class Zinmanga(context: MangaLoaderContext) :
     override val datePattern = "yyyy-MM-dd"
     override val withoutAjax = true
 
-    // The reader page carries a ubiquitous `<p class="tooltip login-required">`
-    // tooltip on its bookmark/comment buttons. The Madara default treats any
-    // `.login-required` element as a hard content block and throws
-    // AuthRequiredException ("needs to connect") before parsing the images,
-    // so narrow the check to the real block marker only.
     override val selectRequiredLogin = ".content-blocked"
 
     override fun getRequestHeaders() = super.getRequestHeaders().newBuilder()
         .set("Referer", "https://www.zinmanga.net/")
         .build()
 
-    // The site no longer embeds chapters in the manga page; they are loaded
-    // from a paginated JSON API (/api/comics/{slug}/chapters).
     override suspend fun getChapters(manga: Manga, doc: Document): List<MangaChapter> {
         val slug = manga.url.removeSuffix("/").substringAfterLast('/')
         val mangaUrl = manga.url.removeSuffix("/")
@@ -61,7 +54,6 @@ internal class Zinmanga(context: MangaLoaderContext) :
             if (page >= lastPage) break
             page++
         }
-        // API returns newest-first; reverse so chapters are ordered oldest-first.
-        return collected.asReversed().distinctBy { it.id }
+        return collected.sortedBy { it.number }
     }
 }
