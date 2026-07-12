@@ -93,10 +93,11 @@ internal class Mangadotnet(context: MangaLoaderContext) :
     )
 
     override val availableSortOrders: Set<SortOrder> = EnumSet.of(
-        SortOrder.UPDATED,
-        SortOrder.POPULARITY,
-        SortOrder.RATING,
-        SortOrder.ALPHABETICAL,
+        SortOrder.UPDATED, // latest
+        SortOrder.POPULARITY, // most viewed
+        SortOrder.RATING, // top rated
+        SortOrder.ALPHABETICAL, // a-z
+        SortOrder.RELEVANCE, // most tracked
     )
 
     override suspend fun getFilterOptions(): MangaListFilterOptions {
@@ -104,8 +105,8 @@ internal class Mangadotnet(context: MangaLoaderContext) :
         return MangaListFilterOptions(
             availableTags = tags,
             availableStates = EnumSet.of(MangaState.ONGOING, MangaState.FINISHED, MangaState.PAUSED),
-            availableContentTypes = setOf(ContentType.MANGA, ContentType.MANHWA, ContentType.MANHUA, ContentType.OTHER),
-            availableDemographics = setOf(Demographic.JOSEI, Demographic.SEINEN, Demographic.SHOUJO, Demographic.SHOUNEN),
+            availableContentTypes = EnumSet.of(ContentType.MANGA, ContentType.MANHWA, ContentType.MANHUA, ContentType.OTHER),
+            availableDemographics = EnumSet.of(Demographic.JOSEI, Demographic.SEINEN, Demographic.SHOUJO, Demographic.SHOUNEN),
         )
     }
 
@@ -122,6 +123,7 @@ internal class Mangadotnet(context: MangaLoaderContext) :
             SortOrder.POPULARITY -> "views"
             SortOrder.RATING -> "rating"
             SortOrder.ALPHABETICAL -> "alphabetical"
+            SortOrder.RELEVANCE -> "tracked"
             else -> null
         }
         val url = "$baseUrl/view-all/latest-updates.data".toHttpUrl().newBuilder().apply {
