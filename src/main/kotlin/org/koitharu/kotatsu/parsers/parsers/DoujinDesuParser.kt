@@ -19,8 +19,7 @@ internal abstract class DoujinDesuParser(
     protected abstract val defaultTypes: String
     protected abstract val availableContentTypes: Set<ContentType>
 
-    override val configKeyDomain: ConfigKey.Domain
-        get() = ConfigKey.Domain("doujin.desu.xxx")
+    override val configKeyDomain = ConfigKey.Domain("doujin.desu.xxx")
 
     override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
         super.onCreateConfig(keys)
@@ -35,19 +34,17 @@ internal abstract class DoujinDesuParser(
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Manga>?): Boolean = size > 5
     }
 
-    override val defaultSortOrder: SortOrder
-        get() = SortOrder.UPDATED
+    override val defaultSortOrder: SortOrder = SortOrder.UPDATED
 
-    override val availableSortOrders: Set<SortOrder>
-        get() = EnumSet.of(SortOrder.UPDATED, SortOrder.NEWEST, SortOrder.ALPHABETICAL, SortOrder.POPULARITY)
+    override val availableSortOrders: Set<SortOrder> =
+        EnumSet.of(SortOrder.UPDATED, SortOrder.NEWEST, SortOrder.ALPHABETICAL, SortOrder.POPULARITY)
 
-    override val filterCapabilities: MangaListFilterCapabilities
-        get() = MangaListFilterCapabilities(
-            isMultipleTagsSupported = true,
-            isSearchSupported = true,
-            isSearchWithFiltersSupported = true,
-            isAuthorSearchSupported = false,
-        )
+    override val filterCapabilities = MangaListFilterCapabilities(
+        isMultipleTagsSupported = true,
+        isSearchSupported = true,
+        isSearchWithFiltersSupported = true,
+        isAuthorSearchSupported = false,
+    )
 
     override suspend fun getFilterOptions() = MangaListFilterOptions(
         availableTags = getOrFetchGenres(),
@@ -64,26 +61,38 @@ internal abstract class DoujinDesuParser(
 
     private suspend fun fetchAvailableTags(): Set<MangaTag> {
         val url = "/api/terms?taxonomy=genre".toAbsoluteUrl(domain)
-        val jsonResponse = webClient.httpGet(url, extraHeaders = getRequestHeaders()).parseJson()
+        val jsonResponse = executeWithCloudflareRetry(url, getRequestHeaders()).parseJson()
         val encHex = jsonResponse.getString("_enc_resp_")
         val decrypted = decrypt(encHex)
         val array = JSONArray(decrypted)
-        val tags = mutableSetOf<MangaTag>()
-        for (i in 0 until array.length()) {
+        return (0 until array.length()).mapTo(mutableSetOf()) { i ->
             val obj = array.getJSONObject(i)
-            val name = obj.getString("name")
-            val slug = obj.getString("slug")
-            tags.add(MangaTag(key = slug, title = name, source = source))
+            MangaTag(key = obj.getString("slug"), title = obj.getString("name"), source = source)
         }
-        return tags
     }
 
-    override fun getRequestHeaders(): Headers = Headers.Builder()
+    override fun getRequestHeaders() = Headers.Builder()
         .add("X-Requested-With", "XMLHttpRequest")
         .add("Referer", "https://$domain/")
         .add("X-App-Secret", "dfdf72051dbfdc7d76889ebd31324e74")
         .build()
 
+    private suspend fun executeWithCloudflareRetry(url: String, headers: Headers): okhttp3.Response {
+        var response = webClient.httpGet(url, headers)
+        if (response.code == 403) {
+            val body = response.peekBody(1024).string()
+            if (body.contains("Unauthorized") || body.contains("Access denied")) {
+                response.close()
+                refreshCloudflare()
+                response = webClient.httpGet(url, headers)
+            }
+        }
+        return response
+    }
+
+    private suspend fun refreshCloudflare() {
+        webClient.httpGet("https://$domain/", getRequestHeaders()).close()
+    }
 
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
         val limit = pageSize
@@ -92,13 +101,10 @@ internal abstract class DoujinDesuParser(
         val url = urlBuilder().apply {
             addPathSegment("api")
             addPathSegment("manga")
-
             addQueryParameter("limit", limit.toString())
             addQueryParameter("offset", offset.toString())
 
-            filter.query?.let {
-                addQueryParameter("search", it)
-            }
+            filter.query?.let { addQueryParameter("search", it) }
 
             val sortParam = when (order) {
                 SortOrder.POPULARITY -> "rating"
@@ -110,26 +116,20 @@ internal abstract class DoujinDesuParser(
             addQueryParameter("sort", sortParam)
 
             filter.types.oneOrThrowIfMany()?.let {
-                val typeValue = when (it) {
+                when (it) {
                     ContentType.MANGA -> "manga"
                     ContentType.MANHWA -> "manhwa"
                     ContentType.DOUJINSHI -> "doujinshi"
                     else -> null
-                }
-                if (!typeValue.isNullOrEmpty()) {
-                    addQueryParameter("type", typeValue)
-                }
+                }?.let { type -> addQueryParameter("type", type) }
             }
 
             filter.states.oneOrThrowIfMany()?.let {
-                val stateParam = when (it) {
+                when (it) {
                     MangaState.ONGOING -> "ongoing"
                     MangaState.FINISHED -> "completed"
-                    else -> ""
-                }
-                if (stateParam.isNotEmpty()) {
-                    addQueryParameter("status", stateParam)
-                }
+                    else -> null
+                }?.let { status -> addQueryParameter("status", status) }
             }
 
             if (filter.tags.isNotEmpty()) {
@@ -137,10 +137,9 @@ internal abstract class DoujinDesuParser(
             }
         }.build()
 
-        val jsonResponse = webClient.httpGet(url, extraHeaders = getRequestHeaders()).parseJson()
+        val jsonResponse = executeWithCloudflareRetry(url.toString(), getRequestHeaders()).parseJson()
         val encHex = jsonResponse.getString("_enc_resp_")
         val decrypted = decrypt(encHex)
-
         val array = JSONArray(decrypted)
 
         return (0 until array.length()).map { i ->
@@ -168,15 +167,13 @@ internal abstract class DoujinDesuParser(
         }
     }
 
-
     override suspend fun getDetails(manga: Manga): Manga {
-        // Return cached details if available
         detailsCache[manga.url]?.let { return it }
 
         val slug = manga.url.removePrefix("/manga/").removeSuffix("/")
         val url = "/api/manga/$slug".toAbsoluteUrl(domain)
 
-        val jsonResponse = webClient.httpGet(url, extraHeaders = getRequestHeaders()).parseJson()
+        val jsonResponse = executeWithCloudflareRetry(url, getRequestHeaders()).parseJson()
         val encHex = jsonResponse.getString("_enc_resp_")
         val decrypted = decrypt(encHex)
         val obj = JSONObject(decrypted)
@@ -198,7 +195,7 @@ internal abstract class DoujinDesuParser(
                     MangaTag(
                         key = genreObj.getString("slug"),
                         title = genreObj.getString("name"),
-                        source = source
+                        source = source,
                     )
                 )
             }
@@ -210,22 +207,20 @@ internal abstract class DoujinDesuParser(
             val chapObj = chaptersArray.getJSONObject(i)
             val chId = chapObj.getString("id")
             val chNum = chapObj.optDouble("chapter_number", 0.0).toFloat()
-            val chTitle = "Chapter $chNum"
-            val chUrl = "/reader/$chId"
             val createdAt = chapObj.optString("created_at")
             val uploadDate = runCatching { Instant.parse(createdAt).toEpochMilli() }.getOrDefault(0L)
 
             chapters.add(
                 MangaChapter(
-                    id = generateUid(chUrl),
-                    title = chTitle,
+                    id = generateUid("/reader/$chId"),
+                    title = "Chapter $chNum",
                     number = chNum,
                     volume = 0,
-                    url = chUrl,
+                    url = "/reader/$chId",
                     scanlator = null,
                     uploadDate = uploadDate,
                     branch = null,
-                    source = source
+                    source = source,
                 )
             )
         }
@@ -255,12 +250,11 @@ internal abstract class DoujinDesuParser(
         return fullManga
     }
 
-
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
         val chId = chapter.url.removePrefix("/reader/").removeSuffix("/")
         val url = "/api/chapters/$chId".toAbsoluteUrl(domain)
 
-        val jsonResponse = webClient.httpGet(url, extraHeaders = getRequestHeaders()).parseJson()
+        val jsonResponse = executeWithCloudflareRetry(url, getRequestHeaders()).parseJson()
         val encHex = jsonResponse.getString("_enc_resp_")
         val decrypted = decrypt(encHex)
         val obj = JSONObject(decrypted)
@@ -275,7 +269,7 @@ internal abstract class DoujinDesuParser(
                         id = generateUid(rawUrl),
                         url = transformPageUrl(rawUrl),
                         preview = null,
-                        source = source
+                        source = source,
                     )
                 )
             }
@@ -290,7 +284,7 @@ internal abstract class DoujinDesuParser(
                             id = generateUid(rawUrl),
                             url = transformPageUrl(rawUrl),
                             preview = null,
-                            source = source
+                            source = source,
                         )
                     )
                 }
@@ -299,7 +293,6 @@ internal abstract class DoujinDesuParser(
 
         return pagesList
     }
-
 
     private fun generateKey(step: Long): String {
         val input = "doujindesu-scrapers-cannot-read-this-super-secret-salt-2026-v2_$step"
