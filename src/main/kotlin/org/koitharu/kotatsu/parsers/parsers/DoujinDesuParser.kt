@@ -1,5 +1,7 @@
 package org.koitharu.kotatsu.parsers.parsers
 
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.Headers
 import org.json.JSONArray
 import org.json.JSONObject
@@ -10,6 +12,10 @@ import org.koitharu.kotatsu.parsers.model.*
 import org.koitharu.kotatsu.parsers.util.*
 import java.time.Instant
 import java.util.*
+
+// cloudflare session is 15-60min
+// after session expires we get "{"error":"Access denied: Unauthorized API access"}" error
+// only current fix is to restart application to refresh the connection
 
 internal abstract class DoujinDesuParser(
     context: MangaLoaderContext,
@@ -28,6 +34,7 @@ internal abstract class DoujinDesuParser(
 
     @Volatile
     private var genresCache: Set<MangaTag>? = null
+    private val genresMutex = Mutex()
 
     @get:Synchronized
     private val detailsCache = object : LinkedHashMap<String, Manga>(16, 0.75f, true) {
@@ -36,8 +43,9 @@ internal abstract class DoujinDesuParser(
 
     override val defaultSortOrder: SortOrder = SortOrder.UPDATED
 
-    override val availableSortOrders: Set<SortOrder> =
-        EnumSet.of(SortOrder.UPDATED, SortOrder.NEWEST, SortOrder.ALPHABETICAL, SortOrder.POPULARITY)
+    override val availableSortOrders: Set<SortOrder> = EnumSet.of(
+        SortOrder.UPDATED, SortOrder.NEWEST, SortOrder.ALPHABETICAL, SortOrder.POPULARITY
+    )
 
     override val filterCapabilities = MangaListFilterCapabilities(
         isMultipleTagsSupported = true,
@@ -54,9 +62,16 @@ internal abstract class DoujinDesuParser(
 
     private suspend fun getOrFetchGenres(): Set<MangaTag> {
         genresCache?.let { return it }
-        val tags = fetchAvailableTags()
-        genresCache = tags
-        return tags
+        return genresMutex.withLock {
+            genresCache ?: run {
+                if (genresCache == null) {
+                    refreshCloudflare()
+                }
+                val tags = fetchAvailableTags()
+                genresCache = tags
+                tags
+            }
+        }
     }
 
     private suspend fun fetchAvailableTags(): Set<MangaTag> {
@@ -80,12 +95,18 @@ internal abstract class DoujinDesuParser(
     private suspend fun executeWithCloudflareRetry(url: String, headers: Headers): okhttp3.Response {
         var response = webClient.httpGet(url, headers)
         if (response.code == 403) {
-            val body = response.peekBody(1024).string()
-            if (body.contains("Unauthorized") || body.contains("Access denied")) {
+            val bodyString = response.body?.string().orEmpty()
+            if ("Unauthorized" in bodyString || "Access denied" in bodyString) {
                 response.close()
                 refreshCloudflare()
                 response = webClient.httpGet(url, headers)
             }
+        }
+        // Also retry on server errors once
+        if (response.code in 500..599) {
+            response.close()
+            kotlinx.coroutines.delay(1000L)
+            response = webClient.httpGet(url, headers)
         }
         return response
     }
@@ -207,13 +228,18 @@ internal abstract class DoujinDesuParser(
             val chapObj = chaptersArray.getJSONObject(i)
             val chId = chapObj.getString("id")
             val chNum = chapObj.optDouble("chapter_number", 0.0).toFloat()
+            val chTitle = if (chNum == chNum.toLong().toFloat()) {
+                "Chapter ${chNum.toLong()}"
+            } else {
+                "Chapter $chNum"
+            }
             val createdAt = chapObj.optString("created_at")
             val uploadDate = runCatching { Instant.parse(createdAt).toEpochMilli() }.getOrDefault(0L)
 
             chapters.add(
                 MangaChapter(
                     id = generateUid("/reader/$chId"),
-                    title = "Chapter $chNum",
+                    title = chTitle,
                     number = chNum,
                     volume = 0,
                     url = "/reader/$chId",
@@ -227,8 +253,18 @@ internal abstract class DoujinDesuParser(
 
         val rawDesc = obj.optString("description").takeIf { it.isNotEmpty() && it != "null" }
         val cleanDesc = rawDesc?.let { html ->
-            org.jsoup.Jsoup.parseBodyFragment(html).text()
-                .replace(Regex("^Sinopsis:\\s*", RegexOption.IGNORE_CASE), "")
+            val document = org.jsoup.Jsoup.parseBodyFragment(html)
+            val synopsisParagraph = document.selectFirst("p, .rich-text-content")
+            val fullText = synopsisParagraph?.text() ?: document.text()
+
+            val cutoffRegex = Regex("""download\s+(batch|volume)""", RegexOption.IGNORE_CASE)
+            val cutoffIndex = cutoffRegex.find(fullText)?.range?.first
+            val textBeforeDownload = if (cutoffIndex != null) fullText.substring(0, cutoffIndex) else fullText
+
+            textBeforeDownload
+                .replace(Regex("""^Sinopsis:\s*""", RegexOption.IGNORE_CASE), "")
+                .replace(Regex("""https?://\S+"""), "")
+                .replace(Regex("""\[url=.*?]|\[/url]"""), "")
                 .trim()
         }
 
