@@ -142,7 +142,6 @@ internal class Mangadotnet(context: MangaLoaderContext) :
         return parseViewAllPage(url)
     }
 
-    @Suppress("UNCHECKED_CAST")
     private suspend fun getSearchPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
         val adultParam = if (config[showAdultKey]) "both" else "0"
         val url = "$baseUrl/search.data".toHttpUrl().newBuilder().apply {
@@ -195,7 +194,6 @@ internal class Mangadotnet(context: MangaLoaderContext) :
         return parseMangaList(mangaListMap)
     }
 
-    @Suppress("UNCHECKED_CAST")
     private fun parseMangaList(data: Map<String, Any?>): List<Manga> {
         val list = data["manga_list"] as? List<*> ?: data["results"] as? List<*> ?: return emptyList()
         return list.filterIsInstance<Map<String, Any?>>().map { parseMangaFromList(it) }
