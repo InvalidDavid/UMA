@@ -16,56 +16,34 @@ import java.util.*
 abstract class MangaThemesia(
     context: MangaLoaderContext,
     source: MangaParserSource,
-    domain: String,
-) : PagedMangaParser(
-    context,
-    source,
-    20,
-) {
+    domain: String): 
+    PagedMangaParser(context, source, 20) {
 
     private val domainName = domain
 
-    override val configKeyDomain =
-        ConfigKey.Domain(domainName)
+    override val configKeyDomain = ConfigKey.Domain(domainName)
 
+    protected open val dateFormat = SimpleDateFormat("MMMM dd, yyyy", Locale.US)
 
-    protected open val dateFormat =
-        SimpleDateFormat(
-            "MMMM dd, yyyy",
-            Locale.US,
-        )
-
-
-    override val availableSortOrders =
-        EnumSet.of(
+    override val availableSortOrders = EnumSet.of(
             SortOrder.UPDATED,
             SortOrder.POPULARITY,
             SortOrder.NEWEST,
         )!!
 
-
-    override val filterCapabilities =
-        MangaListFilterCapabilities(
+    override val filterCapabilities = MangaListFilterCapabilities(
             isSearchSupported = true,
             isMultipleTagsSupported = true,
             isAuthorSearchSupported = true,
         )
+    
+    protected open val mangaDirectory = "manga"
 
+    protected open val relatedSelector = ".related-posts .bsx, .bixbox .bsx, .related-manga .related-reading-wrap"
 
-    protected open val mangaDirectory =
-        "manga"
+    protected open val searchSelector = ".utao .uta .imgu, .listupd .bs .bsx, .listo .bs .bsx"
 
-    protected open val relatedSelector =
-        ".related-posts .bsx, .bixbox .bsx, .related-manga .related-reading-wrap"
-
-    protected open val searchSelector =
-        ".utao .uta .imgu, .listupd .bs .bsx, .listo .bs .bsx"
-
-    override suspend fun getListPage(
-        page: Int,
-        order: SortOrder,
-        filter: MangaListFilter,
-    ): List<Manga> {
+    override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
         val query = filter.query
         val url = buildString {
             append("https://")
@@ -85,7 +63,7 @@ abstract class MangaThemesia(
                     append("&author=")
                     append(it.urlEncoded())
                 }
-            
+
             if (filter.year != -1) {
                 append("&yearx=")
                 append(filter.year)
@@ -123,7 +101,7 @@ abstract class MangaThemesia(
                 append("&genre[]=-")
                 append(it.key.urlEncoded())
             }
-            
+
             when(order) {
                 SortOrder.UPDATED ->
                     append("&order=update")
@@ -134,9 +112,8 @@ abstract class MangaThemesia(
                 else -> {}
             }
         }
-        
-        val document =
-            webClient
+
+        val document = webClient
                 .httpGet(
                     url,
                 )
@@ -154,11 +131,8 @@ abstract class MangaThemesia(
     }
 
 
-    protected open fun parseManga(
-        element: Element,
-    ): Manga {
-        val link =
-            element.selectFirst("a")
+    protected open fun parseManga(element: Element): Manga {
+        val link = element.selectFirst("a")
                 ?: return Manga(
                     id = generateUid("empty"),
                     url = "",
@@ -178,23 +152,20 @@ abstract class MangaThemesia(
                     source = source,
                 )
 
-        val url =
-            link.attr("href")
+        val url = link.attr("href")
                 .toRelativeUrl(domainName)
 
         return Manga(
             id = generateUid(url),
             url = url,
             publicUrl = url.toAbsoluteUrl(domainName),
-            title =
-                link.attr("title")
+            title = link.attr("title")
                     .ifBlank {
                         link.text()
                     },
             altTitles = emptySet(),
             authors = emptySet(),
-            coverUrl =
-                element
+            coverUrl = element
                     .selectFirst("img, source")
                     ?.imgAttr(),
             tags = emptySet(),
@@ -210,11 +181,8 @@ abstract class MangaThemesia(
     }
 
 
-    override suspend fun getRelatedManga(
-        seed: Manga,
-    ): List<Manga> {
-        val document =
-            webClient
+    override suspend fun getRelatedManga(seed: Manga): List<Manga> {
+        val document = webClient
                 .httpGet(
                     seed.url.toAbsoluteUrl(domainName),
                 )
@@ -234,15 +202,13 @@ abstract class MangaThemesia(
                         id = generateUid(url),
                         url = url,
                         publicUrl = url.toAbsoluteUrl(domainName),
-                        title =
-                            link.attr("title")
+                        title = link.attr("title")
                                 .ifBlank {
                                     link.text()
                                 },
                         altTitles = emptySet(),
                         authors = emptySet(),
-                        coverUrl =
-                            it
+                        coverUrl = it
                                 .selectFirst("img")
                                 ?.imgAttr(),
                         tags = emptySet(),
@@ -261,49 +227,33 @@ abstract class MangaThemesia(
     }
 
 
-    override suspend fun getDetails(
-        manga: Manga,
-    ): Manga {
-        val document =
-            webClient
+    override suspend fun getDetails(manga: Manga): Manga {
+        val document = webClient
                 .httpGet(
                     manga.url.toAbsoluteUrl(domainName),
                 )
                 .parseHtml()
 
-        val chapters =
-            loadChapters(
+        val chapters = loadChapters(
                 document,
                 manga,
             )
         return manga.copy(
-            title =
-                document
-                    .selectFirst(
-                        "h1.entry-title, .ts-breadcrumb li:last-child span"
-                    )
+            title = document
+                    .selectFirst("h1.entry-title, .ts-breadcrumb li:last-child span")
                     ?.text()
                     ?: manga.title,
-            description =
-                document
-                    .selectFirst(
-                        ".desc, .entry-content[itemprop=description]"
-                    )
+            description = document
+                    .selectFirst(".desc, .entry-content[itemprop=description]")
                     ?.text()
                     ?.trim()
                     .orEmpty(),
-            coverUrl =
-                document
-                    .selectFirst(
-                        ".thumb img, .infomanga img, .summary_image img, .cover img, img.wp-post-image"
-                    )
+            coverUrl = document
+                    .selectFirst(".thumb img, .infomanga img, .summary_image img, .cover img, img.wp-post-image")
                     ?.imgAttr()
                     ?: manga.coverUrl,
-            authors =
-                document
-                    .select(
-                        ".author, .artist, .fmed span"
-                    )
+            authors = document
+                    .select(".author, .artist, .fmed span")
                     .map {
                         it.text()
                     }
@@ -311,13 +261,9 @@ abstract class MangaThemesia(
                         it.isNotBlank()
                     }
                     .toSet(),
-            tags =
-                document
-                    .select(
-                        ".mgen a, .gnr a, .seriestugenre a"
-                    )
+            tags = document
+                    .select(".mgen a, .gnr a, .seriestugenre a")
                     .map {
-
                         MangaTag(
                             key = it.text().lowercase(),
                             title = it.text(),
@@ -326,9 +272,7 @@ abstract class MangaThemesia(
 
                     }
                     .toSet(),
-            state =
-                parseState(
-                    document
+            state = parseState(document
                         .select(
                             ".imptdt, .status"
                         )
@@ -339,35 +283,24 @@ abstract class MangaThemesia(
     }
 
 
-    protected open suspend fun loadChapters(
-        document: Document,
-        manga: Manga,
-    ): List<MangaChapter> {
-
+    protected open suspend fun loadChapters(document: Document, manga: Manga): List<MangaChapter> {
         return document
             .select(
                 "div.bxcl li, div.cl li, #chapterlist li, ul li:has(div.chbox)"
             )
             .mapNotNull { element ->
-
-                val url =
-                    element
+                val url = element
                         .selectFirst("a")
                         ?.attr("href")
                         ?: return@mapNotNull null
-
-                val title =
-                    cleanChapterTitle(
+                val title = cleanChapterTitle(
                         element
                             .selectFirst("a")
                             ?.text()
                             .orEmpty()
                     )
-
-                val chapterNumber =
-                    extractChapterNumber(title)
+                val chapterNumber = extractChapterNumber(title)
                         ?: return@mapNotNull null
-
                 MangaChapter(
                     id = generateUid(url),
                     url = url.toRelativeUrl(domainName),
@@ -404,9 +337,7 @@ abstract class MangaThemesia(
     }
 
 
-    override suspend fun getPages(
-        chapter: MangaChapter,
-    ): List<MangaPage> {
+    override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
         val document =
             webClient
                 .httpGet(
@@ -470,16 +401,12 @@ abstract class MangaThemesia(
     ):String {
         return page.url
     }
-
-
-    protected open fun parseState(
-        value:String?,
-    ):MangaState? {
+    
+    protected open fun parseState(value:String?):MangaState? {
         val text =
             value
                 ?.lowercase()
                 ?: return null
-
         return when{
             listOf(
                 "ongoing",
@@ -527,8 +454,7 @@ abstract class MangaThemesia(
     }
 
 
-    override suspend fun getFilterOptions():
-            MangaListFilterOptions {
+    override suspend fun getFilterOptions(): MangaListFilterOptions {
         val tags =
             listOf(
                 "Action",
@@ -546,7 +472,7 @@ abstract class MangaThemesia(
                 "Slice of Life",
                 "Supernatural",
                 "Thriller",
-                )
+            )
                 .map {
                     MangaTag(
                         key = it.lowercase(),
@@ -557,21 +483,18 @@ abstract class MangaThemesia(
                 .toSet()
 
         return MangaListFilterOptions(
-            availableTags =
-                tags,
-            availableStates =
-                EnumSet.of(
+            availableTags = tags,
+            availableStates = EnumSet.of(
                     MangaState.ONGOING,
                     MangaState.FINISHED,
                     MangaState.PAUSED,
                     MangaState.ABANDONED,
-                    ),
-            availableContentTypes =
-                EnumSet.of(
+                ),
+            availableContentTypes = EnumSet.of(
                     ContentType.MANGA,
                     ContentType.MANHWA,
                     ContentType.MANHUA,
-                    ),
+                ),
         )
     }
 
@@ -631,8 +554,8 @@ abstract class MangaThemesia(
         value: String,
     ): String {
         return value
-            .replace(Regex("\\s+(January|February|March|April|May|June|July|August|September|October|November|December).*", RegexOption.IGNORE_CASE,), "",)
-            .replace(Regex("\\s+\\d{1,2}[./-]\\d{1,2}[./-]\\d{2,4}.*",), "",)
+            .replace(Regex("\\s+(January|February|March|April|May|June|July|August|September|October|November|December).*", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("\\s+\\d{1,2}[./-]\\d{1,2}[./-]\\d{2,4}.*"), "")
             .trim()
     }
 
