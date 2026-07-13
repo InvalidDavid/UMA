@@ -1,70 +1,154 @@
 package org.koitharu.kotatsu.parsers.parsers
 
 import okhttp3.Headers
+import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.PagedMangaParser
 import org.koitharu.kotatsu.parsers.model.*
+import org.koitharu.kotatsu.parsers.network.OkHttpWebClient
 import org.koitharu.kotatsu.parsers.util.*
 import java.text.SimpleDateFormat
 import java.util.*
 
-// TODO
-// add filter by genres / type / status / rating
-// cant be called via API json
+abstract class HiperParser(context: MangaLoaderContext, source: MangaParserSource, domain: String):
+    PagedMangaParser(context, source, pageSize = 30) {
 
-abstract class HiperParser(
-    context: MangaLoaderContext,
-    source: MangaParserSource,
-    private val domainName: String,
-) : PagedMangaParser(context, source, pageSize = 30) {
+    private val domainName = domain
+
+    protected open val availableContentTypes: Set<ContentType> = EnumSet.of(ContentType.MANGA, ContentType.MANHWA, ContentType.MANHUA)
+
+    protected open val availableStates: Set<MangaState> = EnumSet.of(MangaState.ONGOING, MangaState.FINISHED, MangaState.PAUSED, MangaState.ABANDONED)
+
+    protected open val availableContentRating: Set<ContentRating> = EnumSet.of(ContentRating.SAFE, ContentRating.SUGGESTIVE, ContentRating.ADULT)
 
     protected open val mangaPath = "manga"
 
     override val configKeyDomain = ConfigKey.Domain(domainName)
     override val availableSortOrders: Set<SortOrder> = EnumSet.of(
-        SortOrder.POPULARITY, SortOrder.UPDATED, SortOrder.NEWEST,
-        SortOrder.NEWEST_ASC, SortOrder.RATING, SortOrder.ALPHABETICAL, SortOrder.RELEVANCE
+        SortOrder.POPULARITY,
+        SortOrder.UPDATED,
+        SortOrder.NEWEST,
+        SortOrder.NEWEST_ASC,
+        SortOrder.RATING,
+        SortOrder.ALPHABETICAL,
+        SortOrder.RELEVANCE
     )
     override val filterCapabilities = MangaListFilterCapabilities(
         isSearchSupported = true,
+        isSearchWithFiltersSupported = true,
+        isMultipleTagsSupported = true,
     )
 
-    private suspend fun executeAuthenticatedRequest(url: String): okhttp3.Response {
-        val res = webClient.httpGet(url, getRequestHeaders())
-        if (res.code == 401) {
-            res.close()
-            val acceptHeaders = Headers.Builder()
-                .set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                .build()
-            webClient.httpGet("https://$domainName/", acceptHeaders).close()
-            return webClient.httpGet(url, getRequestHeaders())
-        }
-        return res
+    val client: OkHttpWebClient by lazy {
+        val httpClient = context.httpClient.newBuilder()
+            .addInterceptor { chain ->
+                val request = chain.request()
+                val newRequest = request.newBuilder()
+                    .header("Referer", "https://$domainName/")
+                    .header("Origin", "https://$domainName")
+                    .build()
+                var response = chain.proceed(newRequest)
+                if (response.code == 401) {
+                    response.close()
+                    val acceptHeaders = Headers.Builder()
+                        .set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                        .build()
+                    val homeRequest = Request.Builder()
+                        .url("https://$domainName/")
+                        .headers(acceptHeaders)
+                        .build()
+                    chain.proceed(homeRequest).close()
+                    response = chain.proceed(request)
+                }
+                response
+            }
+            .build()
+        OkHttpWebClient(httpClient, source)
     }
 
-    private fun apiUrl(trpcPath: String, input: String) =
-        "https://$domainName/api/trpc/$trpcPath?batch=1&input=${input.urlEncoded()}"
+    @Volatile
+    private var genresListCache: List<MangaTag>? = null
 
-    private fun searchPayload(query: String, sort: String, limit: Int, offset: Int): String {
+    override suspend fun getFilterOptions(): MangaListFilterOptions {
+        if (genresListCache == null) {
+            try {
+                val input = "%7B%220%22%3A%7B%22json%22%3Anull%2C%22meta%22%3A%7B%22values%22%3A%5B%22undefined%22%5D%7D%7D%7D"
+                val res = client.httpGet(apiUrl("search.genres", input), getRequestHeaders())
+                val body = res.body?.string()
+                if (body != null) {
+                    val root = JSONArray(body)
+                    val jsonArray = root.optJSONObject(0)
+                        ?.optJSONObject("result")
+                        ?.optJSONObject("data")
+                        ?.optJSONArray("json")
+                    if (jsonArray != null) {
+                        val tags = mutableListOf<MangaTag>()
+                        for (i in 0 until jsonArray.length()) {
+                            val obj = jsonArray.optJSONObject(i) ?: continue
+                            val name = obj.optString("name", "")
+                            if (name.isNotEmpty()) tags.add(MangaTag(name, name, source))
+                        }
+                        if (tags.isNotEmpty()) genresListCache = tags
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+        return MangaListFilterOptions(
+            availableTags = genresListCache?.toSet() ?: emptySet(),
+            availableContentTypes = availableContentTypes,
+            availableStates = availableStates,
+            availableContentRating = availableContentRating,
+        )
+    }
+
+    private fun apiUrl(trpcPath: String, input: String) = "https://$domainName/api/trpc/$trpcPath?batch=1&input=${input.urlEncoded()}"
+
+    private fun searchPayload(query: String, sort: String, limit: Int, offset: Int, filter: MangaListFilter): String {
+        val genres = filter.tags.map { it.key }
+        val types = filter.types.map { it.name.lowercase() }
+        val statusStr = filter.states.firstOrNull()?.let {
+            when (it) {
+                MangaState.ONGOING -> "ongoing"
+                MangaState.FINISHED -> "completed"
+                MangaState.PAUSED -> "hiatus"
+                MangaState.ABANDONED -> "cancelled"
+                else -> null
+            }
+        }
+        val contentRatingStr = filter.contentRating.firstOrNull()?.let {
+            when (it) {
+                ContentRating.SAFE -> "safe"
+                ContentRating.SUGGESTIVE -> "suggestive"
+                ContentRating.ADULT -> "pornographic"
+            }
+        }
         return JSONObject().apply {
             put("0", JSONObject().apply {
                 put("json", JSONObject().apply {
                     put("q", query)
                     put("sort", sort)
-                    put("filters", JSONObject())          // empty {}
+                    put("filters", JSONObject().apply {
+                        if (genres.isNotEmpty()) put("genres", JSONArray(genres)) else put("genres", JSONObject.NULL)
+                        if (types.isNotEmpty()) put("type", types.first()) else put("type", JSONObject.NULL)
+                        if (statusStr != null) put("status", statusStr) else put("status", JSONObject.NULL)
+                        if (contentRatingStr != null) put("contentRating", contentRatingStr) else put("contentRating", JSONObject.NULL)
+                        put("author", JSONObject.NULL)
+                        put("artist", JSONObject.NULL)
+                        put("year", JSONObject.NULL)
+                    })
                     put("limit", limit)
                     put("offset", offset)
                     put("maxRating", "pornographic")
                 })
                 put("meta", JSONObject().apply {
                     put("values", JSONObject().apply {
-                        put("filters.genres", JSONArray().put("undefined"))
-                        put("filters.type", JSONArray().put("undefined"))
-                        put("filters.status", JSONArray().put("undefined"))
-                        put("filters.contentRating", JSONArray().put("undefined"))
+                        if (genres.isEmpty()) put("filters.genres", JSONArray().put("undefined"))
+                        if (types.isEmpty()) put("filters.type", JSONArray().put("undefined"))
+                        if (statusStr == null) put("filters.status", JSONArray().put("undefined"))
+                        if (contentRatingStr == null) put("filters.contentRating", JSONArray().put("undefined"))
                         put("filters.author", JSONArray().put("undefined"))
                         put("filters.artist", JSONArray().put("undefined"))
                         put("filters.year", JSONArray().put("undefined"))
@@ -74,75 +158,52 @@ abstract class HiperParser(
         }.toString()
     }
 
-    private fun detailsPayload(slug: String): String {
-        return JSONObject().apply {
-            put("0", JSONObject().apply {
-                // "json": null omitted
-                put("meta", JSONObject().apply {
-                    put("values", JSONArray().put("undefined"))
-                })
-            })
-            put("1", JSONObject().apply {
-                put("json", JSONObject().apply {
-                    put("slug", slug)
-                })
-            })
-        }.toString()
-    }
+    private fun detailsPayload(slug: String) = JSONObject().apply {
+        put("0", JSONObject().apply {
+            put("meta", JSONObject().apply { put("values", JSONArray().put("undefined")) })
+        })
+        put("1", JSONObject().apply {
+            put("json", JSONObject().apply { put("slug", slug) })
+        })
+    }.toString()
 
-    private fun chaptersPayload(mangaId: Long): String {
-        return JSONObject().apply {
-            put("0", JSONObject().apply {
-                put("json", JSONObject().apply {
-                    put("values", JSONArray().put("undefined"))
-                })
+    private fun chaptersPayload(mangaId: Long) = JSONObject().apply {
+        put("0", JSONObject().apply {
+            put("json", JSONObject().apply { put("values", JSONArray().put("undefined")) })
+        })
+        put("1", JSONObject().apply {
+            put("json", JSONObject().apply {
+                put("seriesId", mangaId)
+                put("sort", "best")
+                put("page", 1)
+                put("limit", 20)
             })
-            put("1", JSONObject().apply {
-                put("json", JSONObject().apply {
-                    put("seriesId", mangaId)
-                    put("sort", "best")
-                    put("page", 1)
-                    put("limit", 200)
-                })
-                put("meta", JSONObject().apply {
-                    put("values", JSONObject().apply {
-                        put("chapterId", JSONArray().put("undefined"))
-                    })
-                })
+            put("meta", JSONObject().apply {
+                put("values", JSONObject().apply { put("chapterId", JSONArray().put("undefined")) })
             })
-            put("2", JSONObject().apply {
-                put("json", JSONObject().apply {
-                    put("seriesId", mangaId)
-                })
-            })
-        }.toString()
-    }
+        })
+        put("2", JSONObject().apply {
+            put("json", JSONObject().apply { put("seriesId", mangaId) })
+        })
+    }.toString()
 
-    private fun pagesPayload(slug: String, number: Float): String {
-        return JSONObject().apply {
-            put("0", JSONObject().apply {
-                put("meta", JSONObject().apply {
-                    put("values", JSONArray().put("undefined"))
-                })
+    private fun pagesPayload(slug: String, number: Float) = JSONObject().apply {
+        put("0", JSONObject().apply {
+            put("meta", JSONObject().apply { put("values", JSONArray().put("undefined")) })
+        })
+        put("1", JSONObject().apply {
+            put("json", JSONObject().apply { put("slug", slug) })
+        })
+        put("2", JSONObject().apply {
+            put("json", JSONObject().apply {
+                put("seriesSlug", slug)
+                put("chapterNumber", number.toDouble())
             })
-            put("1", JSONObject().apply {
-                put("json", JSONObject().apply {
-                    put("slug", slug)
-                })
-            })
-            put("2", JSONObject().apply {
-                put("json", JSONObject().apply {
-                    put("seriesSlug", slug)
-                    put("chapterNumber", number.toDouble())
-                })
-            })
-            put("3", JSONObject().apply {
-                put("json", JSONObject().apply {
-                    put("position", "footer_bottom")
-                })
-            })
-        }.toString()
-    }
+        })
+        put("3", JSONObject().apply {
+            put("json", JSONObject().apply { put("position", "footer_bottom") })
+        })
+    }.toString()
 
     private fun parseLastItemJsonArray(body: String): JSONArray? = try {
         val root = JSONArray(body)
@@ -152,10 +213,6 @@ abstract class HiperParser(
             ?.optJSONArray("json")
     } catch (_: Exception) { null }
 
-    override suspend fun getFilterOptions() = MangaListFilterOptions(
-        availableTags = emptySet(),
-    )
-    
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
         val q = filter.query?.trim().orEmpty()
         val sort = when (order) {
@@ -168,8 +225,8 @@ abstract class HiperParser(
             SortOrder.RELEVANCE -> "relevance"
             else -> "newest"
         }
-        val input = searchPayload(q, sort, pageSize, (page - 1) * pageSize)
-        val res = executeAuthenticatedRequest(apiUrl("search.query", input))
+        val input = searchPayload(q, sort, pageSize, (page - 1) * pageSize, filter)
+        val res = client.httpGet(apiUrl("search.query", input), getRequestHeaders())
         val body = res.body?.string() ?: return emptyList()
         val root = JSONArray(body)
         val first = root.optJSONObject(0) ?: return emptyList()
@@ -199,7 +256,7 @@ abstract class HiperParser(
     override suspend fun getDetails(manga: Manga): Manga {
         val slug = manga.url.substringAfterLast("$mangaPath/").substringBefore("#")
             .takeIf { it.isNotBlank() } ?: return manga
-        val res = executeAuthenticatedRequest(apiUrl("auth.me,series.bySlugWithGenres", detailsPayload(slug)))
+        val res = client.httpGet(apiUrl("auth.me,series.bySlugWithGenres", detailsPayload(slug)), getRequestHeaders())
         val body = res.body?.string() ?: return manga
         val detailJson = try {
             val arr = JSONArray(body)
@@ -237,7 +294,7 @@ abstract class HiperParser(
     private suspend fun loadChapters(manga: Manga): List<MangaChapter> {
         val mangaId = manga.url.substringAfterLast("#").toLongOrNull() ?: return emptyList()
         val slug = manga.url.substringAfterLast("$mangaPath/").substringBefore("#").ifBlank { return emptyList() }
-        val res = executeAuthenticatedRequest(apiUrl("auth.me,comments.list,series.chapters", chaptersPayload(mangaId)))
+        val res = client.httpGet(apiUrl("auth.me,comments.list,series.chapters", chaptersPayload(mangaId)), getRequestHeaders())
         val body = res.body?.string() ?: return emptyList()
         val chaptersArray = parseLastItemJsonArray(body) ?: return emptyList()
         return (0 until chaptersArray.length()).mapNotNull { i ->
@@ -261,19 +318,9 @@ abstract class HiperParser(
         val slug = path.substringBefore("/")
         val num = path.substringAfter("/").toFloatOrNull() ?: return emptyList()
         val input = pagesPayload(slug, num)
-
-        var res = executeAuthenticatedRequest(apiUrl("auth.me,series.bySlug,reader.chapterPages", input))
-        var body = res.body?.string() ?: return emptyList()
-        var pages = parsePages(body)
-        if (pages != null) return pages
-
-        res.close()
-        val chapterUrl = "https://$domainName/$mangaPath/$slug/$num"
-        webClient.httpGet(chapterUrl, getRequestHeaders()).close()
-        res = executeAuthenticatedRequest(apiUrl("auth.me,series.bySlug,reader.chapterPages", input))
-        body = res.body?.string() ?: return emptyList()
-        pages = parsePages(body)
-        return pages ?: emptyList()
+        val res = client.httpGet(apiUrl("auth.me,series.bySlug,reader.chapterPages", input), getRequestHeaders())
+        val body = res.body?.string() ?: return emptyList()
+        return parsePages(body) ?: emptyList()
     }
 
     private fun parsePages(body: String): List<MangaPage>? {
