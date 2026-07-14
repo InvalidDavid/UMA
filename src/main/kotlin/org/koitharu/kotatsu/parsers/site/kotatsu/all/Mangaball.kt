@@ -584,7 +584,7 @@ internal abstract class MangaBallParser(
 
     @get:Synchronized
     private val detailsCache = object : LinkedHashMap<String, Manga>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Manga>?): Boolean = size > 5
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Manga>?): Boolean = size > 10
     }
 
     private fun MutableList<String>.addEncoded(key: String, value: String) {
