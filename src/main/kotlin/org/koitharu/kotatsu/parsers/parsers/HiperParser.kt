@@ -13,10 +13,11 @@ import org.koitharu.kotatsu.parsers.util.*
 import java.text.SimpleDateFormat
 import java.util.*
 
-abstract class HiperParser(context: MangaLoaderContext, source: MangaParserSource, domain: String):
-    PagedMangaParser(context, source, pageSize = 30) {
-
-    private val domainName = domain
+abstract class HiperParser(
+    context: MangaLoaderContext,
+    source: MangaParserSource,
+    protected val domainName: String,
+) : PagedMangaParser(context, source, pageSize = 30) {
 
     protected open val availableContentTypes: Set<ContentType> = EnumSet.of(ContentType.MANGA, ContentType.MANHWA, ContentType.MANHUA)
 
@@ -313,14 +314,42 @@ abstract class HiperParser(context: MangaLoaderContext, source: MangaParserSourc
         }.sortedBy { it.number }
     }
 
+    // triyng first tRPC API if it fails then chapter html scraping
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
         val path = chapter.url.removePrefix("/$mangaPath/")
         val slug = path.substringBefore("/")
         val num = path.substringAfter("/").toFloatOrNull() ?: return emptyList()
+
         val input = pagesPayload(slug, num)
         val res = client.httpGet(apiUrl("auth.me,series.bySlug,reader.chapterPages", input), getRequestHeaders())
         val body = res.body?.string() ?: return emptyList()
-        return parsePages(body) ?: emptyList()
+        val apiPages = parsePages(body)
+        if (!apiPages.isNullOrEmpty()) return apiPages
+
+        val chapterUrl = "https://$domainName/$mangaPath/$slug/$num"
+        val doc = client.httpGet(chapterUrl).parseHtml()
+
+        // search in json results image URLs
+        val script = doc.select("script").find { it.data().contains("\"webpUrl\"") }
+            ?: doc.select("script").find { it.data().contains("\"avifUrl\"") }
+        if (script != null) {
+            val arrayRegex = Regex("""\[\s*\{.*?\"(?:webp|avif)Url\".*?\}\s*\]""", RegexOption.DOT_MATCHES_ALL)
+            val match = arrayRegex.find(script.data())?.value
+            if (match != null) {
+                return try {
+                    val jsonArray = JSONArray(match)
+                    (0 until jsonArray.length()).mapNotNull { i ->
+                        val page = jsonArray.optJSONObject(i) ?: return@mapNotNull null
+                        val url = page.optString("webpUrl", "").ifEmpty {
+                            page.optString("avifUrl", "")
+                        }.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+                        MangaPage(id = generateUid(url), url = url, preview = null, source = source)
+                    }
+                } catch (_: Exception) { emptyList() }
+            }
+        }
+
+        return emptyList()
     }
 
     private fun parsePages(body: String): List<MangaPage>? {
