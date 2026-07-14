@@ -38,7 +38,7 @@ internal abstract class DoujinDesuParser(
 
     @get:Synchronized
     private val detailsCache = object : LinkedHashMap<String, Manga>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Manga>?): Boolean = size > 5
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Manga>?): Boolean = size > 10
     }
 
     override val defaultSortOrder: SortOrder = SortOrder.UPDATED
