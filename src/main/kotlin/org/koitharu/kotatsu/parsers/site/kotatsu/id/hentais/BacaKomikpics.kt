@@ -30,7 +30,7 @@ internal class BacaKomikpics(context: MangaLoaderContext) :
         .add("Accept-Language", "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7")
         .build()
 
-    override val availableSortOrders: Set<SortOrder> = EnumSet.of(SortOrder.POPULARITY)
+    override val availableSortOrders: Set<SortOrder> = EnumSet.of(SortOrder.POPULARITY, SortOrder.UPDATED)
 
     override val filterCapabilities = MangaListFilterCapabilities(
         isSearchSupported = false, // weird handling of website
@@ -42,21 +42,14 @@ internal class BacaKomikpics(context: MangaLoaderContext) :
     )
 
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
-        val query = filter.query?.trim()?.takeIf { it.isNotEmpty() }
-        val url = if (query != null) {
-            if (page > 0) {
-                "/page/${page + 1}/?s=${query.urlEncoded()}&post_type=komik_series"
-            } else {
-                "/?s=${query.urlEncoded()}&post_type=komik_series"
+        val url = when (order) {
+            SortOrder.POPULARITY -> "https://$domain/komik-populer/"
+            SortOrder.UPDATED -> {
+                if (page == 0) "https://$domain/?s=&post_type=komik_series"
+                else "https://$domain/page/${page + 1}/?s&post_type=komik_series"
             }
-        } else {
-            if (page > 0) {
-                "/page/${page + 1}/?s&post_type=komik_series"
-            } else {
-                "/?s=&post_type=komik_series"
-            }
-        }.toAbsoluteUrl(domain)
-
+            else -> "https://$domain/komik-populer/"
+        }
         val doc = webClient.httpGet(url).parseHtml()
         return parseMangaList(doc)
     }
