@@ -74,8 +74,7 @@ internal class BatCave(context: MangaLoaderContext) :
 
     override val filterCapabilities = MangaListFilterCapabilities(
         isSearchSupported = true,
-        isMultipleTagsSupported = true,
-        isYearRangeSupported = true,
+        isMultipleTagsSupported = false,
     )
 
     override suspend fun getFilterOptions(): MangaListFilterOptions {
