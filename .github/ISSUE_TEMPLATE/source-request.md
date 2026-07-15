@@ -4,31 +4,52 @@ labels: [Source request]
 body:
 
   - type: input
-    id: name
+    id: source-name
     attributes:
       label: Source name
+      description: The name of the manga/comic source you want added.
       placeholder: |
         Example: "Not Real Scans"
     validations:
       required: true
 
   - type: input
-    id: link
+    id: source-link
     attributes:
       label: Source link
+      description: The URL of the source website.
       placeholder: |
         Example: "https://notrealscans.org"
     validations:
       required: true
 
   - type: input
-    id: language
+    id: source-language
     attributes:
       label: Source language
+      description: What language does this source provide content in?
       placeholder: |
         Example: "English"
     validations:
       required: true
+
+  - type: textarea
+    id: source-description
+    attributes:
+      label: Describe the source
+      description: A clear and concise description of what this source provides.
+      placeholder: |
+        Example: "This source provides manga in English with daily updates..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Describe alternatives you've considered
+      description: A clear and concise description of any alternative sources or solutions you've considered.
+      placeholder: |
+        Example: "Other sources like..."
 
   - type: textarea
     id: other-details
@@ -36,8 +57,8 @@ body:
       label: Other details
       placeholder: |
         Additional details and attachments.
-            Example:
-                "18+/NSFW = yes"
+        Example:
+          "18+/NSFW = yes"
 
   - type: checkboxes
     id: acknowledgements
@@ -45,7 +66,7 @@ body:
       label: Acknowledgements
       description: Your issue will be closed if you haven't done these steps.
       options:
-        - label: I have checked that the source does not already exist by searching the via search bar and verified it does not appear there.
+        - label: I have checked that the source does not already exist by searching via the search bar and verified it does not appear there.
           required: true
         - label: I have searched [existing issues](https://github.com/InvalidDavid/UMA/issues) both open & closed, and confirm that this is a new unreported issue.
           required: true
