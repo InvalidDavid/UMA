@@ -4,16 +4,17 @@
 [![Issues][issues-shield]][issues-url]
 [![License][license-shield]][license-url]
 ### Please give the repo a ⭐
+It motivates me. =^..^=
 # Sources Requests
 
-Open up an Issue with these contents:
-
-- URL
-- Name
-- language?
-- NSFW yes/no
-
-Or join the Support Server or contact me over Telegram (see Contact Info)
+> [!NOTE]
+> Open up an [Issue](https://github.com/InvalidDavid/UMA/issues/new) with these contents:
+> Title Source Name
+> - URL
+> - language?
+> - NSFW yes/no
+> 
+> Or via Contact Info (see below)
 
 ---
 
@@ -31,16 +32,19 @@ Or join the Support Server or contact me over Telegram (see Contact Info)
 
 # Tutorial
 
+> [!TIP]
+> Two ways how to add the plugin:
+> 1. Automatically (recommended)
+> 2. Manually after every new release.
+
+
+> [!IMPORTANT]
+> The plugin will not update automatically unless you enable this feature (see `❓ Where?` in automatic category).  
+> You can manually check anytime in `Manage Plugins` for an `Install` button to update.
+
+
 <details>
 <summary><b>How to add a Plugin in Usagi</b></summary>
-
-<br>
-
-There are actually two ways, one which you manually update the Plugin from time to time **or** let it do automatically.
-
-<br>
-
-
 
 <details>
 <summary><b>Automatically (recommended)</b></summary>
@@ -53,11 +57,6 @@ There are actually two ways, one which you manually update the Plugin from time 
 ![Screenshot][img_automatic_tutorial]
 
 </details>
-
-> [!IMPORTANT]
-> - The plugin will not update automatically unless you enable this feature (see screenshot).
-> - You can manually check anytime in `Manage Plugins` for an `Install` button to update.
-
 <details>
 <summary>❓ Where?</summary>
 
@@ -173,13 +172,6 @@ chmod +x gradlew && ./gradlew buildJar
 **More simply, just run `buildJar` task in Android Studio / IntelliJ IDEA and dex it after building.**
 
 </details>
-
----
-
-# FAQ
-
-* What does UMA stands for?
-  It means **U**nified **M**anga **A**pp, I know bad name lol.
 
 ---
 
