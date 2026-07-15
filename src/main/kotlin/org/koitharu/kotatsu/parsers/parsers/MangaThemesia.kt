@@ -16,7 +16,7 @@ import java.util.*
 abstract class MangaThemesia(
     context: MangaLoaderContext,
     source: MangaParserSource,
-    domain: String): 
+    domain: String):
     PagedMangaParser(context, source, 20) {
 
     private val domainName = domain
@@ -36,7 +36,7 @@ abstract class MangaThemesia(
             isMultipleTagsSupported = true,
             isAuthorSearchSupported = true,
         )
-    
+
     protected open val mangaDirectory = "manga"
 
     protected open val relatedSelector = ".related-posts .bsx, .bixbox .bsx, .related-manga .related-reading-wrap"
@@ -401,7 +401,7 @@ abstract class MangaThemesia(
     ):String {
         return page.url
     }
-    
+
     protected open fun parseState(value:String?):MangaState? {
         val text =
             value
@@ -570,5 +570,5 @@ abstract class MangaThemesia(
             ?.toFloatOrNull()
     }
 
-    abstract val pageSelector: String
+    open val pageSelector = "div#readerarea img"
 }
