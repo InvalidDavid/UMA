@@ -19,7 +19,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 @MangaSourceParser("BATCAVE", "Batcave", "en", ContentType.COMICS)
-internal class BatCave(context: MangaLoaderContext) :
+internal class Batcave(context: MangaLoaderContext) :
     PagedMangaParser(context, MangaParserSource.BATCAVE, 20) {
 
     override val configKeyDomain = ConfigKey.Domain("batcave.biz")
@@ -78,27 +78,8 @@ internal class BatCave(context: MangaLoaderContext) :
     )
 
     override suspend fun getFilterOptions(): MangaListFilterOptions {
-        if (publishers.isEmpty() && genres.isEmpty() && !filterParseFailed) {
-            try {
-                val doc = apiClient.httpGet("/comix/".toAbsoluteUrl(domain)).parseHtml()
-                val script = doc.selectFirst("script:containsData(window.__XFILTER__)")?.data()
-                if (script != null) {
-                    val data = script
-                        .substringAfter("window.__XFILTER__ = ")
-                        .substringBeforeLast(";")
-                        .trim()
-                    val json = JSONObject(data)
-                    val filterItems = json.getJSONObject("filter_items")
-                    publishers = parseFilterValues(filterItems, "p")
-                    genres = parseFilterValues(filterItems, "g")
-                }
-            } catch (_: Exception) {
-                filterParseFailed = true
-            }
-        }
         return MangaListFilterOptions(
-            availableTags = genres.map { (name, id) -> MangaTag(name, id.toString(), source) }.toSet(),
-            availableStates = EnumSet.of(MangaState.ONGOING, MangaState.FINISHED),
+            availableTags = emptySet(),
         )
     }
 
