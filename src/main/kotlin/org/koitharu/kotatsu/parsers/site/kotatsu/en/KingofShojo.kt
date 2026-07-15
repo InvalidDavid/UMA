@@ -6,16 +6,6 @@ import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import org.koitharu.kotatsu.parsers.parsers.MangaThemesia
 
 
-@MangaSourceParser("KINGOFSHOJO", "King of Shojo", "en",)
+@MangaSourceParser("KINGOFSHOJO", "King of Shojo", "en")
 internal class KingofShojo(context: MangaLoaderContext) :
-    MangaThemesia(context, MangaParserSource.KINGOFSHOJO, "kingofshojo.com",) {
-
-    override val mangaDirectory =
-        "manga"
-
-    override val searchSelector =
-        ".listupd .bsx"
-
-    override val pageSelector =
-        "#readerarea img"
-}
+    MangaThemesia(context, MangaParserSource.KINGOFSHOJO, "kingofshojo.com")
