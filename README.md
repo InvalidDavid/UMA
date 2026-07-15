@@ -54,6 +54,17 @@ There are actually two ways, one which you manually update the Plugin from time 
 
 </details>
 
+> [!NOTE]
+> - The plugin will not update automatically unless you enable this feature (see screenshot).  
+> - You can manually check anytime in `Manage Plugins` for an `Install` button to update.
+
+<details>
+<summary>❓ Where?</summary>
+
+![Screenshot][img4]
+
+</details>
+
 1. Open up `Explore`
 
 
@@ -80,17 +91,6 @@ InvalidDavid/UMA
 5. Press then `OK`.
 
 And that's it! Select your new sources in the catalog and have fun reading.
-
-> **Note:** The plugin will not update automatically unless you enable this feature (see screenshot).  
-> You can manually check anytime in `Manage Plugins` for an `Install` button to update.
-
-<details>
-<summary>❓ Where?</summary>
-
-![Screenshot][img4]
-
-</details>
-
 
 </details>
 
@@ -173,6 +173,13 @@ chmod +x gradlew && ./gradlew buildJar
 **More simply, just run `buildJar` task in Android Studio / IntelliJ IDEA and dex it after building.**
 
 </details>
+
+---
+
+# FAQ
+
+* What does UMA stands for?
+It means **U**nified **M**anga **A**pp, I know bad name lol.
 
 ---
 
