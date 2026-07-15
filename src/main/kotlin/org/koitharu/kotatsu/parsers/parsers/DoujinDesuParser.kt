@@ -1,5 +1,7 @@
 package org.koitharu.kotatsu.parsers.parsers
 
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.Headers
 import org.json.JSONArray
 import org.json.JSONObject
@@ -11,7 +13,6 @@ import org.koitharu.kotatsu.parsers.util.*
 import java.net.URLDecoder
 import java.time.Instant
 import java.util.*
-import kotlin.math.abs
 import kotlin.time.Duration.Companion.milliseconds
 
 internal abstract class DoujinDesuParser(
@@ -31,6 +32,7 @@ internal abstract class DoujinDesuParser(
 
     @Volatile
     private var genresCache: Set<MangaTag>? = null
+    private val genresMutex = Mutex()
 
     @get:Synchronized
     private val detailsCache = object : LinkedHashMap<String, Manga>(16, 0.75f, true) {
@@ -58,8 +60,12 @@ internal abstract class DoujinDesuParser(
 
     private suspend fun getOrFetchGenres(): Set<MangaTag> {
         genresCache?.let { return it }
-        genresCache = fetchAvailableTags()
-        return genresCache!!
+        return genresMutex.withLock {
+            genresCache ?: run {
+                genresCache = fetchAvailableTags()
+                genresCache!!
+            }
+        }
     }
 
     private suspend fun fetchAvailableTags(): Set<MangaTag> {
@@ -275,11 +281,10 @@ internal abstract class DoujinDesuParser(
         val contentUrls = obj.optJSONArray("content_urls")
         if (contentUrls != null && contentUrls.length() > 0) {
             for (i in 0 until contentUrls.length()) {
-                val rawUrl = contentUrls.getString(i)
                 pagesList.add(
                     MangaPage(
-                        id = generateUid(rawUrl),
-                        url = transformPageUrl(rawUrl),
+                        id = generateUid(contentUrls.getString(i)),
+                        url = transformPageUrl(contentUrls.getString(i)),
                         preview = null,
                         source = source,
                     )
@@ -290,11 +295,10 @@ internal abstract class DoujinDesuParser(
             if (signedUrlsStr.isNotEmpty()) {
                 val signedUrls = JSONArray(signedUrlsStr)
                 for (i in 0 until signedUrls.length()) {
-                    val rawUrl = signedUrls.getString(i)
                     pagesList.add(
                         MangaPage(
-                            id = generateUid(rawUrl),
-                            url = transformPageUrl(rawUrl),
+                            id = generateUid(signedUrls.getString(i)),
+                            url = transformPageUrl(signedUrls.getString(i)),
                             preview = null,
                             source = source,
                         )
@@ -313,13 +317,13 @@ internal abstract class DoujinDesuParser(
     }
 
     private fun wH(e: Int): String {
-        val t = SALT + "_" + e
+        val t = "doujindesu-scrapers-cannot-read-this-super-secret-salt-2026-v2_$e"
         var a = 0
         for (ch in t) {
             a = (a shl 5) - a + ch.code
             a = toSigned32(a.toLong())
         }
-        var l = if (a != 0) abs(a).toLong() else 123456789L
+        var l = if (a != 0) kotlin.math.abs(a).toLong() else 123456789L
         return buildString {
             repeat(32) {
                 l = (l * 1664525L + 1013904223L) % 4294967296L
@@ -330,7 +334,7 @@ internal abstract class DoujinDesuParser(
 
     private fun lU(): List<String> {
         val now = System.currentTimeMillis()
-        val t = now / HOUR_MS
+        val t = now / 3600000L
         return listOf(wH(t.toInt()), wH((t - 1).toInt()), wH((t + 1).toInt()))
     }
 
@@ -365,10 +369,5 @@ internal abstract class DoujinDesuParser(
         page.contains("/upload/") && !page.contains("/storage/upload/") ->
             page.replace("/upload/", "/storage/upload/")
         else -> page
-    }
-
-    companion object {
-        private const val SALT = "doujindesu-scrapers-cannot-read-this-super-secret-salt-2026-v2"
-        private const val HOUR_MS = 3600000L
     }
 }
