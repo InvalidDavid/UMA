@@ -1,7 +1,5 @@
 package org.koitharu.kotatsu.parsers.parsers
 
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import okhttp3.Headers
 import org.json.JSONArray
 import org.json.JSONObject
@@ -10,17 +8,16 @@ import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.PagedMangaParser
 import org.koitharu.kotatsu.parsers.model.*
 import org.koitharu.kotatsu.parsers.util.*
+import java.net.URLDecoder
 import java.time.Instant
 import java.util.*
-
-// cloudflare session is 15-60min
-// after session expires we get "{"error":"Access denied: Unauthorized API access"}" error
-// only current fix is to restart application to refresh the connection
+import kotlin.math.abs
+import kotlin.time.Duration.Companion.milliseconds
 
 internal abstract class DoujinDesuParser(
     context: MangaLoaderContext,
     source: MangaParserSource
-) : PagedMangaParser(context, source, pageSize = 18) {
+): PagedMangaParser(context, source, pageSize = 18) {
 
     protected abstract val defaultTypes: String
     protected abstract val availableContentTypes: Set<ContentType>
@@ -34,7 +31,6 @@ internal abstract class DoujinDesuParser(
 
     @Volatile
     private var genresCache: Set<MangaTag>? = null
-    private val genresMutex = Mutex()
 
     @get:Synchronized
     private val detailsCache = object : LinkedHashMap<String, Manga>(16, 0.75f, true) {
@@ -62,23 +58,14 @@ internal abstract class DoujinDesuParser(
 
     private suspend fun getOrFetchGenres(): Set<MangaTag> {
         genresCache?.let { return it }
-        return genresMutex.withLock {
-            genresCache ?: run {
-                if (genresCache == null) {
-                    refreshCloudflare()
-                }
-                val tags = fetchAvailableTags()
-                genresCache = tags
-                tags
-            }
-        }
+        genresCache = fetchAvailableTags()
+        return genresCache!!
     }
 
     private suspend fun fetchAvailableTags(): Set<MangaTag> {
         val url = "/api/terms?taxonomy=genre".toAbsoluteUrl(domain)
         val jsonResponse = executeWithCloudflareRetry(url, getRequestHeaders()).parseJson()
-        val encHex = jsonResponse.getString("_enc_resp_")
-        val decrypted = decrypt(encHex)
+        val decrypted = decrypt(jsonResponse.getString("_enc_resp_"))
         val array = JSONArray(decrypted)
         return (0 until array.length()).mapTo(mutableSetOf()) { i ->
             val obj = array.getJSONObject(i)
@@ -102,10 +89,9 @@ internal abstract class DoujinDesuParser(
                 response = webClient.httpGet(url, headers)
             }
         }
-        // Also retry on server errors once
         if (response.code in 500..599) {
             response.close()
-            kotlinx.coroutines.delay(1000L)
+            kotlinx.coroutines.delay(1000L.milliseconds)
             response = webClient.httpGet(url, headers)
         }
         return response
@@ -159,8 +145,7 @@ internal abstract class DoujinDesuParser(
         }.build()
 
         val jsonResponse = executeWithCloudflareRetry(url.toString(), getRequestHeaders()).parseJson()
-        val encHex = jsonResponse.getString("_enc_resp_")
-        val decrypted = decrypt(encHex)
+        val decrypted = decrypt(jsonResponse.getString("_enc_resp_"))
         val array = JSONArray(decrypted)
 
         return (0 until array.length()).map { i ->
@@ -195,8 +180,7 @@ internal abstract class DoujinDesuParser(
         val url = "/api/manga/$slug".toAbsoluteUrl(domain)
 
         val jsonResponse = executeWithCloudflareRetry(url, getRequestHeaders()).parseJson()
-        val encHex = jsonResponse.getString("_enc_resp_")
-        val decrypted = decrypt(encHex)
+        val decrypted = decrypt(jsonResponse.getString("_enc_resp_"))
         val obj = JSONObject(decrypted)
 
         val state = when (obj.optString("status")) {
@@ -223,28 +207,24 @@ internal abstract class DoujinDesuParser(
         }
 
         val chaptersArray = obj.getJSONArray("chapters")
-        val chapters = mutableListOf<MangaChapter>()
+        val chapters = ArrayList<MangaChapter>(chaptersArray.length())
         for (i in 0 until chaptersArray.length()) {
             val chapObj = chaptersArray.getJSONObject(i)
-            val chId = chapObj.getString("id")
             val chNum = chapObj.optDouble("chapter_number", 0.0).toFloat()
             val chTitle = if (chNum == chNum.toLong().toFloat()) {
                 "Chapter ${chNum.toLong()}"
             } else {
                 "Chapter $chNum"
             }
-            val createdAt = chapObj.optString("created_at")
-            val uploadDate = runCatching { Instant.parse(createdAt).toEpochMilli() }.getOrDefault(0L)
-
             chapters.add(
                 MangaChapter(
-                    id = generateUid("/reader/$chId"),
+                    id = generateUid("/reader/${chapObj.getString("id")}"),
                     title = chTitle,
                     number = chNum,
                     volume = 0,
-                    url = "/reader/$chId",
+                    url = "/reader/${chapObj.getString("id")}",
                     scanlator = null,
-                    uploadDate = uploadDate,
+                    uploadDate = runCatching { Instant.parse(chapObj.optString("created_at")).toEpochMilli() }.getOrDefault(0L),
                     branch = null,
                     source = source,
                 )
@@ -254,13 +234,10 @@ internal abstract class DoujinDesuParser(
         val rawDesc = obj.optString("description").takeIf { it.isNotEmpty() && it != "null" }
         val cleanDesc = rawDesc?.let { html ->
             val document = org.jsoup.Jsoup.parseBodyFragment(html)
-            val synopsisParagraph = document.selectFirst("p, .rich-text-content")
-            val fullText = synopsisParagraph?.text() ?: document.text()
-
+            val fullText = document.text()
             val cutoffRegex = Regex("""download\s+(batch|volume)""", RegexOption.IGNORE_CASE)
             val cutoffIndex = cutoffRegex.find(fullText)?.range?.first
             val textBeforeDownload = if (cutoffIndex != null) fullText.substring(0, cutoffIndex) else fullText
-
             textBeforeDownload
                 .replace(Regex("""^Sinopsis:\s*""", RegexOption.IGNORE_CASE), "")
                 .replace(Regex("""https?://\S+"""), "")
@@ -291,8 +268,7 @@ internal abstract class DoujinDesuParser(
         val url = "/api/chapters/$chId".toAbsoluteUrl(domain)
 
         val jsonResponse = executeWithCloudflareRetry(url, getRequestHeaders()).parseJson()
-        val encHex = jsonResponse.getString("_enc_resp_")
-        val decrypted = decrypt(encHex)
+        val decrypted = decrypt(jsonResponse.getString("_enc_resp_"))
         val obj = JSONObject(decrypted)
 
         val pagesList = mutableListOf<MangaPage>()
@@ -330,51 +306,57 @@ internal abstract class DoujinDesuParser(
         return pagesList
     }
 
-    private fun generateKey(step: Long): String {
-        val input = "doujindesu-scrapers-cannot-read-this-super-secret-salt-2026-v2_$step"
-        var n = 0
-        for (i in input.indices) {
-            n = (n shl 5) - n + input[i].code
-        }
-        var seed = if (n == 0) 123456789L else kotlin.math.abs(n.toLong())
-        val keyBuilder = StringBuilder()
-        for (i in 0 until 32) {
-            seed = (seed * 1664525L + 1013904223L) and 0xFFFFFFFFL
-            val charCode = 33 + (seed % 93).toInt()
-            keyBuilder.append(charCode.toChar())
-        }
-        return keyBuilder.toString()
+    private fun toSigned32(x: Long): Int {
+        var y = x and 0xFFFFFFFFL
+        if (y >= 0x80000000L) y -= 0x100000000L
+        return y.toInt()
     }
 
-    private fun decrypt(encHex: String): String {
-        val timeStep = 3600000L
-        val now = System.currentTimeMillis()
-        val currentStep = now / timeStep
-
-        var lastError: Exception? = null
-        for (offset in intArrayOf(0, -1, 1)) {
-            val step = currentStep + offset
-            val key = generateKey(step)
-            try {
-                val encBytes = ByteArray(encHex.length / 2) { i ->
-                    encHex.substring(i * 2, i * 2 + 2).toInt(16).toByte()
-                }
-                val decBytes = ByteArray(encBytes.size)
-                var c = 42
-                for (i in encBytes.indices) {
-                    val p = encBytes[i].toInt() and 0xFF
-                    val f = key[i % key.length].code
-                    val k = p xor f xor (i * 13) xor c
-                    decBytes[i] = (k and 0xFF).toByte()
-                    c = (c + p) % 256
-                }
-                val decoded = String(decBytes, Charsets.UTF_8)
-                return java.net.URLDecoder.decode(decoded, "UTF-8")
-            } catch (e: Exception) {
-                lastError = e
+    private fun wH(e: Int): String {
+        val t = SALT + "_" + e
+        var a = 0
+        for (ch in t) {
+            a = (a shl 5) - a + ch.code
+            a = toSigned32(a.toLong())
+        }
+        var l = if (a != 0) abs(a).toLong() else 123456789L
+        return buildString {
+            repeat(32) {
+                l = (l * 1664525L + 1013904223L) % 4294967296L
+                append((33 + (l % 93)).toInt().toChar())
             }
         }
-        throw lastError ?: RuntimeException("Decryption failed")
+    }
+
+    private fun lU(): List<String> {
+        val now = System.currentTimeMillis()
+        val t = now / HOUR_MS
+        return listOf(wH(t.toInt()), wH((t - 1).toInt()), wH((t + 1).toInt()))
+    }
+
+    private fun yre(encryptedHex: String, key: String): String {
+        val bytes = encryptedHex.chunked(2).mapNotNull { it.toIntOrNull(16) }
+        var d = 42
+        val keyLen = key.length
+        return buildString {
+            for ((idx, byteVal) in bytes.withIndex()) {
+                val keyChar = key[idx % keyLen].code
+                val k = byteVal xor keyChar xor (idx * 13) xor d
+                append((k and 0xFF).toChar())
+                d = (d + byteVal) % 256
+            }
+        }
+    }
+
+    private fun decrypt(encryptedHex: String): String {
+        for (key in lU()) {
+            try {
+                val decoded = yre(encryptedHex, key)
+                return URLDecoder.decode(decoded, "UTF-8")
+            } catch (_: Exception) {
+            }
+        }
+        throw RuntimeException("Decryption failed")
     }
 
     private fun transformPageUrl(page: String): String = when {
@@ -383,5 +365,10 @@ internal abstract class DoujinDesuParser(
         page.contains("/upload/") && !page.contains("/storage/upload/") ->
             page.replace("/upload/", "/storage/upload/")
         else -> page
+    }
+
+    companion object {
+        private const val SALT = "doujindesu-scrapers-cannot-read-this-super-secret-salt-2026-v2"
+        private const val HOUR_MS = 3600000L
     }
 }
