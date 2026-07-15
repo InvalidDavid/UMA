@@ -1,6 +1,6 @@
 @file:Suppress("DEPRECATION")
 
-package org.koitharu.kotatsu.parsers.site.kotatsu.en
+package org.koitharu.kotatsu.parsers.site.kotatsu.en.mangabox
 
 import okhttp3.Interceptor
 import okhttp3.Response
@@ -42,8 +42,8 @@ import kotlinx.coroutines.coroutineScope
 import org.koitharu.kotatsu.parsers.util.toAbsoluteUrl
 import org.koitharu.kotatsu.parsers.util.mapToSet
 
-@MangaSourceParser("MANGABAT", "MangaBat", "en")
-internal class Mangabat(context: MangaLoaderContext) :
+@MangaSourceParser("MANGABAT", "MangaBats", "en")
+internal class Mangabats(context: MangaLoaderContext) :
     MangaboxParser(context, MangaParserSource.MANGABAT) {
 
     override val configKeyDomain = ConfigKey.Domain("mangabats.com")
