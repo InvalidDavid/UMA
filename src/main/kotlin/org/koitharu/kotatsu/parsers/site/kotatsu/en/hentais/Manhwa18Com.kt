@@ -12,8 +12,8 @@ import org.koitharu.kotatsu.parsers.util.*
 import java.text.SimpleDateFormat
 import java.util.*
 
-@MangaSourceParser("MANHWA18", "Manhwa18", "en", type = ContentType.HENTAI)
-internal class Manhwa18(context: MangaLoaderContext) :
+@MangaSourceParser("MANHWA18", "Manhwa18.com", "en", type = ContentType.HENTAI)
+internal class Manhwa18Com(context: MangaLoaderContext) :
     PagedMangaParser(context, MangaParserSource.MANHWA18, pageSize = 18) {
 
     override val configKeyDomain = ConfigKey.Domain("manhwa18.com")
