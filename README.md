@@ -5,16 +5,6 @@
 [![License][license-shield]][license-url]
 ### Please give the repo a ⭐
 It motivates me. =^..^=
-# Sources Requests
-
-> [!NOTE]
-> Open up an [Issue](https://github.com/InvalidDavid/UMA/issues/new) with these contents:
-> Title Source Name
-> - URL
-> - language?
-> - NSFW yes/no
-> 
-> Or via Contact Info (see below)
 
 ---
 
@@ -172,6 +162,20 @@ chmod +x gradlew && ./gradlew buildJar
 **More simply, just run `buildJar` task in Android Studio / IntelliJ IDEA and dex it after building.**
 
 </details>
+
+---
+
+# Sources Requests
+
+> [!NOTE]
+> Open up an [Issue](https://github.com/InvalidDavid/UMA/issues/new) with these contents:
+> Title Source Name
+> - URL
+> - language?
+> - NSFW yes/no
+> 
+> Or via Contact Info (see above)
+
 
 ---
 
