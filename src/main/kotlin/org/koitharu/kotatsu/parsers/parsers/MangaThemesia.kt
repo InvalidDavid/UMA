@@ -1,5 +1,6 @@
 package org.koitharu.kotatsu.parsers.parsers
 
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.jsoup.nodes.Document
@@ -56,7 +57,7 @@ abstract class MangaThemesia(
 
     @Volatile
     private var genreCache: Set<MangaTag>? = null
-    private val genreMutex = kotlinx.coroutines.sync.Mutex()
+    private val genreMutex = Mutex()
 
     override suspend fun getFilterOptions() = MangaListFilterOptions(
         availableTags = getOrFetchGenres(),
