@@ -52,7 +52,6 @@ abstract class MangaThemesia(
         isSearchSupported = true,
         isMultipleTagsSupported = true,
         isTagsExclusionSupported = true,
-        isAuthorSearchSupported = true,
     )
 
     @Volatile
@@ -104,8 +103,6 @@ abstract class MangaThemesia(
             } else {
                 append("?page=$page")
             }
-            filter.author?.takeIf { it.isNotBlank() }?.let { append("&author=${it.urlEncoded()}") }
-            if (filter.year != -1) append("&yearx=${filter.year}")
             filter.states.firstOrNull()?.let {
                 append("&status=")
                 append(when (it) {
