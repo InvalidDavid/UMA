@@ -173,9 +173,20 @@ chmod +x gradlew && ./gradlew buildJar
 > - URL
 > - language?
 > - NSFW yes/no
-> 
+>
 > Or via Contact Info (see above)
 
+---
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=InvalidDavid%2FUMA&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=InvalidDavid/UMA&type=date&theme=dark&legend=top-left&sealed_token=0nJj5_atMm_6ONDPzj-eyq4zkV2NPqliaF-Cp4MXUQP7f7Xv00956LXVv5Bb71c9USRogXm2ot4R_M4py5Q4g4jtXP4CWGnIkfVbPEFpfssLtKUFOKzehw" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=InvalidDavid/UMA&type=date&legend=top-left&sealed_token=0nJj5_atMm_6ONDPzj-eyq4zkV2NPqliaF-Cp4MXUQP7f7Xv00956LXVv5Bb71c9USRogXm2ot4R_M4py5Q4g4jtXP4CWGnIkfVbPEFpfssLtKUFOKzehw" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=InvalidDavid/UMA&type=date&legend=top-left&sealed_token=0nJj5_atMm_6ONDPzj-eyq4zkV2NPqliaF-Cp4MXUQP7f7Xv00956LXVv5Bb71c9USRogXm2ot4R_M4py5Q4g4jtXP4CWGnIkfVbPEFpfssLtKUFOKzehw" />
+ </picture>
+</a>
 
 ---
 
