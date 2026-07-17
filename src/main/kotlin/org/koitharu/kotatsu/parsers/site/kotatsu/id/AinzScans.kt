@@ -45,10 +45,10 @@ internal class AinzScans(context: MangaLoaderContext) :
         availableStates = EnumSet.of(MangaState.ONGOING, MangaState.FINISHED, MangaState.PAUSED),
         availableContentTypes = EnumSet.of(ContentType.MANGA, ContentType.MANHWA, ContentType.MANHUA),
     )
-
-    private val genresMutex = Mutex()
+    
     @Volatile
     private var genresCache: Map<String, MangaTag>? = null
+    private val genresMutex = Mutex()
 
     private suspend fun getOrFetchGenres(): Map<String, MangaTag> {
         genresCache?.let { return it }
