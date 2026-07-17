@@ -17,77 +17,72 @@ internal class Mangadotnet(context: MangaLoaderContext) :
     PagedMangaParser(context, MangaParserSource.MANGADOTNET, 20) {
 
     override val configKeyDomain = ConfigKey.Domain("mangadot.net")
-
     private val baseUrl = "https://mangadot.net"
-
-    override val filterCapabilities: MangaListFilterCapabilities
-        get() = MangaListFilterCapabilities(
-            isSearchSupported = true,
-        )
-
-    override val availableSortOrders: Set<SortOrder> = EnumSet.of(
-        SortOrder.UPDATED,
-        SortOrder.POPULARITY,
-        SortOrder.NEWEST,
-        SortOrder.ALPHABETICAL,
-    )
-
-    override suspend fun getFilterOptions() = MangaListFilterOptions(
-        availableTags = cachedGenres.mapTo(LinkedHashSet(cachedGenres.size)) { MangaTag(key = it, title = it, source = source) },
-    )
-
-    private var cachedGenres: List<String> = emptyList()
-
+    private val apiBase = "$baseUrl/api"
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ROOT).apply {
         timeZone = TimeZone.getTimeZone("UTC")
     }
 
-    // region RSC decoder
+    private val showAdultKey = ConfigKey.ShowSuspiciousContent(false)
+
+    private val genreNames = setOf(
+        "Josei", "Seinen", "Shoujo", "Shounen",
+        "Action", "Adventure", "Comedy", "Drama", "Fantasy",
+        "Historical", "Horror", "Mecha", "Mystery", "Psychological",
+        "Romance", "Sci-Fi", "Slice of Life", "Sports", "Supernatural", "Thriller", "Tragedy",
+        "Cooking", "Demons", "Ecchi", "Harem", "Isekai", "Magic", "Martial Arts",
+        "Medical", "Military", "Music", "School Life", "Webtoon",
+        "Academy", "Acting", "Adult", "Aliens", "Animals", "Anthology", "Apocalypse",
+        "Avant Garde", "Award Winning", "BDSM", "Boys Love", "Bully", "Business",
+        "Child Abuse", "Child Neglect", "Comic", "Crime", "crossdressing", "Crossdressing",
+        "Cultivation", "Delinquents", "Difficult Childhood", "dojinshi", "Doujinshi",
+        "Erotica", "Female Protagonist", "Femdom", "Fight", "futanari on male", "futunari",
+        "Gender Bender", "Genderswap", "Ghosts", "Girls Love", "Gore", "Gourmet",
+        "Gyaru", "Hentai", "Hunters", "Idol", "Incest", "Loli", "Lolicon", "Mafia",
+        "Magical Girls", "Mahou Shoujo", "Manga", "Manhua", "Manhwa", "Mature",
+        "Medieval Area", "Monster Girls", "Monsters", "Ninja", "Nobility",
+        "Office Romance", "Office Worker", "Office Workers", "One Shot", "Otome",
+        "Overpowered", "Philosophical", "playboy", "Police", "Post-Apocalyptic",
+        "Reincarnation", "Revenge", "Reverse Harem", "Royalty", "Samurai", "School",
+        "Seinin", "Shota", "Shotacon", "Shoujo Ai", "Shounen Ai", "Smut", "Superhero",
+        "Survival", "Suspense", "System", "Time Travel", "Traditional Games", "uncensored",
+        "Vampires", "Video Games", "Villainess", "Virtual Reality", "War", "Workplace",
+        "Wuxia", "Yaoi", "Yuri", "Zombies"
+    )
+
+    override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
+        super.onCreateConfig(keys)
+        keys.add(userAgentKey)
+        keys.add(showAdultKey)
+    }
 
     private fun decodeRsc(flat: JSONArray): Any? {
         val cache = arrayOfNulls<Any>(flat.length())
-        val nil = Object()
-
+        val nil = Any()
         fun resolve(i: Int): Any? {
             if (i < 0 || i >= flat.length()) return null
             val cached = cache[i]
             if (cached != null) return if (cached === nil) null else cached
-
             val result: Any? = when (val el = flat.opt(i)) {
                 JSONObject.NULL -> null
                 is String, is Number, is Boolean -> el
-                is JSONArray -> {
-                    (0 until el.length()).mapTo(mutableListOf()) { j ->
-                        resolve(el.optInt(j, -1))
-                    }
-                }
+                is JSONArray -> (0 until el.length()).mapTo(mutableListOf()) { j -> resolve(el.optInt(j, -1)) }
                 is JSONObject -> {
                     val map = mutableMapOf<String, Any?>()
                     for (key in el.keys()) {
-                        val actualKey = if (key.startsWith("_")) {
-                            flat.optString(key.substring(1).toInt(), key)
-                        } else {
-                            key
-                        }
+                        val actualKey = if (key.startsWith("_")) flat.optString(key.removePrefix("_").toInt(), key) else key
                         map[actualKey] = resolve(el.optInt(key, -1))
                     }
                     map
                 }
                 else -> null
             }
-
             cache[i] = result ?: nil
             return result
         }
-
         return resolve(0)
     }
 
-    /**
-     * Fetch an RSC-encoded URL and extract the given route.
-     * Route values are wrapped in `{"data": ...}` (Data<T>).
-     * Returns the inner `data` value of the route.
-     */
     @Suppress("UNCHECKED_CAST")
     private suspend fun fetchRscData(url: String, route: String): Map<String, Any?>? {
         val flat = webClient.httpGet(url).parseJsonArray()
@@ -96,101 +91,118 @@ internal class Mangadotnet(context: MangaLoaderContext) :
         return routeValue.asMap("data")
     }
 
-    // endregion
+    override val filterCapabilities = MangaListFilterCapabilities(
+        isSearchSupported = true,
+        isMultipleTagsSupported = true,
+        isTagsExclusionSupported = true,
+        isSearchWithFiltersSupported = true,
+    )
 
-    // region Listing
+    override val availableSortOrders: Set<SortOrder> = EnumSet.of(
+        SortOrder.UPDATED,      // latest
+        SortOrder.POPULARITY,   // most viewed
+        SortOrder.RATING,       // top rated
+        SortOrder.ALPHABETICAL, // a-z
+        SortOrder.RELEVANCE,    // most tracked
+    )
+
+    override suspend fun getFilterOptions(): MangaListFilterOptions {
+        val tags = genreNames.map { name -> MangaTag(name, name, source) }.toSet()
+        return MangaListFilterOptions(
+            availableTags = tags,
+            availableStates = EnumSet.of(MangaState.ONGOING, MangaState.FINISHED, MangaState.PAUSED),
+            availableContentTypes = EnumSet.of(ContentType.MANGA, ContentType.MANHWA, ContentType.MANHUA, ContentType.OTHER),
+            availableDemographics = EnumSet.of(Demographic.JOSEI, Demographic.SEINEN, Demographic.SHOUJO, Demographic.SHOUNEN),
+        )
+    }
 
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
-        val query = filter.query
-        if (!query.isNullOrEmpty()) {
-            return getSearchPage(page, query, order)
+        if (!filter.query.isNullOrBlank() || filter.tags.isNotEmpty() || filter.tagsExclude.isNotEmpty() ||
+            filter.states.isNotEmpty() || filter.types.isNotEmpty() || filter.demographics.isNotEmpty()) {
+            return getSearchPage(page, order, filter)
         }
-        return when (order) {
-            SortOrder.POPULARITY -> getPopularPage(page)
-            else -> getLatestPage(page)
-        }
+        return getBrowsePage(page, order)
     }
 
-    private suspend fun getPopularPage(page: Int): List<Manga> {
-        val url = "$baseUrl/view-all/trending.data".toHttpUrl().newBuilder().apply {
-            if (page > 1) addQueryParameter("page", page.toString())
-            addQueryParameter("_routes", "pages/ViewAllPage")
-        }.build().toString()
-        return parseViewAllPage(url)
-    }
-
-    private suspend fun getLatestPage(page: Int): List<Manga> {
+    private suspend fun getBrowsePage(page: Int, order: SortOrder): List<Manga> {
+        val sortParam = when (order) {
+            SortOrder.POPULARITY -> "views"
+            SortOrder.RATING -> "rating"
+            SortOrder.ALPHABETICAL -> "alphabetical"
+            SortOrder.RELEVANCE -> "tracked"
+            else -> null
+        }
+        val adultParam = if (config[showAdultKey]) "both" else "0"
         val url = "$baseUrl/view-all/latest-updates.data".toHttpUrl().newBuilder().apply {
+            addQueryParameter("adult", adultParam)
             if (page > 1) addQueryParameter("page", page.toString())
+            sortParam?.let { addQueryParameter("sortBy", it) }
             addQueryParameter("_routes", "pages/ViewAllPage")
         }.build().toString()
         return parseViewAllPage(url)
     }
 
-    /**
-     * ViewAllPage route structure:
-     *   route_value = { "data": ViewAllData }
-     *   ViewAllData = { "data": MangaList, "allGenres": [...] }
-     *   MangaList = { "manga_list"|"results": [...], "pagination": {...} }
-     *
-     * After fetchRscData: we get ViewAllData.
-     */
-    @Suppress("UNCHECKED_CAST")
+    private suspend fun getSearchPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
+        val adultParam = if (config[showAdultKey]) "both" else "0"
+        val url = "$baseUrl/search.data".toHttpUrl().newBuilder().apply {
+            addQueryParameter("adult", adultParam)
+            if (!filter.query.isNullOrBlank()) addQueryParameter("search", filter.query!!)
+            addQueryParameter("page", page.toString())
+            addQueryParameter("perPage", "56")
+
+            val (sortBy, sortOrder) = when (order) {
+                SortOrder.UPDATED -> "latest" to "desc"
+                SortOrder.ALPHABETICAL -> "alphabetical" to "asc"
+                SortOrder.POPULARITY -> "views" to "desc"
+                SortOrder.RATING -> "rating" to "desc"
+                else -> "relevance" to "desc"
+            }
+            addQueryParameter("sortBy", sortBy)
+            addQueryParameter("sortOrder", sortOrder)
+
+            if (filter.states.size == 1) {
+                addQueryParameter("status", filter.states.first().toApiStatus())
+            }
+
+            filter.types.forEach { ct ->
+                when (ct) {
+                    ContentType.MANGA -> addQueryParameter("origin", "JP")
+                    ContentType.MANHWA -> addQueryParameter("origin", "KR")
+                    ContentType.MANHUA -> addQueryParameter("origin", "CN")
+                    ContentType.OTHER -> addQueryParameter("origin", "ONESHOT")
+                    else -> {}
+                }
+            }
+
+            filter.demographics.forEach { demographic ->
+                addQueryParameter("genre", demographic.name.lowercase().replaceFirstChar { it.uppercase() })
+            }
+
+            filter.tags.forEach { tag -> addQueryParameter("genre", tag.key) }
+            filter.tagsExclude.forEach { tag -> addQueryParameter("genre", "-${tag.key}") }
+
+            addQueryParameter("_routes", "pages/SearchPage")
+        }.build().toString()
+
+        val dataMap = fetchRscData(url, "pages/SearchPage") ?: return emptyList()
+        return parseMangaList(dataMap)
+    }
+
     private suspend fun parseViewAllPage(url: String): List<Manga> {
         val viewAllData = fetchRscData(url, "pages/ViewAllPage") ?: return emptyList()
-
-        // Update genres
-        (viewAllData["allGenres"] as? List<*>)?.filterIsInstance<String>()?.let {
-            if (it.isNotEmpty()) cachedGenres = it
-        }
-
-        // Navigate to MangaList: viewAllData.data
         val mangaListMap = viewAllData.asMap("data") ?: return emptyList()
         return parseMangaList(mangaListMap)
     }
 
-    private suspend fun getSearchPage(page: Int, query: String, order: SortOrder): List<Manga> {
-        val url = "$baseUrl/search.data".toHttpUrl().newBuilder().apply {
-            addQueryParameter("search", query)
-            addQueryParameter("page", page.toString())
-            addQueryParameter("sortBy", when (order) {
-                SortOrder.NEWEST -> "latest"
-                SortOrder.ALPHABETICAL -> "Alphabetical"
-                else -> "relevance"
-            })
-            addQueryParameter("_routes", "pages/SearchPage")
-        }.build().toString()
-
-        /**
-         * SearchPage route structure:
-         *   route_value = { "data": MangaList }
-         *   MangaList = { "manga_list"|"results": [...], "pagination": {...}, "allGenres": [...] }
-         *
-         * After fetchRscData: we get MangaList directly.
-         */
-        @Suppress("UNCHECKED_CAST")
-        val mangaListMap = fetchRscData(url, "pages/SearchPage") ?: return emptyList()
-
-        (mangaListMap["allGenres"] as? List<*>)?.filterIsInstance<String>()?.let {
-            if (it.isNotEmpty()) cachedGenres = it
-        }
-
-        return parseMangaList(mangaListMap)
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    private fun parseMangaList(mangaListMap: Map<String, Any?>): List<Manga> {
-        val mangaList = mangaListMap["manga_list"] as? List<*>
-            ?: mangaListMap["results"] as? List<*>
-            ?: return emptyList()
-        return mangaList.filterIsInstance<Map<String, Any?>>().map { parseMangaFromList(it) }
+    private fun parseMangaList(data: Map<String, Any?>): List<Manga> {
+        val list = data["manga_list"] as? List<*> ?: data["results"] as? List<*> ?: return emptyList()
+        return list.filterIsInstance<Map<String, Any?>>().map { parseMangaFromList(it) }
     }
 
     private fun parseMangaFromList(data: Map<String, Any?>): Manga {
         val id = (data["id"] as? Number)?.toInt()?.toString() ?: ""
         val title = data["title"] as? String ?: ""
         val photo = data["photo"] as? String
-
         val coverUrl = photo?.let {
             when {
                 it.startsWith("/") -> "$baseUrl$it"
@@ -198,7 +210,6 @@ internal class Mangadotnet(context: MangaLoaderContext) :
                 else -> null
             }
         }
-
         return Manga(
             id = generateUid(id),
             url = id,
@@ -215,26 +226,19 @@ internal class Mangadotnet(context: MangaLoaderContext) :
         )
     }
 
-    // endregion
+    @get:Synchronized
+    private val detailsCache = object : LinkedHashMap<String, Manga>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Manga>?): Boolean = size > 10
+    }
 
-    // region Details
-
-    /**
-     * MangaDetailPage route structure:
-     *   route_value = { "data": MangaData }
-     *   MangaData = { "mangaData": { "manga": Manga } }
-     *
-     * After fetchRscData: we get MangaData.
-     */
     @Suppress("UNCHECKED_CAST")
     override suspend fun getDetails(manga: Manga): Manga {
+        detailsCache[manga.url]?.let { return it }
+
         val url = "$baseUrl/manga/${manga.url}.data?_routes=pages/MangaDetailPage"
         val mangaData = fetchRscData(url, "pages/MangaDetailPage") ?: return manga
 
-        val mangaInfo = mangaData
-            .asMap("mangaData")?.asMap("manga")
-            ?: return manga
-
+        val mangaInfo = mangaData.asMap("mangaData")?.asMap("manga") ?: return manga
         val title = mangaInfo["title"] as? String ?: manga.title
         val description = mangaInfo["description"] as? String
         val photo = mangaInfo["photo"] as? String
@@ -245,174 +249,182 @@ internal class Mangadotnet(context: MangaLoaderContext) :
                 else -> null
             }
         } ?: manga.coverUrl
-        val hiatus = mangaInfo["hiatus"] as? String
-        val status = mangaInfo["status"] as? String
-        val genres = (mangaInfo["genres"] as? List<*>)?.filterIsInstance<String>()
-            ?.mapNotNull { it.trim().ifBlank { null } }.orEmpty()
-        val altTitles = (mangaInfo["alt_titles"] as? List<*>)?.filterIsInstance<String>()
-            ?.mapNotNull { it.trim().ifBlank { null } }?.toSet().orEmpty()
-        val origin = mangaInfo["country_of_origin"] as? String
-        val ratingValue = (mangaInfo["avg_rating"] as? Number)?.toFloat()
-        val anilistId = (mangaInfo["anilist_id"] as? Number)?.toLong()
-        val sourceUrl = mangaInfo["source_url"] as? String
-        val author = mangaInfo["author"] as? String
-
-        val state = when {
-            "One Shot" in genres -> MangaState.FINISHED
-            hiatus.equals("Yes", ignoreCase = true) -> MangaState.PAUSED
-            else -> when (status?.lowercase()) {
-                "ongoing" -> MangaState.ONGOING
-                "completed" -> MangaState.FINISHED
+        val bannerImage = mangaInfo["banner_image"] as? String
+        val largeCoverUrl = bannerImage?.let {
+            when {
+                it.startsWith("/") -> "$baseUrl$it"
+                it.startsWith("http") -> it
                 else -> null
             }
         }
 
-        val tags = genres.mapTo(LinkedHashSet(genres.size)) { MangaTag(key = it, title = it, source = source) }
-        val contentType = when (origin) {
-            "JP" -> "Manga"
-            "KR" -> "Manhwa"
-            "CN" -> "Manhua"
+        val genres = (mangaInfo["genres"] as? List<*>)?.filterIsInstance<String>()?.mapNotNull { it.trim().ifBlank { null } }.orEmpty()
+        val altTitles = (mangaInfo["alt_titles"] as? List<*>)?.filterIsInstance<String>()?.mapNotNull { it.trim().ifBlank { null } }?.toSet().orEmpty()
+        val origin = mangaInfo["country_of_origin"] as? String
+        val authorRaw = mangaInfo["authors"] as? String
+        val author = parseJsonArrayString(authorRaw)?.joinToString(", ") ?: authorRaw
+
+        val statusText = mangaInfo["status_text"] as? String
+        val status = mangaInfo["status"] as? String
+        val state = when {
+            !statusText.isNullOrBlank() -> when (statusText.lowercase()) {
+                "ongoing" -> MangaState.ONGOING
+                "completed" -> MangaState.FINISHED
+                "hiatus" -> MangaState.PAUSED
+                else -> null
+            }
+            !status.isNullOrBlank() -> when (status.lowercase()) {
+                "ongoing" -> MangaState.ONGOING
+                "completed" -> MangaState.FINISHED
+                "hiatus" -> MangaState.PAUSED
+                else -> null
+            }
             else -> null
         }
-        val contentTag = contentType?.let { MangaTag(key = it, title = it, source = source) }
-        val allTags = if (contentTag != null && contentTag !in tags) tags + contentTag else tags
+        val tagSet = genres.mapTo(LinkedHashSet(genres.size)) { MangaTag(key = it, title = it, source = source) }
+        when (origin) {
+            "JP" -> tagSet.add(MangaTag("Manga", "Manga", source))
+            "KR" -> tagSet.add(MangaTag("Manhwa", "Manhwa", source))
+            "CN" -> tagSet.add(MangaTag("Manhua", "Manhua", source))
+        }
 
-        val richDescription = buildString {
-            ratingValue?.let { rating ->
-                val stars = (rating / 2).toInt().coerceIn(0, 5)
-                append("${"★".repeat(stars)}${"☆".repeat(5 - stars)} $rating\n\n")
-            }
-            description?.let {
-                append(
-                    it.replace("\r\n", "\n")
-                        .replace(Regex("\n{3,}"), "\n\n")
-                        .trim(),
-                    "\n\n",
-                )
-            }
-            val links = buildList {
-                anilistId?.let { add("[AniList](https://anilist.co/manga/$it)") }
-                sourceUrl?.let { add("[Source]($it)") }
-            }
-            if (links.isNotEmpty()) {
-                append("\nLinks:\n")
-                links.forEach { append("- ", it, "\n") }
-            }
-            if (altTitles.isNotEmpty()) {
-                append("\nAlternative Names:\n")
-                altTitles.forEach { append("- ", it, "\n") }
-            }
-        }.trim()
+        val tagsArray = mangaInfo["tags"] as? List<Map<String, Any?>>
+        tagsArray?.flatMap { category ->
+            (category["tags"] as? List<Map<String, Any?>> ?: emptyList())
+                .mapNotNull { it["name"] as? String }
+        }?.distinct()?.take(20)?.forEach { tagSet.add(MangaTag(it, it, source)) }
+
+        val rawRating = (mangaInfo["avg_rating"] as? Number)?.toDouble() ?: -1.0
+        val rating = if (rawRating >= 0.0) (rawRating / 10.0).toFloat() else RATING_UNKNOWN
 
         val chapters = fetchChapters(manga.url)
 
-        return manga.copy(
+        val result = manga.copy(
             title = title,
             coverUrl = coverUrl,
-            description = richDescription,
+            largeCoverUrl = largeCoverUrl,
+            rating = rating,
+            description = description,
             altTitles = altTitles,
-            tags = allTags,
+            tags = tagSet,
             state = state,
             authors = setOfNotNull(author).filterTo(mutableSetOf()) { it.isNotBlank() },
             chapters = chapters,
         )
+
+        detailsCache[manga.url] = result
+        return result
     }
 
-    // endregion
+    private fun parseJsonArrayString(raw: String?): List<String>? {
+        if (raw.isNullOrBlank()) return null
+        return try {
+            val arr = JSONArray(raw)
+            (0 until arr.length()).mapNotNull { arr.optString(it) }
+        } catch (_: Exception) { null }
+    }
 
-    // region Chapters
-
-    @Suppress("UNCHECKED_CAST")
     private suspend fun fetchChapters(mangaId: String): List<MangaChapter> {
-        val response = webClient.httpGet("$baseUrl/api/manga/$mangaId/chapters/list?lang=en").parseJsonArray()
-
-        val allChapters = (0 until response.length()).map { i ->
-            response.getJSONObject(i)
-        }
+        val response = webClient.httpGet("$apiBase/manga/$mangaId/chapters/list?lang=en").parseJsonArray()
+        val allChapters = (0 until response.length()).map { response.getJSONObject(it) }
 
         val chaptersByTeam = mutableMapOf<String, MutableList<JSONObject>>()
-        for (chapter in allChapters) {
-            val group = chapter.optString("group_name", "").nullIfEmpty()
-            val scanlator = chapter.optString("scanlator_name", "").nullIfEmpty()
-            val teamName = group ?: scanlator ?: "Unknown"
-            chaptersByTeam.getOrPut(teamName) { mutableListOf() }.add(chapter)
+        for (ch in allChapters) {
+            val team = listOf(
+                ch.optString("group_name", ""),
+                ch.optString("scanlator_name", "")
+            ).firstOrNull { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+                ?: "Unknown"
+            chaptersByTeam.getOrPut(team) { mutableListOf() }.add(ch)
         }
 
-        val allChapterNumbers = allChapters.map { it.optDouble("chapter_number", 0.0).toFloat() }.toSet().sorted()
+        val allNumbers = allChapters.map { it.optDouble("chapter_number", 0.0).toFloat() }.distinct().sorted()
+        val builder = ChaptersListBuilder(allChapters.size * chaptersByTeam.size)
 
-        val chaptersBuilder = ChaptersListBuilder(allChapters.size * chaptersByTeam.size)
-
-        for ((teamName, teamChapters) in chaptersByTeam) {
-            val teamChapterMap = teamChapters.associateBy { it.optDouble("chapter_number", 0.0).toFloat() }
-
-            for (chapterNumber in allChapterNumbers) {
-                val chapterData = teamChapterMap[chapterNumber]
-                    ?: allChapters.find { it.optDouble("chapter_number", 0.0).toFloat() == chapterNumber }
-                    ?: continue
-
-                val chapterId = chapterData.getString("id")
-                val chapterSource = chapterData.optString("source", "scraper")
-                val number = chapterData.optDouble("chapter_number", 0.0).toFloat()
-                val name = chapterData.optString("chapter_title", "").nullIfEmpty()
-                val group = chapterData.optString("group_name", "").nullIfEmpty()
-                val scanlator = chapterData.optString("scanlator_name", "").nullIfEmpty()
-                val actualTeamName = group ?: scanlator ?: "Unknown"
-                val date = chapterData.optString("date_added", "").nullIfEmpty()
-
+        for ((team, teamChapters) in chaptersByTeam) {
+            val mapByNum = teamChapters.associateBy { it.optDouble("chapter_number", 0.0).toFloat() }
+            for (num in allNumbers) {
+                val chapter = mapByNum[num] ?: continue
+                val chId = chapter.getString("id")
+                val src = chapter.optString("source", "user")
+                val name = chapter.optString("chapter_title", "").nullIfEmpty()
+                val date = chapter.optString("date_added", "").nullIfEmpty()
                 val title = buildString {
-                    val numStr = number.toString().substringBefore(".0")
-                    if (name != null && !name.contains(numStr)) {
-                        append("Chapter $numStr: ")
-                    } else if (name == null) {
-                        append("Chapter $numStr")
+                    val numStr = num.toString().removeSuffix(".0")
+                    append("Chapter $numStr")
+                    val cleanName = name?.trim()?.takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) }
+                    if (cleanName != null && !cleanName.contains(numStr)) {
+                        append(": ").append(cleanName)
                     }
-                    name?.let { append(it.trim()) }
                 }
-
-                val chapter = MangaChapter(
-                    id = generateUid("$teamName-$chapterId"),
-                    title = title,
-                    number = number,
-                    volume = 0,
-                    url = JSONObject().apply {
-                        put("id", chapterId)
-                        put("source", chapterSource)
-                    }.toString(),
-                    uploadDate = date?.let { dateFormat.parseSafe(it) } ?: 0L,
-                    source = source,
-                    scanlator = actualTeamName,
-                    branch = teamName,
+                val chapterUrl = JSONObject().apply {
+                    put("id", chId)
+                    put("source", src)
+                }.toString()
+                builder.add(
+                    MangaChapter(
+                        id = generateUid("$team-$chId"),
+                        title = title,
+                        number = num,
+                        volume = 0,
+                        url = chapterUrl,
+                        uploadDate = date?.let { dateFormat.parseSafe(it) } ?: 0L,
+                        source = source,
+                        scanlator = team,
+                        branch = team,
+                    )
                 )
-
-                chaptersBuilder.add(chapter)
             }
         }
 
-        return chaptersBuilder.toList()
+        val volumesResponse = runCatching {
+            webClient.httpGet("$apiBase/manga/$mangaId/volumes?lang=en").parseJsonArray()
+        }.getOrNull()
+
+        if (volumesResponse != null) {
+            val volumes = (0 until volumesResponse.length()).map { volumesResponse.getJSONObject(it) }
+                .sortedBy { it.optDouble("volume_number", 0.0).toFloat() }
+
+            for (vol in volumes) {
+                if (vol.optString("language", "en") != "en") continue
+                val volId = vol.getInt("id")
+                val volNum = vol.optDouble("volume_number", 0.0).toFloat()
+                val volDate = vol.optString("date_added", "").nullIfEmpty()
+                val volSource = vol.optString("source", "user")
+                val volGroup = vol.optString("group_name", "").nullIfEmpty()
+                    ?: vol.optString("scanlator_name", "").nullIfEmpty()
+                    ?: "Unknown"
+                val volumeUrl = JSONObject().apply {
+                    put("id", volId)
+                    put("source", volSource)
+                }.toString()
+                builder.add(
+                    MangaChapter(
+                        id = generateUid("vol-$volId"),
+                        title = "Volume ${volNum.toString().removeSuffix(".0")}",
+                        number = volNum,
+                        volume = 0,
+                        url = volumeUrl,
+                        uploadDate = volDate?.let { dateFormat.parseSafe(it) } ?: 0L,
+                        source = source,
+                        scanlator = volGroup,
+                        branch = "Volume",
+                    )
+                )
+            }
+        }
+
+        return builder.toList()
     }
-
-    // endregion
-
-    // region Pages
-
-    override suspend fun getRelatedManga(seed: Manga): List<Manga> = emptyList()
 
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
         val chapterData = JSONObject(chapter.url)
         val chapterId = chapterData.getString("id")
-        val chapterSource = chapterData.optString("source", "scraper")
-
-        val segment = if (chapterSource == "user") "uploads" else "chapters"
+        val source = chapterData.optString("source", "user")
+        val segment = if (source == "user") "uploads" else "chapters"
         val response = webClient.httpGet("$baseUrl/api/$segment/$chapterId/images").parseJson()
-
-        // Response can be wrapped in {"data": {"manga": {"id": ...}, "images": [...]}} or flat {"images": [...]}
         val data = response.optJSONObject("data")
-        val imagesArray = if (data != null && data.has("images")) {
-            data.getJSONArray("images")
-        } else {
-            response.getJSONArray("images")
-        }
-
+        val imagesArray = if (data != null && data.has("images")) data.getJSONArray("images") else response.getJSONArray("images")
         return (0 until imagesArray.length()).mapNotNull { i ->
             val img = imagesArray.getJSONObject(i)
             val imgUrl = img.optString("url", "").nullIfEmpty() ?: return@mapNotNull null
@@ -425,17 +437,34 @@ internal class Mangadotnet(context: MangaLoaderContext) :
                 id = generateUid(fullUrl),
                 url = fullUrl,
                 preview = null,
-                source = source,
+                source = this.source,
             )
         }
     }
 
-    // endregion
 
-    // region Helpers
+    @Suppress("UNCHECKED_CAST")
+    override suspend fun getRelatedManga(seed: Manga): List<Manga> {
+        val url = "$baseUrl/manga/${seed.url}.data?_routes=pages/MangaDetailPage"
+        val data = fetchRscData(url, "pages/MangaDetailPage") ?: return emptyList()
+
+        val related = mutableListOf<Manga>()
+        (data["suggestions"] as? List<*>)?.filterIsInstance<Map<String, Any?>>()?.mapTo(related) { parseMangaFromList(it) }
+        val relationsData = data.asMap("relationsData")
+        val relations = relationsData?.asMap("relations") as? Map<String, List<Map<String, Any?>>>
+        relations?.values?.forEach { list -> list.mapTo(related) { parseMangaFromList(it) } }
+
+        return related
+    }
+
+    private fun MangaState.toApiStatus() = when (this) {
+        MangaState.ONGOING -> "Ongoing"
+        MangaState.FINISHED -> "Completed"
+        MangaState.PAUSED -> "Hiatus"
+        else -> ""
+    }
 
     @Suppress("UNCHECKED_CAST")
     private fun Map<String, Any?>.asMap(key: String): Map<String, Any?>? = this[key] as? Map<String, Any?>
-
-    // endregion
+    private fun String?.nullIfEmpty(): String? = if (this.isNullOrEmpty()) null else this
 }

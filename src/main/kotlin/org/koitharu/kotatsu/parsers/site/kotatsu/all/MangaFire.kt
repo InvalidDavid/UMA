@@ -8,6 +8,7 @@ import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.PagedMangaParser
 import org.koitharu.kotatsu.parsers.model.ContentType
+import org.koitharu.kotatsu.parsers.model.Demographic
 import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaChapter
 import org.koitharu.kotatsu.parsers.model.MangaListFilter
@@ -18,13 +19,13 @@ import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import org.koitharu.kotatsu.parsers.model.MangaState
 import org.koitharu.kotatsu.parsers.model.MangaTag
 import org.koitharu.kotatsu.parsers.model.RATING_UNKNOWN
-import org.koitharu.kotatsu.parsers.model.ContentRating
 import org.koitharu.kotatsu.parsers.model.SortOrder
 import org.koitharu.kotatsu.parsers.network.OkHttpWebClient
 import org.koitharu.kotatsu.parsers.util.generateUid
 import org.koitharu.kotatsu.parsers.util.parseJson
-import org.koitharu.kotatsu.parsers.model.Demographic
 import java.util.EnumSet
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 
 internal abstract class MangaFireParser(
     context: MangaLoaderContext,
@@ -35,12 +36,14 @@ internal abstract class MangaFireParser(
     override val configKeyDomain = ConfigKey.Domain("mangafire.to")
 
     override val availableSortOrders: Set<SortOrder> = EnumSet.of(
-        SortOrder.UPDATED,
-        SortOrder.POPULARITY,
-        SortOrder.RATING,
-        SortOrder.NEWEST,
-        SortOrder.ALPHABETICAL,
-        SortOrder.RELEVANCE,
+        SortOrder.UPDATED, // chapter update
+        SortOrder.POPULARITY, // most views
+        SortOrder.RATING, // rating score
+        SortOrder.NEWEST, // created manga
+        SortOrder.ALPHABETICAL, // title asc
+        SortOrder.RELEVANCE, // relevance sc
+        SortOrder.POPULARITY_WEEK,
+        SortOrder.POPULARITY_MONTH,
     )
 
     private val apiClient by lazy {
@@ -67,27 +70,64 @@ internal abstract class MangaFireParser(
         isTagsExclusionSupported = true,
         isSearchSupported = true,
         isSearchWithFiltersSupported = true,
-        isYearSupported = false, // idk how to do the year support
-        isYearRangeSupported = false,
+        isYearRangeSupported = true,
     )
 
-    // ---------- Tag ----------
     companion object {
         val GENRE_MAP = mapOf(
-            "Action" to "1", "Adventure" to "78", "Avant Garde" to "3",
-            "Boys Love" to "4", "Comedy" to "5", "Demons" to "77",
-            "Drama" to "6", "Ecchi" to "7", "Fantasy" to "79",
-            "Girls Love" to "9", "Gourmet" to "10", "Harem" to "11",
-            "Horror" to "530", "Isekai" to "13", "Iyashikei" to "531",
-            "Josei" to "15", "Kids" to "532", "Magic" to "539",
-            "Mahou Shoujo" to "533", "Martial Arts" to "534",
-            "Mecha" to "19", "Military" to "535", "Music" to "21",
-            "Mystery" to "22", "Parody" to "23", "Psychological" to "536",
-            "Reverse Harem" to "25", "Romance" to "26", "School" to "73",
-            "Sci-Fi" to "28", "Seinen" to "537", "Shoujo" to "30",
-            "Shounen" to "31", "Slice of Life" to "538", "Space" to "33",
-            "Sports" to "34", "Super Power" to "75", "Supernatural" to "76",
-            "Suspense" to "37", "Thriller" to "38", "Vampire" to "39"
+            "Action" to "1",
+            "Adult" to "268929",
+            "Adventure" to "78",
+            "Avant Garde" to "3",
+            "Boys Love" to "4",
+            "Comedy" to "5",
+            "Crime" to "268921",
+            "Demons" to "77",
+            "Drama" to "6",
+            "Ecchi" to "7",
+            "Fantasy" to "79",
+            "Girls Love" to "9",
+            "Gourmet" to "10",
+            "Harem" to "11",
+            "Hentai" to "268930",
+            "Historical" to "268922",
+            "Horror" to "530",
+            "Isekai" to "13",
+            "Iyashikei" to "531",
+            "Josei" to "15",
+            "Kids" to "532",
+            "Magic" to "539",
+            "Magical Girls" to "268923",
+            "Mahou Shoujo" to "533",
+            "Martial Arts" to "534",
+            "Mature" to "268931",
+            "Mecha" to "19",
+            "Medical" to "268924",
+            "Military" to "535",
+            "Music" to "21",
+            "Mystery" to "22",
+            "Parody" to "23",
+            "Philosophical" to "268925",
+            "Psychological" to "536",
+            "Reverse Harem" to "25",
+            "Romance" to "26",
+            "School" to "73",
+            "Sci-Fi" to "28",
+            "Seinen" to "537",
+            "Shoujo" to "30",
+            "Shounen" to "31",
+            "Slice of Life" to "538",
+            "Smut" to "268932",
+            "Space" to "33",
+            "Sports" to "34",
+            "Super Power" to "75",
+            "Superhero" to "268926",
+            "Supernatural" to "76",
+            "Suspense" to "37",
+            "Thriller" to "38",
+            "Tragedy" to "268927",
+            "Vampire" to "39",
+            "Wuxia" to "268928"
         )
     }
 
@@ -106,20 +146,30 @@ internal abstract class MangaFireParser(
         availableContentTypes = EnumSet.of(
             ContentType.MANGA, ContentType.MANHWA, ContentType.MANHUA, ContentType.OTHER,
         ),
-        availableDemographics = EnumSet.of(Demographic.SHOUNEN, Demographic.SHOUJO, Demographic.SEINEN, Demographic.JOSEI,
-        ),
+        availableDemographics = EnumSet.of(Demographic.SHOUNEN, Demographic.SHOUJO, Demographic.SEINEN, Demographic.JOSEI),
     )
 
-    // ---------- Listing ----------
     override suspend fun getListPage(
         page: Int,
         order: SortOrder,
         filter: MangaListFilter,
     ): List<Manga> {
-        val url = StringBuilder("https://$domain/api/titles?page=$page&limit=50")
+        val urlBuilder = okhttp3.HttpUrl.Builder()
+            .scheme("https")
+            .host(domain)
+            .addPathSegments("api/titles")
+            .addQueryParameter("page", page.toString())
+            .addQueryParameter("limit", "50")
 
         if (!filter.query.isNullOrBlank()) {
-            url.append("&keyword=").append(filter.query)
+            urlBuilder.addQueryParameter("keyword", filter.query)
+        }
+
+        if (filter.yearFrom > 0) {
+            urlBuilder.addQueryParameter("year_from", filter.yearFrom.toString())
+        }
+        if (filter.yearTo > 0) {
+            urlBuilder.addQueryParameter("year_to", filter.yearTo.toString())
         }
 
         filter.types.forEach { type ->
@@ -130,7 +180,7 @@ internal abstract class MangaFireParser(
                 ContentType.OTHER -> "other"
                 else -> null
             }
-            value?.let { url.append("&types[]=$it") }
+            value?.let { urlBuilder.addQueryParameter("types[]", it) }
         }
 
         filter.demographics.forEach { demo ->
@@ -141,40 +191,43 @@ internal abstract class MangaFireParser(
                 Demographic.SHOUNEN -> "268918"
                 else -> null
             }
-            id?.let { url.append("&demographics[]=$it") }
+            id?.let { urlBuilder.addQueryParameter("demographics[]", it) }
         }
 
-        filter.tags.forEach { url.append("&genres_in[]=").append(it.key) }
-        filter.tagsExclude.forEach { url.append("&genres_ex[]=").append(it.key) }
+        filter.tags.forEach { urlBuilder.addQueryParameter("genres_in[]", it.key) }
+        filter.tagsExclude.forEach { urlBuilder.addQueryParameter("genres_ex[]", it.key) }
 
-        // --- Statuses ---
-        filter.states.forEach {
-            url.append("&statuses[]=").append(
-                when (it) {
-                    MangaState.ONGOING -> "releasing"
-                    MangaState.FINISHED -> "finished"
-                    MangaState.ABANDONED -> "discontinued"
-                    MangaState.PAUSED -> "on_hiatus"
-                    MangaState.UPCOMING -> "not_yet_released"
-                    else -> ""
-                }
-            )
+        filter.states.forEach { state ->
+            val apiState = when (state) {
+                MangaState.ONGOING -> "releasing"
+                MangaState.FINISHED -> "finished"
+                MangaState.ABANDONED -> "discontinued"
+                MangaState.PAUSED -> "on_hiatus"
+                MangaState.UPCOMING -> "not_yet_released"
+                else -> null
+            }
+            apiState?.let { urlBuilder.addQueryParameter("statuses[]", it) }
         }
 
-        // --- Sort order ---
         val sortParam = when (order) {
-            SortOrder.UPDATED -> "order[chapter_updated_at]=desc"
-            SortOrder.POPULARITY -> "order[views_total]=desc"
-            SortOrder.RATING -> "order[score]=desc"
-            SortOrder.NEWEST -> "order[created_at]=desc"
-            SortOrder.ALPHABETICAL -> "order[title]=asc"
-            SortOrder.RELEVANCE -> "order[relevance]=desc"
-            else -> ""
+            SortOrder.UPDATED -> "chapter_updated_at" to "desc"
+            SortOrder.POPULARITY -> "views_total" to "desc"
+            SortOrder.RATING -> "score" to "desc"
+            SortOrder.NEWEST -> "created_at" to "desc"
+            SortOrder.ALPHABETICAL -> "title" to "asc"
+            SortOrder.RELEVANCE -> "relevance" to "desc"
+            SortOrder.POPULARITY_WEEK -> "views_7d" to "desc"
+            SortOrder.POPULARITY_MONTH -> "views_30d" to "desc"
+            else -> null
         }
-        if (sortParam.isNotEmpty()) url.append("&").append(sortParam)
 
-        // --- Execute request ---
-        val response = apiClient.httpGet(url.toString()).parseJson()
+        sortParam?.let { (field, dir) ->
+            urlBuilder.addQueryParameter("order[$field]", dir)
+        }
+
+        val url = urlBuilder.build().toString()
+
+        val response = apiClient.httpGet(url).parseJson()
         val items = response.getJSONArray("items")
         val mangas = mutableListOf<Manga>()
         for (i in 0 until items.length()) {
@@ -208,102 +261,118 @@ internal abstract class MangaFireParser(
         return mangas
     }
 
-    // ---------- Details ----------
     override suspend fun getDetails(manga: Manga): Manga {
-        val hid = manga.url.substringAfter("/title/").substringBefore("-").substringBefore("/")
-        val detailsJson = apiClient.httpGet("https://$domain/api/titles/$hid").parseJson()
-        val data = detailsJson.getJSONObject("data")
+        detailsCache[manga.url]?.let { return it }
 
-        val title = data.getString("title")
-        val poster = data.optJSONObject("poster")
-        val cover = poster?.optString("large")
-            ?: poster?.optString("medium")
-            ?: poster?.optString("small")
-        val synopsisHtml = data.optString("synopsisHtml", null)
-        val status = data.optString("status", null)
-        val type = data.optString("type", null)
-        val authors = data.optJSONArray("authors")?.let { arr ->
-            (0 until arr.length()).map { arr.getJSONObject(it).getString("title") }
-        }?.joinToString()
-        val genres = data.optJSONArray("genres")?.let { arr ->
-            (0 until arr.length()).map { arr.getJSONObject(it).getString("title") }
+        val result = coroutineScope {
+            val hid = extractHid(manga.url)
+
+            val detailsJson = apiClient.httpGet("https://$domain/api/titles/$hid").parseJson()
+            val data = detailsJson.getJSONObject("data")
+
+            val hasVolumes = data.optBoolean("hasVolumes", false)
+
+            val chaptersDeferred = async { fetchChapters(hid, hasVolumes) }
+
+            val title = data.getString("title")
+            val poster = data.optJSONObject("poster")
+            val cover = poster?.optString("large")
+                ?: poster?.optString("medium")
+                ?: poster?.optString("small")
+            val synopsisHtml = data.optString("synopsisHtml", null)
+            val status = data.optString("status", null)
+            val type = data.optString("type", null)
+            val authorsList = data.optJSONArray("authors")?.let { arr ->
+                (0 until arr.length()).map { arr.getJSONObject(it).getString("title") }
+            }.orEmpty()
+            val artistsList = data.optJSONArray("artists")?.let { arr ->
+                (0 until arr.length()).map { arr.getJSONObject(it).getString("title") }
+            }.orEmpty()
+            val genres = data.optJSONArray("genres")?.let { arr ->
+                (0 until arr.length()).map { arr.getJSONObject(it).getString("title") }
+            }
+            val themes = data.optJSONArray("themes")?.let { arr ->
+                (0 until arr.length()).map { arr.getJSONObject(it).getString("title") }
+            }
+            val altTitlesArray = data.optJSONArray("altTitles")?.let { arr ->
+                (0 until arr.length()).map { arr.getString(it) }
+            } ?: emptyList()
+
+            val rawRating = data.optDouble("rating", -1.0)
+            val rating = if (rawRating >= 0.0) (rawRating / 10.0).toFloat() else RATING_UNKNOWN
+
+            val synopsisText = synopsisHtml?.let { Jsoup.parseBodyFragment(it).text() } ?: ""
+
+            val genreList = buildList {
+                type?.let { add(it.replaceFirstChar { c -> c.uppercase() }) }
+                genres?.let { addAll(it) }
+                themes?.let { addAll(it) }
+            }
+            val genreTags = genreList.mapNotNull { name ->
+                tags.find { it.title == name }
+            }.toSet()
+
+            val chapters = chaptersDeferred.await()
+
+            manga.copy(
+                title = title,
+                coverUrl = cover ?: manga.coverUrl,
+                authors = (authorsList + artistsList).toSet(),
+                description = synopsisText.trim(),
+                rating = rating,
+                state = when (status?.lowercase()) {
+                    "releasing" -> MangaState.ONGOING
+                    "finished" -> MangaState.FINISHED
+                    "discontinued" -> MangaState.ABANDONED
+                    "on_hiatus" -> MangaState.PAUSED
+                    "not_yet_released" -> MangaState.UPCOMING
+                    else -> null
+                },
+                tags = genreTags,
+                altTitles = altTitlesArray.toSet(),
+                chapters = chapters,
+            )
         }
-        val themes = data.optJSONArray("themes")?.let { arr ->
-            (0 until arr.length()).map { arr.getJSONObject(it).getString("title") }
-        }
-        val altTitlesArray = data.optJSONArray("altTitles")?.let { arr ->
-            (0 until arr.length()).map { arr.getString(it) }
-        } ?: emptyList()
 
-        val description = synopsisHtml?.let { Jsoup.parseBodyFragment(it).text() }
-
-        val genreList = buildList {
-            type?.let { add(it.replaceFirstChar { c -> c.uppercase() }) }
-            genres?.let { addAll(it) }
-            themes?.let { addAll(it) }
-        }
-
-        val genreTags = genreList.mapNotNull { name ->
-            tags.find { it.title == name }
-        }.toSet()
-
-//        val ratingValue = if (data.has("rating")) {
-//            data.getDouble("rating").toFloat()
-//        } else {
-//            RATING_UNKNOWN
-//        }
-        // they use rating till 10 stars so idk
-
-        val chapters = fetchChapters(hid)
-
-        return manga.copy(
-            title = title,
-            coverUrl = cover ?: manga.coverUrl,
-            authors = setOfNotNull(authors),
-            description = description,
-            state = when (status) {
-                "releasing" -> MangaState.ONGOING
-                "finished" -> MangaState.FINISHED
-                "discontinued" -> MangaState.ABANDONED
-                "on_hiatus" -> MangaState.PAUSED
-                "not_yet_released" -> MangaState.UPCOMING
-                else -> null
-            },
-            tags = genreTags,
-            altTitles = altTitlesArray.toSet(),
-            chapters = chapters,
-        )
+        detailsCache.put(manga.url, result)
+        return result
     }
 
-    // ---------- Chapters ----------
-    private suspend fun fetchChapters(hid: String): List<MangaChapter> {
+    @get:Synchronized
+    private val detailsCache = object : LinkedHashMap<String, Manga>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Manga>?): Boolean {
+            return size > 10
+        }
+    }
+
+    private suspend fun fetchChapters(hid: String, hasVolumes: Boolean): List<MangaChapter> {
         val chapters = mutableListOf<MangaChapter>()
+        val base = "https://$domain/api/titles/$hid"
+
         var page = 1
         var lastPage: Int
         do {
-            val url = "https://$domain/api/titles/$hid/chapters?language=$siteLang&sort=number&order=desc&page=$page&limit=200"
-            val response = apiClient.httpGet(url).parseJson()
-            val items = response.getJSONArray("items")
-            val meta = response.optJSONObject("meta")
+            val json = apiClient.httpGet(
+                "$base/chapters?language=$siteLang&sort=number&order=desc&page=$page&limit=200"
+            ).parseJson()
+            val items = json.getJSONArray("items")
+            val meta = json.optJSONObject("meta")
             lastPage = meta?.optInt("lastPage", 1) ?: 1
 
             for (i in 0 until items.length()) {
-                val chObj = items.getJSONObject(i)
+                val ch = items.getJSONObject(i)
+                if (ch.getString("language") != siteLang) continue
 
-                // Only chapters for the current language
-                if (chObj.getString("language") != siteLang) continue
-
-                val id = chObj.getInt("id")
-                val number = chObj.getDouble("number").toFloat()
-                val name = chObj.optString("name", null)
-                val createdAt = chObj.optLong("createdAt", 0L) * 1000L
+                val id = ch.getInt("id")
+                val number = ch.getDouble("number").toFloat()
+                val name = ch.optString("name", null)
+                val createdAt = ch.optLong("createdAt", 0L) * 1000L
+                val type = ch.getString("type")
                 val chapterUrl = "/title/$hid/$id"
                 val displayName = buildString {
                     append("Ch. ")
                     append(number.toString().removeSuffix(".0"))
-                    if (!name.isNullOrBlank()) {
-                        append(" - $name")
-                    }
+                    if (!name.isNullOrBlank()) append(" - $name")
                 }
                 chapters.add(
                     MangaChapter(
@@ -314,7 +383,7 @@ internal abstract class MangaFireParser(
                         url = chapterUrl,
                         scanlator = null,
                         uploadDate = createdAt,
-                        branch = null,
+                        branch = type,
                         source = source,
                     )
                 )
@@ -322,13 +391,62 @@ internal abstract class MangaFireParser(
             page++
         } while (page <= lastPage)
 
-        return chapters.sortedBy { it.number }
+        if (hasVolumes) {
+            try {
+                val volJson = apiClient.httpGet("$base/volumes?language=$siteLang").parseJson()
+                val volItems = volJson.getJSONArray("items")
+                for (i in 0 until volItems.length()) {
+                    val vol = volItems.getJSONObject(i)
+                    if (vol.getString("language") != siteLang) continue
+
+                    val volId = vol.getInt("id")
+                    val volNumber = vol.getDouble("number").toFloat()
+                    val volName = vol.optString("name", "").takeIf { it.isNotBlank() }
+                    val chapterCount = vol.optInt("chapterCount", 0)
+
+                    val title = buildString {
+                        append("Vol. ")
+                        append(volNumber.toString().removeSuffix(".0"))
+                        if (volName != null) append(" - $volName")
+                    }
+                    val name = if (chapterCount > 0) "$chapterCount chapters" else ""
+
+                    chapters.add(
+                        MangaChapter(
+                            id = generateUid("/title/$hid/vol/$volId"),
+                            title = title,
+                            number = volNumber,
+                            volume = 0,
+                            url = "/title/$hid/vol/$volId",
+                            scanlator = name,
+                            uploadDate = 0L,
+                            branch = "Volume",
+                            source = source,
+                        )
+                    )
+                }
+            } catch (_: Exception) {
+            }
+        }
+
+        val distinctBranches = chapters.map { it.branch }.distinct()
+        val useGroups = distinctBranches.size > 1
+
+        return chapters
+            .map { chapter ->
+                chapter.copy(
+                    branch = if (useGroups) (chapter.branch ?: "").replaceFirstChar { it.uppercase() } else null
+                )
+            }
+            .sortedBy { it.number }
     }
 
-    // ---------- Pages ----------
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
-        val chapterId = chapter.url.substringAfterLast("/")
-        val response = apiClient.httpGet("https://$domain/api/chapters/$chapterId").parseJson()
+        val chapterId = chapter.url.substringAfterLast("/") // numeric ID
+        val isVolume = chapter.url.contains("/vol/")
+        val endpoint = if (isVolume) "volumes" else "chapters"
+
+        val response = apiClient.httpGet("https://$domain/api/$endpoint/$chapterId").parseJson()
         val pagesArray = response.getJSONObject("data").getJSONArray("pages")
         val pages = ArrayList<MangaPage>(pagesArray.length())
         for (i in 0 until pagesArray.length()) {
@@ -351,6 +469,16 @@ internal abstract class MangaFireParser(
     override val authUrl: String get() = "https://$domain"
     override suspend fun isAuthorized(): Boolean = true
     override suspend fun getUsername(): String = ""
+
+
+    private fun extractHid(url: String): String {
+        val lastPart = url.removeSuffix("/").substringAfterLast("/")
+        return when {
+            lastPart.contains(".") -> lastPart.substringAfterLast(".")
+            lastPart.contains("-") -> lastPart.substringBefore("-")
+            else -> lastPart
+        }
+    }
 
     @MangaSourceParser("MANGAFIRE_EN", "MangaFire (English)", "en")
     class English(context: MangaLoaderContext) : MangaFireParser(context, MangaParserSource.MANGAFIRE_EN, "en")

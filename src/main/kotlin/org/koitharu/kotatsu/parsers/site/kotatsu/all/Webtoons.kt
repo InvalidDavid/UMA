@@ -3,6 +3,7 @@ package org.koitharu.kotatsu.parsers.site.kotatsu.all
 import androidx.collection.arraySetOf
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.jsoup.nodes.Element
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
@@ -14,6 +15,11 @@ import org.koitharu.kotatsu.parsers.util.*
 import org.koitharu.kotatsu.parsers.util.json.getStringOrNull
 import java.util.EnumSet
 
+private const val ID_SEARCH_PREFIX = "id:"
+
+private const val webtoons = "webtoons"
+private const val canvas = "canvas"
+
 internal abstract class WebtoonsParser(
     context: MangaLoaderContext,
     source: MangaParserSource,
@@ -23,6 +29,14 @@ internal abstract class WebtoonsParser(
 
     private val mobileApiDomain = "m.webtoons.com"
     private val staticDomain = "webtoon-phinf.pstatic.net"
+
+    private val contentKey = ConfigKey.PreferredImageServer(
+        presetValues = mapOf(
+            webtoons to "Webtoons",
+            canvas to "Canvas",
+        ),
+        defaultValue = webtoons,
+    )
 
     override val availableSortOrders: EnumSet<SortOrder> = EnumSet.of(
         SortOrder.POPULARITY,
@@ -35,8 +49,7 @@ internal abstract class WebtoonsParser(
             isSearchSupported = true,
         )
 
-    override val userAgentKey =
-        ConfigKey.UserAgent("Mozilla/5.0 (Linux; Android 12; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36")
+    override val userAgentKey = ConfigKey.UserAgent("Mozilla/5.0 (Linux; Android 12; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36")
 
     override suspend fun getFilterOptions() = MangaListFilterOptions(
         availableTags = availableTags(),
@@ -45,6 +58,7 @@ internal abstract class WebtoonsParser(
     override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
         super.onCreateConfig(keys)
         keys.add(userAgentKey)
+        keys.add(contentKey)
     }
 
     override suspend fun getPageUrl(page: MangaPage): String {
@@ -59,7 +73,12 @@ internal abstract class WebtoonsParser(
         }
 
     private suspend fun fetchEpisodes(titleNo: Long, type: String): List<MangaChapter> {
-        val url = "https://$mobileApiDomain/api/v1/$type/$titleNo/episodes?pageSize=99999"
+        val baseUrl = "https://$mobileApiDomain/api/v1/$type/$titleNo/episodes"
+        val url = if (type == "canvas") {
+            "$baseUrl?pageSize=99999&readingLanguageCode=$languageCode"
+        } else {
+            "$baseUrl?pageSize=99999"
+        }
         val json = webClient.httpGet(url).parseJson()
 
         val episodeList = json.optJSONObject("result")?.optJSONArray("episodeList")
@@ -69,10 +88,15 @@ internal abstract class WebtoonsParser(
             val episodeTitle = jo.getStringOrNull("episodeTitle") ?: ""
             val episodeNo = jo.getInt("episodeNo")
             val viewerLink = jo.getString("viewerLink")
+            val hasBgm = jo.optBoolean("hasBgm", false)
 
             MangaChapter(
                 id = generateUid("$titleNo-$episodeNo"),
-                title = episodeTitle,
+                title = buildString {
+                    append(org.jsoup.parser.Parser.unescapeEntities(episodeTitle, false))
+                    append(" (ch. $episodeNo)")
+                    if (hasBgm) append(" ♫")
+                },
                 number = episodeNo.toFloat(),
                 volume = 0,
                 url = viewerLink,
@@ -81,8 +105,7 @@ internal abstract class WebtoonsParser(
                 scanlator = null,
                 source = source,
             )
-        }.sortedBy(MangaChapter::number)
-
+        }.sortedBy { it.number }
     }
 
     override suspend fun getDetails(manga: Manga): Manga = coroutineScope {
@@ -108,9 +131,14 @@ internal abstract class WebtoonsParser(
 
         val author = listOf(
             doc.select("meta[property='com-linewebtoon:webtoon:author']").attr("content"),
-            doc.select(".detail_header .info .author").firstOrNull()?.text(),
+            doc.select(".detail_header .info .author:nth-of-type(1)").firstOrNull()?.ownText(),
             doc.select(".author_area").text(),
         ).firstOrNull { !it.isNullOrBlank() && it != "null" }
+
+        val artist = listOf(
+            doc.select(".detail_header .info .author:nth-of-type(2)").firstOrNull()?.ownText(),
+            doc.select(".author_area").text().takeIf { it != author },
+        ).firstOrNull { !it.isNullOrBlank() } ?: author
 
         val genreElements = doc.select(".detail_header .info .genre").ifEmpty {
             doc.select("h2.genre")
@@ -140,7 +168,7 @@ internal abstract class WebtoonsParser(
             coverUrl = coverUrl,
             largeCoverUrl = null,
             tags = genres.map { genre -> MangaTag(title = genre, key = genre.lowercase(), source = source) }.toSet(),
-            authors = setOfNotNull(author.takeIf { it != "null" }),
+            authors = setOfNotNull(author, artist).filter { it != "null" }.toSet(),
             description = description,
             state = state,
             chapters = chapters,
@@ -182,39 +210,132 @@ internal abstract class WebtoonsParser(
     }
 
     override suspend fun getList(offset: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
-        val query = filter.query
-        val document = when {
-            !query.isNullOrEmpty() -> {
-                val searchUrl = "https://$domain/$languageCode/search?keyword=${query.urlEncoded()}"
-                webClient.httpGet(searchUrl).parseHtml()
-            }
+        val query = filter.query.orEmpty()
+        val currentContent = config[contentKey] ?: webtoons
 
-            filter.tags.isNotEmpty() -> {
-                val selectedGenre = filter.tags.first()
-                val genreUrlPath = genreUrlMap[selectedGenre.key] ?: selectedGenre.key
-                val sortParam = getSortOrderParam(order)
-                val genreUrl = "https://$domain/$languageCode/genres/$genreUrlPath?sortOrder=$sortParam"
-                webClient.httpGet(genreUrl).parseHtml()
-            }
+        var directTitleNo: Long? = null
+        var directType: String? = null
 
-            else -> {
-                val rankingType = when (order) {
-                    SortOrder.POPULARITY -> "popular"
-                    SortOrder.RATING -> "trending"
-                    SortOrder.UPDATED -> "originals"
-                    else -> "popular"
+        when {
+            query.startsWith("https://") -> {
+                val url = query.toHttpUrl()
+                if (!url.host.endsWith("webtoons.com")) {
+                    throw Exception("Unsupported domain: ${url.host}. Only webtoons.com and m.webtoons.com are allowed.")
                 }
-                val rankingUrl = "https://$domain/$languageCode/ranking/$rankingType"
-                webClient.httpGet(rankingUrl).parseHtml()
+                directTitleNo = url.queryParameter("title_no")?.toLongOrNull()
+                    ?: throw Exception("Missing 'title_no' parameter in URL")
+                val path = url.pathSegments.filter(String::isNotEmpty)
+                if (path.size < 2) throw Exception("Invalid URL path")
+                if (path[0] != languageCode) {
+                    throw Exception("URL language (${path[0]}) does not match parser language ($languageCode)")
+                }
+                directType = if (path.getOrNull(1) == "canvas") canvas else webtoons
+            }
+
+            query.startsWith(ID_SEARCH_PREFIX) -> {
+                val idPart = query.removePrefix(ID_SEARCH_PREFIX)
+                val parts = idPart.split(":")
+                val (type, lang, titleNo) = when (parts.size) {
+                    1 -> Triple(currentContent, languageCode, parts[0].toLongOrNull()
+                        ?: throw Exception("Invalid title number: ${parts[0]}"))
+                    2 -> Triple(parts[0], languageCode, parts[1].toLongOrNull()
+                        ?: throw Exception("Invalid title number: ${parts[1]}"))
+                    3 -> Triple(parts[0], parts[1], parts[2].toLongOrNull()
+                        ?: throw Exception("Invalid title number: ${parts[2]}"))
+                    else -> throw Exception("Invalid id search format. Use id:type:lang:titleNo, id:type:titleNo, or id:titleNo")
+                }
+                if (lang != languageCode) return emptyList()
+                if (type !in listOf(webtoons, canvas)) {
+                    throw Exception("Unknown type '$type'. Use 'webtoons' or 'canvas'.")
+                }
+                directTitleNo = titleNo
+                directType = type
+            }
+
+            query.toLongOrNull() != null -> {
+                directTitleNo = query.toLong()
+                directType = currentContent
             }
         }
 
-        val selectedGenreForManga = if (filter.tags.isNotEmpty()) filter.tags.first() else null
+        if (directTitleNo != null && directType != null) {
+            val detailsUrl = "https://$domain/$languageCode/$directType/placeholder/list?title_no=$directTitleNo"
+            val manga = getDetails(Manga(
+                id = generateUid(directTitleNo),
+                title = "",
+                altTitles = emptySet(),
+                url = directTitleNo.toString(),
+                publicUrl = detailsUrl,
+                rating = RATING_UNKNOWN,
+                contentRating = null,
+                coverUrl = null,
+                tags = emptySet(),
+                state = null,
+                authors = emptySet(),
+                source = source,
+            ))
+            return listOf(manga)
+        }
 
-        return document.select(".webtoon_list li a, .card_wrap .card_item a")
-            .map { element -> createMangaFromElement(element, source as MangaParserSource, selectedGenreForManga) }
-            .drop(offset)
-            .take(20)
+        val page = offset / 20 + 1
+        val inPageOffset = offset % 20
+        val selectedGenre = filter.tags.firstOrNull()
+
+        val url = buildString {
+            append("https://$domain/$languageCode")
+            when {
+                query.isNotBlank() -> {
+                    append("/search")
+                    var cleanQuery = query
+                    var searchType: String? = null
+                    when {
+                        cleanQuery.startsWith("type:originals ") -> {
+                            searchType = "originals"
+                            cleanQuery = cleanQuery.removePrefix("type:originals ").trim()
+                        }
+                        cleanQuery.startsWith("type:canvas ") -> {
+                            searchType = "canvas"
+                            cleanQuery = cleanQuery.removePrefix("type:canvas ").trim()
+                        }
+                    }
+                    if (searchType == null) {
+                        searchType = when (currentContent) {
+                            webtoons -> "originals"
+                            canvas -> "canvas"
+                            else -> null
+                        }
+                    }
+                    if (searchType != null) append("/$searchType")
+                    append("?keyword=${cleanQuery.urlEncoded()}")
+                    if (page > 1) append("&page=$page")
+                }
+                selectedGenre != null -> {
+                    val genreUrlPath = genreUrlMap[selectedGenre.key] ?: selectedGenre.key
+                    append("/genres/$genreUrlPath")
+                    append("?sortOrder=${getSortOrderParam(order)}")
+                    if (page > 1) append("&page=$page")
+                }
+                else -> {
+                    val rankingType = when {
+                        currentContent == canvas -> "canvas"
+                        else -> when (order) {
+                            SortOrder.POPULARITY -> "popular"
+                            SortOrder.RATING -> "trending"
+                            SortOrder.UPDATED -> "originals"
+                            else -> "popular"
+                        }
+                    }
+                    append("/ranking/$rankingType")
+                    if (page > 1) append("?page=$page")
+                }
+            }
+        }
+
+        val doc = webClient.httpGet(url).parseHtml()
+        val items = doc.select(".webtoon_list li a, .card_wrap .card_item a")
+            .map { element -> createMangaFromElement(element, source as MangaParserSource, selectedGenre) }
+
+        return items.drop(inPageOffset).take(20)
     }
 
     private fun createMangaFromElement(
@@ -236,11 +357,11 @@ internal abstract class WebtoonsParser(
             rating = RATING_UNKNOWN,
             contentRating = null,
             coverUrl = thumbnailUrl.toAbsoluteUrl(staticDomain),
-            largeCoverUrl = null,
             tags = selectedGenre?.let { setOf(it) } ?: emptySet(),
-            authors = emptySet(),
-            description = null,
             state = null,
+            authors = emptySet(),
+            largeCoverUrl = null,
+            description = null,
             source = source,
         )
     }
@@ -258,44 +379,77 @@ internal abstract class WebtoonsParser(
             throw ParseException("Failed to get pages for chapter: ${chapter.title}", chapter.url, e)
         }
 
-        fun extractImages(selector: String, attr: String = "data-url"): List<MangaPage> {
-            return doc.select(selector).mapIndexedNotNull { i, element ->
-                val url = element.attr(attr).takeIf { it.isNotBlank() }
-                    ?: element.attr("src").takeIf { it.contains(staticDomain) }
-                    ?: return@mapIndexedNotNull null
-                MangaPage(
-                    id = generateUid("${chapter.id}-$i"),
-                    url = url,
-                    preview = null,
-                    source = source,
-                )
+        val images = doc.select("div#_imageList > img").mapIndexedNotNull { i, element ->
+            val rawUrl = element.attr("data-url").takeIf { it.isNotBlank() }
+                ?: element.attr("src").takeIf { it.contains(staticDomain) }
+                ?: return@mapIndexedNotNull null
+
+            MangaPage(
+                id = generateUid("${chapter.id}-$i"),
+                url = rawUrl,
+                preview = null,
+                source = source,
+            )
+        }.toMutableList()
+
+        if (images.isEmpty()) {
+            val motionPages = fetchMotionToonPages(doc)
+            if (motionPages.isNotEmpty()) {
+                images.addAll(motionPages)
             }
         }
 
-        return extractImages("div#_imageList > img")
-            .ifEmpty { extractImages("canvas[data-url]") }
-            .ifEmpty { extractImages("img[src*='$staticDomain'], img[data-url*='$staticDomain']") }
-            .ifEmpty { throw ParseException("No images found in chapter.", chapter.url) }
+        if (images.isEmpty()) {
+            throw ParseException("No images found in chapter.", chapter.url)
+        }
+        return images
     }
 
-    @MangaSourceParser("WEBTOONS_EN", "Webtoons English", "en", type = ContentType.MANGA)
+    private suspend fun fetchMotionToonPages(doc: org.jsoup.nodes.Document): List<MangaPage> {
+        val docString = doc.toString()
+        val docUrlRegex = Regex("documentURL:.*?'(.*?)'")
+        val motionToonPathRegex = Regex("jpg:.*?'(.*?)\\{")
+
+        val docUrl = docUrlRegex.find(docString)?.groupValues?.get(1) ?: return emptyList()
+        val motionToonPath = motionToonPathRegex.find(docString)?.groupValues?.get(1) ?: return emptyList()
+
+        return try {
+            val motionToonResponse = webClient.httpGet(docUrl).parseJson()
+            val imagesMap = motionToonResponse.optJSONObject("assets")?.optJSONObject("images")
+            imagesMap?.let { map ->
+                map.keySet().filter { it.contains("layer") }.mapIndexedNotNull { i, key ->
+                    val relPath = map.optString(key, null) ?: return@mapIndexedNotNull null
+                    MangaPage(
+                        id = generateUid("motion-$i"),
+                        url = motionToonPath + relPath,
+                        preview = null,
+                        source = source,
+                    )
+                }
+            } ?: emptyList()
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    @MangaSourceParser("WEBTOONS_EN", "Webtoons (English)", "en", type = ContentType.MANGA)
     class English(context: MangaLoaderContext) : WebtoonsParser(context, MangaParserSource.WEBTOONS_EN)
 
-    @MangaSourceParser("WEBTOONS_ID", "Webtoons Indonesia", "id", type = ContentType.MANGA)
+    @MangaSourceParser("WEBTOONS_ID", "Webtoons (Indonesia)", "id", type = ContentType.MANGA)
     class Indonesian(context: MangaLoaderContext) : WebtoonsParser(context, MangaParserSource.WEBTOONS_ID)
 
-    @MangaSourceParser("WEBTOONS_ES", "Webtoons Spanish", "es", type = ContentType.MANGA)
+    @MangaSourceParser("WEBTOONS_ES", "Webtoons (Spanish)", "es", type = ContentType.MANGA)
     class Spanish(context: MangaLoaderContext) : WebtoonsParser(context, MangaParserSource.WEBTOONS_ES)
 
-    @MangaSourceParser("WEBTOONS_FR", "Webtoons French", "fr", type = ContentType.MANGA)
+    @MangaSourceParser("WEBTOONS_FR", "Webtoons (French)", "fr", type = ContentType.MANGA)
     class French(context: MangaLoaderContext) : WebtoonsParser(context, MangaParserSource.WEBTOONS_FR)
 
-    @MangaSourceParser("WEBTOONS_TH", "Webtoons Thai", "th", type = ContentType.MANGA)
+    @MangaSourceParser("WEBTOONS_TH", "Webtoons (Thai)", "th", type = ContentType.MANGA)
     class Thai(context: MangaLoaderContext) : WebtoonsParser(context, MangaParserSource.WEBTOONS_TH)
 
-    @MangaSourceParser("WEBTOONS_ZH", "Webtoons Chinese", "zh", type = ContentType.MANGA)
+    @MangaSourceParser("WEBTOONS_ZH", "Webtoons (Chinese)", "zh", type = ContentType.MANGA)
     class Chinese(context: MangaLoaderContext) : WebtoonsParser(context, MangaParserSource.WEBTOONS_ZH)
 
-    @MangaSourceParser("WEBTOONS_DE", "Webtoons German", "de", type = ContentType.MANGA)
+    @MangaSourceParser("WEBTOONS_DE", "Webtoons (German)", "de", type = ContentType.MANGA)
     class German(context: MangaLoaderContext) : WebtoonsParser(context, MangaParserSource.WEBTOONS_DE)
 }

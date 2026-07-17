@@ -191,9 +191,9 @@ class OlympusScan :
         return MangasPage(paginatedList.map { it.toSManga() }, hasNextPage)
     }
 
-    override fun searchMangaRequest(page: Int, query: String, filters: FilterList) = throw UnsupportedOperationException()
+    override fun searchMangaRequest(page: Int, query: String, filters: FilterList) = throw Exception("La búsqueda no es compatible.")
 
-    override fun searchMangaParse(response: Response) = throw UnsupportedOperationException()
+    override fun searchMangaParse(response: Response) =  throw Exception("La búsqueda no es compatible.")
 
     override fun getMangaUrl(manga: SManga): String {
         val slug = preferences.slugMap[manga.url.toInt()]!!
@@ -258,7 +258,7 @@ class OlympusScan :
             resultSize += newData.data.size
             page += 1
         }
-        return data.data.map { it.toSChapter(mangaId, dateFormat) }
+        return data.data.map { it.toSChapter(mangaId, dateFormat) }.sortedBy { it.chapter_number }
     }
 
     override fun pageListRequest(chapter: SChapter): Request {

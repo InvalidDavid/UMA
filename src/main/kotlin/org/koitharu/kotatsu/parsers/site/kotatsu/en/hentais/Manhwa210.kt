@@ -1,5 +1,8 @@
 package org.koitharu.kotatsu.parsers.site.kotatsu.en.hentais
 
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import okhttp3.Headers
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -20,7 +23,6 @@ import org.koitharu.kotatsu.parsers.model.SortOrder
 import org.koitharu.kotatsu.parsers.util.attrAsRelativeUrl
 import org.koitharu.kotatsu.parsers.util.attrOrNull
 import org.koitharu.kotatsu.parsers.util.generateUid
-import org.koitharu.kotatsu.parsers.util.mapChapters
 import org.koitharu.kotatsu.parsers.util.mapToSet
 import org.koitharu.kotatsu.parsers.util.parseFailed
 import org.koitharu.kotatsu.parsers.util.parseHtml
@@ -30,11 +32,13 @@ import org.koitharu.kotatsu.parsers.util.selectLast
 import org.koitharu.kotatsu.parsers.util.textOrNull
 import org.koitharu.kotatsu.parsers.util.toAbsoluteUrl
 import org.koitharu.kotatsu.parsers.util.urlEncoded
-import java.util.Calendar
+import java.text.SimpleDateFormat
 import java.util.EnumSet
+import java.util.Locale
 
 @MangaSourceParser("MANHWA210", "Manhwa210", "en", type = ContentType.HENTAI)
-internal class Manhwa210(context: MangaLoaderContext) : PagedMangaParser(context, MangaParserSource.MANHWA210, 60) {
+internal class Manhwa210(context: MangaLoaderContext) :
+    PagedMangaParser(context, MangaParserSource.MANHWA210, 60) {
 
     override val configKeyDomain = ConfigKey.Domain("manhwa210.com")
 
@@ -42,6 +46,10 @@ internal class Manhwa210(context: MangaLoaderContext) : PagedMangaParser(context
         super.onCreateConfig(keys)
         keys.add(userAgentKey)
     }
+
+    override fun getRequestHeaders(): Headers = super.getRequestHeaders().newBuilder()
+        .add("Referer", "https://$domain/")
+        .build()
 
     override val availableSortOrders: Set<SortOrder> = EnumSet.of(
         SortOrder.ALPHABETICAL,
@@ -56,10 +64,97 @@ internal class Manhwa210(context: MangaLoaderContext) : PagedMangaParser(context
             isSearchSupported = true,
         )
 
+    @Volatile
+    private var tagsCache: Set<MangaTag>? = null
+    private val tagsMutex = Mutex()
+
     override suspend fun getFilterOptions() = MangaListFilterOptions(
-        availableTags = availableTags(),
+        availableTags = getOrFetchTags(),
         availableStates = EnumSet.of(MangaState.ONGOING, MangaState.FINISHED),
     )
+
+    private suspend fun getOrFetchTags(): Set<MangaTag> {
+        tagsCache?.let { return it }
+        return tagsMutex.withLock {
+            tagsCache ?: fetchTagsFromSite().also { tagsCache = it }
+        }
+    }
+
+    private suspend fun fetchTagsFromSite(): Set<MangaTag> {
+        val doc = webClient.httpGet("https://$domain").parseHtml()
+        return doc.select("ul.grid.grid-cols-2 a").mapToSet { a ->
+            MangaTag(
+                key = a.attr("href").removeSuffix('/').substringAfterLast('/'),
+                title = a.text(),
+                source = source,
+            )
+        }
+    }
+
+    @get:Synchronized
+    private val detailsCache = object : LinkedHashMap<String, Manga>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Manga>?): Boolean = size > 10
+    }
+
+    private val chapterDateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ENGLISH)
+
+    override suspend fun getDetails(manga: Manga): Manga {
+        detailsCache[manga.url]?.let { return it }
+
+        val root = webClient.httpGet(manga.url.toAbsoluteUrl(domain)).parseHtml()
+        val author = root.selectFirst("div.mt-2:contains(Artist) span a")?.textOrNull()
+
+        val details = manga.copy(
+            altTitles = setOfNotNull(root.selectLast("div.grow div:contains(Alt name) span")?.textOrNull()),
+            state = when (root.selectFirst("div.mt-2:contains(Status) span.text-blue-500")?.text()) {
+                "Ongoing" -> MangaState.ONGOING
+                "Completed" -> MangaState.FINISHED
+                else -> null
+            },
+            tags = root.select("div.mt-2:contains(Genres) a.bg-gray-500").mapToSet { a ->
+                MangaTag(
+                    key = a.attr("href").removeSuffix('/').substringAfterLast('/'),
+                    title = a.text(),
+                    source = source,
+                )
+            },
+            authors = setOfNotNull(author),
+            description = root.selectFirst("meta[name=description]")?.attrOrNull("content"),
+            chapters = root.select("div.justify-between ul.overflow-y-auto.overflow-x-hidden a")
+                .mapNotNull { a ->
+                    val href = a.attrAsRelativeUrl("href")
+                    val name = a.selectFirst("span.text-ellipsis")?.text().orEmpty()
+                    val dateText = a.parent()?.selectFirst("span.timeago")?.attr("datetime").orEmpty()
+                    val number = extractChapterNumber(name)
+                    MangaChapter(
+                        id = generateUid(href),
+                        title = name,
+                        number = number,
+                        volume = 0,
+                        url = href,
+                        scanlator = null,
+                        uploadDate = runCatching { chapterDateFormat.parse(dateText)?.time ?: 0L }.getOrDefault(0L),
+                        branch = null,
+                        source = source,
+                    )
+                }
+                .sortedBy { it.number }
+        )
+
+        detailsCache[manga.url] = details
+        return details
+    }
+
+    private fun extractChapterNumber(title: String): Float {
+        val regex = Regex("""(?i)(?:chapter|ch\.?)\s*(\d+(?:\.\d+)?)""")
+        regex.find(title)?.let { match ->
+            return match.groupValues[1].toFloatOrNull() ?: 0f
+        }
+        Regex("""(\d+(?:\.\d+)?)""").find(title)?.let {
+            return it.value.toFloatOrNull() ?: 0f
+        }
+        return 0f
+    }
 
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
         val url = buildString {
@@ -67,17 +162,14 @@ internal class Manhwa210(context: MangaLoaderContext) : PagedMangaParser(context
             append(domain)
             val query = filter.query
             when {
-
                 !query.isNullOrEmpty() -> {
                     append("/search")
                     append("?filter[name]=")
                     append(query.urlEncoded())
-
                     if (page > 1) {
                         append("&page=")
                         append(page)
                     }
-
                     append("&sort=")
                     append(
                         when (order) {
@@ -90,16 +182,13 @@ internal class Manhwa210(context: MangaLoaderContext) : PagedMangaParser(context
                         },
                     )
                 }
-
                 filter.tags.isNotEmpty() -> {
                     val tag = filter.tags.first()
                     append("/genre/")
                     append(tag.key)
-
                     append("?page=")
                     append(page)
                 }
-
                 else -> {
                     append("/list")
                     append("?sort=")
@@ -117,19 +206,6 @@ internal class Manhwa210(context: MangaLoaderContext) : PagedMangaParser(context
                     append(page)
                 }
             }
-
-            if (filter.query.isNullOrEmpty()) {
-                append("&sort=")
-                when (order) {
-                    SortOrder.POPULARITY -> append("-views")
-                    SortOrder.UPDATED -> append("-updated_at")
-                    SortOrder.NEWEST -> append("-created_at")
-                    SortOrder.ALPHABETICAL -> append("name")
-                    SortOrder.ALPHABETICAL_DESC -> append("-name")
-                    else -> append("-updated_at")
-                }
-            }
-
             if (filter.states.isNotEmpty()) {
                 append("&filter[status]=")
                 filter.states.forEach {
@@ -145,13 +221,11 @@ internal class Manhwa210(context: MangaLoaderContext) : PagedMangaParser(context
         }
 
         val doc = webClient.httpGet(url).parseHtml()
-
         return doc.select("div.grid div.relative").map { div ->
             val href = div.selectFirst("a[href^=/manga/]")?.attrOrNull("href")
                 ?: div.parseFailed("Cant find manga image!")
             val coverUrl = div.selectFirst("div.cover")?.attr("style")
                 ?.substringAfter("url('")?.substringBefore("')")
-
             Manga(
                 id = generateUid(href),
                 title = div.select("div.p-2 a.text-ellipsis").text(),
@@ -169,46 +243,6 @@ internal class Manhwa210(context: MangaLoaderContext) : PagedMangaParser(context
         }
     }
 
-    override suspend fun getDetails(manga: Manga): Manga {
-        val root = webClient.httpGet(manga.url.toAbsoluteUrl(domain)).parseHtml()
-        val author = root.selectFirst("div.mt-2:contains(Artist) span a")?.textOrNull()
-
-        return manga.copy(
-            altTitles = setOfNotNull(root.selectLast("div.grow div:contains(Alt name) span")?.textOrNull()),
-            state = when (root.selectFirst("div.mt-2:contains(Status) span.text-blue-500")?.text()) {
-                "Ongoing" -> MangaState.ONGOING
-                "Completed" -> MangaState.FINISHED
-                else -> null
-            },
-            tags = root.select("div.mt-2:contains(Genres) a.bg-gray-500").mapToSet { a ->
-                MangaTag(
-                    key = a.attr("href").removeSuffix('/').substringAfterLast('/'),
-                    title = a.text(),
-                    source = source,
-                )
-            },
-            authors = setOfNotNull(author),
-            description = root.selectFirst("meta[name=description]")?.attrOrNull("content"),
-            chapters = root.select("div.justify-between ul.overflow-y-auto.overflow-x-hidden a")
-                .mapChapters(reversed = true) { i, a ->
-                    val href = a.attrAsRelativeUrl("href")
-                    val name = a.selectFirst("span.text-ellipsis")?.text().orEmpty()
-                    val dateText = a.parent()?.selectFirst("span.timeago")?.attr("datetime").orEmpty()
-                    MangaChapter(
-                        id = generateUid(href),
-                        title = name,
-                        number = i.toFloat(),
-                        volume = 0,
-                        url = href,
-                        scanlator = null,
-                        uploadDate = parseDateTime(dateText),
-                        branch = null,
-                        source = source,
-                    )
-                },
-        )
-    }
-
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
         val fullUrl = chapter.url.toAbsoluteUrl(domain)
         val doc = webClient.httpGet(fullUrl).parseHtml()
@@ -218,34 +252,6 @@ internal class Manhwa210(context: MangaLoaderContext) : PagedMangaParser(context
                 id = generateUid(url),
                 url = url,
                 preview = null,
-                source = source,
-            )
-        }
-    }
-
-    private fun parseDateTime(dateStr: String): Long = runCatching {
-        val parts = dateStr.split(' ')
-        val dateParts = parts[0].split('-')
-        val timeParts = parts[1].split(':')
-
-        val calendar = Calendar.getInstance()
-        calendar.set(
-            dateParts[0].toInt(),
-            dateParts[1].toInt() - 1,
-            dateParts[2].toInt(),
-            timeParts[0].toInt(),
-            timeParts[1].toInt(),
-            timeParts[2].toInt(),
-        )
-        calendar.timeInMillis
-    }.getOrDefault(0L)
-
-    private suspend fun availableTags(): Set<MangaTag> {
-        val doc = webClient.httpGet("https://$domain").parseHtml()
-        return doc.select("ul.grid.grid-cols-2 a").mapToSet { a ->
-            MangaTag(
-                key = a.attr("href").removeSuffix('/').substringAfterLast('/'),
-                title = a.text(),
                 source = source,
             )
         }

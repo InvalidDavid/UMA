@@ -1,28 +1,53 @@
 package org.koitharu.kotatsu.parsers.site.kotatsu.id
 
-import androidx.collection.arraySetOf
+import okhttp3.Interceptor
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
+import org.koitharu.kotatsu.parsers.MangaParserAuthProvider
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.*
 import org.koitharu.kotatsu.parsers.parsers.MadaraParser
 import org.koitharu.kotatsu.parsers.util.*
+import androidx.collection.arraySetOf
 
 @MangaSourceParser("MGKOMIK", "MGKomik", "id")
-internal class MGKomik(context: MangaLoaderContext, ):
-    MadaraParser(context, MangaParserSource.MGKOMIK, "id.mgkomik.cc",) {
+internal class MGKomik(context: MangaLoaderContext) :
+    MadaraParser(context, MangaParserSource.MGKOMIK, "id.mgkomik.cc"), Interceptor, MangaParserAuthProvider {
+
+    override val datePattern = "dd MMM yy"
+    override val tagPrefix = "genres/"
+    override val selectDesc = "div.description-summary div.summary__content p"
 
     override val withoutAjax = true
 
-    override val tagPrefix = "genres/"
+    override fun intercept(chain: Interceptor.Chain): okhttp3.Response {
+        val request = chain.request()
+        val path = request.url.encodedPath
+        val isAjax = path.contains("admin-ajax.php") ||
+                path.contains("wp-json") ||
+                path.endsWith("/ajax/chapters")
 
-    override val datePattern = "dd MMM yy"
-
-    override val selectDesc = "div.description-summary div.summary__content p"
-
-    override suspend fun fetchAvailableTags(): Set<MangaTag> {
-        return super.fetchAvailableTags()
+        return if (isAjax) {
+            chain.proceed(
+                request.newBuilder()
+                    .header("Sec-CH-UA-Model", "\"\"")
+                    .header("X-Requested-With", "XMLHttpRequest")
+                    .header("Sec-Fetch-Dest", "empty")
+                    .header("Sec-Fetch-Mode", "cors")
+                    .header("Sec-Fetch-Site", "same-origin")
+                    .header("Origin", "https://$domain")
+                    .header("Priority", "u=1, i")
+                    .removeHeader("Sec-Fetch-User")
+                    .removeHeader("Upgrade-Insecure-Requests")
+                    .build()
+            )
+        } else {
+            chain.proceed(
+                request.newBuilder()
+                    .header("Sec-CH-UA-Model", "\"\"")
+                    .build()
+            )
+        }
     }
-
     override suspend fun getListPage(
         page: Int,
         order: SortOrder,
@@ -45,9 +70,15 @@ internal class MGKomik(context: MangaLoaderContext, ):
         return super.getListPage(page, order, filter)
     }
 
+    override suspend fun fetchAvailableTags(): Set<MangaTag> {
+        return super.fetchAvailableTags()
+    }
+
+
     override suspend fun getFilterOptions() = MangaListFilterOptions(
         availableTags = availableTags(),
     )
+
 
     private fun availableTags() = arraySetOf(
         MangaTag("2 hours ago", "2-hours-ago", source),
@@ -143,4 +174,5 @@ internal class MGKomik(context: MangaLoaderContext, ):
         MangaTag("Wuxia", "wuxia", source),
         MangaTag("Yuri", "yuri", source),
     )
+
 }

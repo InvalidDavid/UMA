@@ -134,6 +134,8 @@ internal abstract class MangaBallParser(
     }
 
     override suspend fun getDetails(manga: Manga): Manga {
+        detailsCache[manga.url]?.let { return it }
+
         ensureAdultCookie()
         val doc = client.httpGet(getMangaUrl(manga.url)).parseHtml()
         updateCsrf(doc)
@@ -165,7 +167,7 @@ internal abstract class MangaBallParser(
             else -> manga.contentRating
         }
 
-        return manga.copy(
+        val result = manga.copy(
             title = title,
             altTitles = if (altTitles.isEmpty()) manga.altTitles else altTitles,
             publicUrl = getMangaUrl(manga.url),
@@ -178,6 +180,8 @@ internal abstract class MangaBallParser(
             chapters = getChapterList(manga.url),
             contentRating = contentRating,
         )
+        detailsCache[manga.url] = result
+        return result
     }
 
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
@@ -543,21 +547,32 @@ internal abstract class MangaBallParser(
     private fun getCsrf(): String {
         if (csrfToken.isNullOrEmpty()) {
             refreshCsrf()
+            if (csrfToken.isNullOrEmpty()) {
+                refreshCsrf()
+            }
+            if (csrfToken.isNullOrEmpty()) {
+                error("CSRF token not found after two attempts")
+            }
         }
-        return csrfToken ?: error("CSRF token not found")
+        return csrfToken!!
     }
 
     @Synchronized
     private fun refreshCsrf(document: Document? = null) {
         ensureAdultCookie()
-        updateCsrf(
-            document ?: rawHttpClient.newCall(
-                Request.Builder()
-                    .url(BASE_URL)
-                    .headers(getHeadersWithReferer())
-                    .build(),
-            ).execute().parseHtml(),
-        )
+        if (document != null) {
+            updateCsrf(document)
+            if (!csrfToken.isNullOrEmpty()) return
+        }
+
+        val request = Request.Builder()
+            .url(BASE_URL)
+            .headers(getHeadersWithReferer())
+            .header("Cache-Control", "no-cache")
+            .build()
+        val response = rawHttpClient.newCall(request).execute()
+        updateCsrf(response.parseHtml())
+        response.close()
     }
 
     @Synchronized
@@ -565,6 +580,11 @@ internal abstract class MangaBallParser(
         document.selectFirst("meta[name=csrf-token]")?.attr("content")?.trim()?.nullIfEmpty()?.let {
             csrfToken = it
         }
+    }
+
+    @get:Synchronized
+    private val detailsCache = object : LinkedHashMap<String, Manga>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Manga>?): Boolean = size > 10
     }
 
     private fun MutableList<String>.addEncoded(key: String, value: String) {

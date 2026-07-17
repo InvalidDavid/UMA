@@ -32,6 +32,8 @@ import java.util.EnumSet
 import java.util.LinkedHashMap
 import java.util.LinkedHashSet
 import java.util.Locale
+import java.text.SimpleDateFormat
+import java.util.Calendar
 
 @MangaSourceParser("PROJECTSUKI", "ProjectSuki")
 internal class ProjectSuki(context: MangaLoaderContext) :
@@ -44,7 +46,6 @@ internal class ProjectSuki(context: MangaLoaderContext) :
     override val availableSortOrders: Set<SortOrder> = EnumSet.of(
         SortOrder.UPDATED,
         SortOrder.POPULARITY,
-        SortOrder.RELEVANCE,
     )
 
     override val filterCapabilities: MangaListFilterCapabilities
@@ -178,6 +179,11 @@ internal class ProjectSuki(context: MangaLoaderContext) :
 
         val bookId = manga.url.toBookId() ?: document.location().toBookId() ?: manga.url.substringAfterLast('/')
 
+        val fallbackTimestamp = document.selectFirst("meta[property='og:updated_time']")
+            ?.attr("content")
+            ?.toLongOrNull()
+            ?.times(1000L)
+
         val details = parseDetailsTable(document)
         val title = document.selectFirst("h2[itemprop=title]")?.text()?.nullIfEmpty()
             ?: document.selectFirst("h2")?.text()?.nullIfEmpty()
@@ -191,7 +197,7 @@ internal class ProjectSuki(context: MangaLoaderContext) :
         val state = parseState(details["status"])
         val genres = parseGenres(document)
         val altTitles = setOfNotNull(details["alt titles"] ?: details["alternative titles"])
-        val chapters = parseChapters(document)
+        val chapters = parseChapters(document, fallbackTimestamp)
 
         return manga.copy(
             title = title,
@@ -264,33 +270,113 @@ internal class ProjectSuki(context: MangaLoaderContext) :
         }
     }
 
-    private fun parseChapters(document: Document): List<MangaChapter> {
+    private fun parseChapters(document: Document, fallbackTimestamp: Long? = null): List<MangaChapter> {
         val chaptersMap = LinkedHashMap<String, MangaChapter>()
 
-        document.select("a[href*=/read/]").forEach { anchor ->
-            val parts = anchor.absUrl("href").toChapterParts() ?: return@forEach
-            val key = "${parts.bookId}/${parts.chapterId}"
-            if (key in chaptersMap) return@forEach
+        val table = document.select("table").firstOrNull { table ->
+            table.select("tr").firstOrNull()?.let { row ->
+                row.select("td, th").any { cell ->
+                    cell.text().trim().matches(Regex("added|date", RegexOption.IGNORE_CASE))
+                }
+            } ?: false
+        }
 
-            val parentText = anchor.parent()?.text().orEmpty()
-            val title = anchor.text().trim().nullIfEmpty()
-            val chapterNumber = parseChapterNumber(title ?: parentText)
+        if (table != null) {
+            val headerRow = table.select("tr").first()
+            val headers = headerRow!!.select("td, th").map { it.text().trim().lowercase() }
 
-            val chapter = MangaChapter(
-                id = generateUid(key),
-                title = title,
-                number = chapterNumber,
-                volume = 0,
-                url = "/read/${parts.bookId}/${parts.chapterId}/1",
-                scanlator = null,
-                uploadDate = 0L,
-                branch = null,
-                source = source,
-            )
-            chaptersMap[key] = chapter
+            val dateCol = headers.indexOfFirst { it == "added" || it == "date" }
+            val chapterCol = headers.indexOfFirst { it.matches(Regex("chapter|ch\\.|name|#")) }
+                .takeIf { it >= 0 } ?: 0
+
+            val dataRows = table.select("tbody tr").ifEmpty { table.select("tr").drop(1) }
+            for (row in dataRows) {
+                val cells = row.select("td, th")
+                if (cells.size <= maxOf(chapterCol, dateCol)) continue
+
+                val chapterCell = cells[chapterCol]
+                val link = chapterCell.selectFirst("a[href]") ?: continue
+                val parts = link.absUrl("href").toChapterParts() ?: continue
+                val key = "${parts.bookId}/${parts.chapterId}"
+                if (key in chaptersMap) continue
+
+                val title = link.text().trim().nullIfEmpty()
+                    ?: chapterCell.text().trim().nullIfEmpty()
+                val number = parseChapterNumber(title ?: "")
+
+                val dateText = if (dateCol >= 0) cells[dateCol].text().trim() else ""
+                val uploadDate = parseChapterDate(dateText) ?: fallbackTimestamp ?: 0L
+
+                chaptersMap[key] = MangaChapter(
+                    id = generateUid(key),
+                    title = title,
+                    number = number,
+                    volume = 0,
+                    url = "/read/${parts.bookId}/${parts.chapterId}/1",
+                    scanlator = null,
+                    uploadDate = uploadDate,
+                    branch = null,
+                    source = source,
+                )
+            }
+        } else {
+            document.select("a[href*=/read/]").forEach { anchor ->
+                val parts = anchor.absUrl("href").toChapterParts() ?: return@forEach
+                val key = "${parts.bookId}/${parts.chapterId}"
+                if (key in chaptersMap) return@forEach
+
+                val title = anchor.text().trim().nullIfEmpty()
+                val number = parseChapterNumber(title ?: "")
+                chaptersMap[key] = MangaChapter(
+                    id = generateUid(key),
+                    title = title,
+                    number = number,
+                    volume = 0,
+                    url = "/read/${parts.bookId}/${parts.chapterId}/1",
+                    scanlator = null,
+                    uploadDate = fallbackTimestamp ?: 0L,
+                    branch = null,
+                    source = source,
+                )
+            }
         }
 
         return chaptersMap.values.sortedBy { it.number }
+    }
+
+    private fun parseChapterDate(text: String): Long? {
+        if (text.isBlank()) return null
+
+        val relativeRegex = Regex("""(\d+)\s+(years?|months?|weeks?|days?|hours?|mins?|minutes?|seconds?|sec)\s+ago""", RegexOption.IGNORE_CASE)
+        relativeRegex.matchEntire(text.trim())?.let { match ->
+            val number = match.groupValues[1].toInt()
+            val unit = match.groupValues[2].lowercase()
+            val cal = Calendar.getInstance()
+            when {
+                unit.startsWith("year") -> cal.add(Calendar.YEAR, -number)
+                unit.startsWith("month") -> cal.add(Calendar.MONTH, -number)
+                unit.startsWith("week") -> cal.add(Calendar.DAY_OF_MONTH, -number * 7)
+                unit.startsWith("day") -> cal.add(Calendar.DAY_OF_MONTH, -number)
+                unit.startsWith("hour") -> cal.add(Calendar.HOUR, -number)
+                unit.startsWith("min") -> cal.add(Calendar.MINUTE, -number)
+                unit.startsWith("sec") -> cal.add(Calendar.SECOND, -number)
+            }
+            return cal.timeInMillis
+        }
+
+        val formats = listOf(
+            SimpleDateFormat("MMMM dd, yyyy", Locale.US),
+            SimpleDateFormat("MMM dd, yyyy", Locale.US),
+            SimpleDateFormat("MMM d, yyyy", Locale.US),
+            SimpleDateFormat("yyyy-MM-dd", Locale.US),
+        )
+        for (fmt in formats) {
+            try {
+                return fmt.parse(text)?.time
+            } catch (_: Exception) {}
+        }
+
+        return null
     }
 
     private fun parseChapterNumber(text: String): Float {

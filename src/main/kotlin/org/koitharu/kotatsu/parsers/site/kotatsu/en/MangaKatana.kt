@@ -8,7 +8,8 @@ import org.koitharu.kotatsu.parsers.core.PagedMangaParser
 import org.koitharu.kotatsu.parsers.model.*
 import org.koitharu.kotatsu.parsers.util.*
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.EnumSet
+import java.util.Locale
 
 private const val two = "?sv=mk"
 private const val three = "?sv=3"
@@ -107,15 +108,18 @@ internal class MangaKatana(context: MangaLoaderContext):
         order: SortOrder,
         filter: MangaListFilter,
     ): String {
-
         val query = filter.query?.trim().orEmpty()
         val tags = filter.tags.map { it.key }.filter { it.isNotBlank() }
-
         val status = filter.states.firstOrNull()
 
         return when {
-
-            query.isNotEmpty() -> "$baseUrl/page/$page?search=${query.urlEncoded()}&search_by=m_name"
+            query.isNotEmpty() -> {
+                if (page == 1) {
+                    "$baseUrl/?search=${query.urlEncoded()}&search_by=m_name"
+                } else {
+                    "$baseUrl/page/$page?search=${query.urlEncoded()}&search_by=m_name"
+                }
+            }
 
             status != null -> {
                 "$baseUrl/genres/?" +
@@ -387,6 +391,6 @@ internal class MangaKatana(context: MangaLoaderContext):
             }
             .toList()
 
-        return if (pages.isEmpty()) null else pages
+        return pages.ifEmpty { null }
     }
 }

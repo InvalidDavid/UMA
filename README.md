@@ -3,17 +3,8 @@
 [![Stars][stars-shield]][stars-url]
 [![Issues][issues-shield]][issues-url]
 [![License][license-shield]][license-url]
-
-# Sources Requests
-
-Open up an Issue with these contents:
-
-- URL
-- Name
-- language?
-- NSFW yes/no
-
-Or join the Support Server or contact me over Telegram (see Contact Info)
+### Please give the repo a ⭐
+It motivates me. =^..^=
 
 ---
 
@@ -31,65 +22,35 @@ Or join the Support Server or contact me over Telegram (see Contact Info)
 
 # Tutorial
 
+> [!TIP]
+> Two ways how to add the plugin:
+> 1. Automatically (recommended)
+> 2. Manually after every new release.
+
+
+> [!IMPORTANT]
+> The plugin will not update automatically unless you enable this feature (see `❓ Where?` in automatic category).  
+> You can manually check anytime in `Manage Plugins` for an `Install` button to update.
+
+
 <details>
 <summary><b>How to add a Plugin in Usagi</b></summary>
 
-<br>
-
-There are actually two ways, one which you manually update the Plugin from time to time **or** let it do automatically.
-
-<br>
-
----
-
 <details>
-<summary><b>Manually way</b></summary>
-
-<br>
-<details>
-<summary>📥 How to download .jar File</summary>
-
-![Screenshot][img3]
-
-</details>
-<details>
-<summary>📷 Image Turoial</summary>
-
-![Screenshot][img5]
-
-</details>
-
-1. Download the latest version of the Plugin from the [Releases](https://github.com/InvalidDavid/UMA/releases) page.
-Click on the blue Name or press the three dots on the right side and press Download.
-
-
-2. Go back to the App and open up `Explore`
-
-
-3. Click on `three Dots in the top right corner` and select `Manage Sources`
-
-
-4. Go to `Manage Plugins` and press the `Add` / `+` button in the top right corner.
-
-
-5. Select `Import from local storage` and select `UMA.jar` file which you downloaded in the previous step.
-
-And that's it! Select your new sources in the catalog and have fun reading.
-</details>
-
-<br>
-
----
-
-<details>
-<summary><b>Automatically</b></summary>
+<summary><b>Automatically (recommended)</b></summary>
 
 <br>
 
 <details>
 <summary>📷 Image Tutorial</summary>
 
-![Screenshot][img]
+![Screenshot][img_automatic_tutorial]
+
+</details>
+<details>
+<summary>❓ Where?</summary>
+
+![Screenshot][img_activate_auto]
 
 </details>
 
@@ -120,22 +81,50 @@ InvalidDavid/UMA
 
 And that's it! Select your new sources in the catalog and have fun reading.
 
-> **Note:** The plugin will not update automatically unless you enable this feature (see screenshot).  
-> You can manually check anytime in `Manage Plugins` for an `Install` button to update.
-
-<details>
-<summary>❓ Where?</summary>
-
-![Screenshot][img4]
-
 </details>
 
 
-</details>
-
-</details>
 
 ---
+
+<details>
+<summary><b>Manually way</b></summary>
+
+<br>
+<details>
+<summary>📥 How to download .jar File</summary>
+
+![Screenshot][img_how_to_download]
+
+</details>
+<details>
+<summary>📷 Image Turoial</summary>
+
+![Screenshot][img_manual_tutorial]
+
+</details>
+
+1. Download the latest version of the Plugin from the [Releases](https://github.com/InvalidDavid/UMA/releases) page.
+   Click on the blue Name or press the three dots on the right side and press Download.
+
+
+2. Go back to the App and open up `Explore`
+
+
+3. Click on `three Dots in the top right corner` and select `Manage Sources`
+
+
+4. Go to `Manage Plugins` and press the `Add` / `+` button in the top right corner.
+
+
+5. Select `Import from local storage` and select `UMA.jar` file which you downloaded in the previous step.
+
+And that's it! Select your new sources in the catalog and have fun reading.
+</details>
+</details>
+
+<br>
+
 
 # Setup
 
@@ -176,6 +165,31 @@ chmod +x gradlew && ./gradlew buildJar
 
 ---
 
+# Sources Requests
+
+> [!NOTE]
+> Open up an [Issue](https://github.com/InvalidDavid/UMA/issues/new) with these contents:
+> Title Source Name
+> - URL
+> - language?
+> - NSFW yes/no
+>
+> Or via Contact Info (see above)
+
+---
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=InvalidDavid%2FUMA&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=InvalidDavid/UMA&type=date&theme=dark&legend=top-left&sealed_token=0nJj5_atMm_6ONDPzj-eyq4zkV2NPqliaF-Cp4MXUQP7f7Xv00956LXVv5Bb71c9USRogXm2ot4R_M4py5Q4g4jtXP4CWGnIkfVbPEFpfssLtKUFOKzehw" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=InvalidDavid/UMA&type=date&legend=top-left&sealed_token=0nJj5_atMm_6ONDPzj-eyq4zkV2NPqliaF-Cp4MXUQP7f7Xv00956LXVv5Bb71c9USRogXm2ot4R_M4py5Q4g4jtXP4CWGnIkfVbPEFpfssLtKUFOKzehw" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=InvalidDavid/UMA&type=date&legend=top-left&sealed_token=0nJj5_atMm_6ONDPzj-eyq4zkV2NPqliaF-Cp4MXUQP7f7Xv00956LXVv5Bb71c9USRogXm2ot4R_M4py5Q4g4jtXP4CWGnIkfVbPEFpfssLtKUFOKzehw" />
+ </picture>
+</a>
+
+---
+
 # Credits
 
 * Thanks to [KotatsuApp](https://github.com/KotatsuApp) for providing some parsers and the core library.
@@ -205,9 +219,7 @@ You may copy, distribute and modify the software as long as you track changes/da
 [telegram-shield]: https://img.shields.io/badge/-Telegram-black.svg?style=for-the-badge&logo=telegram&colorB=555
 [telegram-url]: https://t.me/invalidxdavid
 
-[img]: https://cdn.discordapp.com/attachments/1518283800830939176/1519723800327880826/image.png?ex=6a3e9895&is=6a3d4715&hm=818321ffb9a46f31c9148b5f4a234cac44b5a1ca559dc77c84206d451937ab80&
-[img1]: https://cdn.discordapp.com/attachments/1518283800830939176/1519672301883363409/image.png?ex=6a3e689e&is=6a3d171e&hm=fca40dfdf33ea99b07e7237b4d9a44afea1991be7b59f750a6bc9a906146c53e&
-[img2]: https://cdn.discordapp.com/attachments/1518283800830939176/1519672539532628068/image.png?ex=6a3e68d7&is=6a3d1757&hm=1551bf57fde5d3e8c7cb53c182347bfcb3b2ff58fa297c88148338e88c2b5fe1&
-[img3]: https://cdn.discordapp.com/attachments/1518283800830939176/1519673238316126268/image.png?ex=6a3e697e&is=6a3d17fe&hm=ed8e12ca85af9b8aa461463bf8095d958e46614e5478b97f95363875a81ab62b&
-[img4]: https://cdn.discordapp.com/attachments/1518283800830939176/1519673924554588321/image.png?ex=6a3e6a21&is=6a3d18a1&hm=2321b2d2a632080101312427741a790be7b1c3c15fd32cb82e5e3ba86fcfbe39&
-[img5]: https://cdn.discordapp.com/attachments/1518283800830939176/1519813607251116074/image.png?ex=6a3eec38&is=6a3d9ab8&hm=3cc4e454a7afd4233000cd0cf8efb8aa423841312b7399573e6ac5dbc90abdfd&
+[img_automatic_tutorial]: https://github.com/user-attachments/assets/1e4059f4-9c13-4bf9-9962-a9db28d2736d
+[img_manual_tutorial]: https://github.com/user-attachments/assets/a587ebfa-1cd8-4ce7-a437-108c0a5340cd
+[img_how_to_download]: https://github.com/user-attachments/assets/3539fb68-f417-4aac-a6d7-f7fdd7f5b7bb
+[img_activate_auto]: https://github.com/user-attachments/assets/69d807be-3e2f-44ef-9cef-329b520f1437

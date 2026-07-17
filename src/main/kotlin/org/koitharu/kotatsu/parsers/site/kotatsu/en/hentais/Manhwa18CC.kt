@@ -1,5 +1,8 @@
 package org.koitharu.kotatsu.parsers.site.kotatsu.en.hentais
 
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import okhttp3.Headers
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.ContentRating
@@ -31,6 +34,7 @@ import java.util.Locale
 @MangaSourceParser("MANHWA18CC", "Manhwa18.cc", "en", ContentType.HENTAI)
 internal class Manhwa18CC(context: MangaLoaderContext) :
     MadaraParser(context, MangaParserSource.MANHWA18CC, "manhwa18.cc", 24) {
+
     override val datePattern = "dd MMM yyyy"
     override val sourceLocale: Locale = Locale.ENGLISH
     override val listUrl = "webtoons/"
@@ -46,6 +50,41 @@ internal class Manhwa18CC(context: MangaLoaderContext) :
         searchPaginator.firstPage = 1
     }
 
+    override fun getRequestHeaders(): Headers = super.getRequestHeaders().newBuilder()
+        .add("Referer", "https://$domain/")
+        .build()
+
+    @Volatile
+    private var tagsCache: Set<MangaTag>? = null
+    private val tagsMutex = Mutex()
+
+    override suspend fun fetchAvailableTags(): Set<MangaTag> {
+        tagsCache?.let { return it }
+        return tagsMutex.withLock {
+            tagsCache ?: fetchTagsFromSite().also { tagsCache = it }
+        }
+    }
+
+    private suspend fun fetchTagsFromSite(): Set<MangaTag> {
+        val doc = webClient.httpGet("https://$domain/$listUrl").parseHtml()
+        val list = doc.body().selectFirstOrThrow("div.sub-menu").select("ul li")
+        val keySet = HashSet<String>(list.size)
+        return list.mapNotNullToSet { li ->
+            val a = li.selectFirst("a") ?: return@mapNotNullToSet null
+            val href = a.attr("href").removeSuffix("/").substringAfterLast(tagPrefix, "")
+            if (href.isEmpty() || !keySet.add(href)) {
+                return@mapNotNullToSet null
+            }
+            MangaTag(
+                key = href,
+                title = a.ownText().ifEmpty {
+                    a.selectFirst(".menu-image-title")?.text() ?: return@mapNotNullToSet null
+                }.toTitleCase(),
+                source = source,
+            )
+        }
+    }
+
     override suspend fun getFilterOptions() = super.getFilterOptions().copy(
         availableStates = emptySet(),
         availableContentRating = emptySet(),
@@ -58,16 +97,13 @@ internal class Manhwa18CC(context: MangaLoaderContext) :
             append(domain)
 
             when {
-
                 !query.isNullOrEmpty() -> {
                     append("/search?q=")
                     append(query.urlEncoded())
                     append("&page=")
                     append(page.toString())
                 }
-
                 else -> {
-
                     val tag = filter.tags.oneOrThrowIfMany()
                     if (filter.tags.isNotEmpty()) {
                         append("/$tagPrefix")
@@ -75,11 +111,9 @@ internal class Manhwa18CC(context: MangaLoaderContext) :
                     } else {
                         append("/$listUrl")
                     }
-
                     if (page > 1) {
                         append(page.toString())
                     }
-
                     append("?orderby=")
                     when (order) {
                         SortOrder.POPULARITY -> append("trending")
@@ -107,26 +141,6 @@ internal class Manhwa18CC(context: MangaLoaderContext) :
                 state = null,
                 source = source,
                 contentRating = if (isNsfwSource) ContentRating.ADULT else null,
-            )
-        }
-    }
-
-    override suspend fun fetchAvailableTags(): Set<MangaTag> {
-        val doc = webClient.httpGet("https://$domain/$listUrl").parseHtml()
-        val list = doc.body().selectFirstOrThrow("div.sub-menu").select("ul li")
-        val keySet = HashSet<String>(list.size)
-        return list.mapNotNullToSet { li ->
-            val a = li.selectFirst("a") ?: return@mapNotNullToSet null
-            val href = a.attr("href").removeSuffix("/").substringAfterLast(tagPrefix, "")
-            if (href.isEmpty() || !keySet.add(href)) {
-                return@mapNotNullToSet null
-            }
-            MangaTag(
-                key = href,
-                title = a.ownText().ifEmpty {
-                    a.selectFirst(".menu-image-title")?.text() ?: return@mapNotNullToSet null
-                }.toTitleCase(),
-                source = source,
             )
         }
     }
