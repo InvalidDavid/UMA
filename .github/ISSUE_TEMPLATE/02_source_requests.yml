@@ -6,36 +6,29 @@ body:
   - type: input
     id: name
     attributes:
-      label: Feature name
+      label: Source name
       placeholder: |
-        Example: "OAuth Integration"
+        Example: "Not a real scan"
     validations:
       required: true
 
   - type: input
     id: link
     attributes:
-      label: Reference link
+      label: Source link
       placeholder: |
-        Example: "https://oauth.net"
+        Example: "https://google.net"
     validations:
       required: true
 
   - type: input
     id: category
     attributes:
-      label: Feature category
+      label: Source language
       placeholder: |
-        Example: "Authentication", "Database", "API"
+        Example: "English / EN", "spanish / ES"
     validations:
       required: true
-
-  - type: textarea
-    id: description
-    attributes:
-      label: Feature description
-      placeholder: |
-        Describe what this feature should do and why it would be valuable.
 
   - type: textarea
     id: other-details
@@ -43,9 +36,8 @@ body:
       label: Other details
       placeholder: |
         Additional details and attachments.
-        Example:
-            "Priority: High"
-            "Estimated effort: Medium"
+            Example:
+                "18+/NSFW = yes"
 
   - type: checkboxes
     id: acknowledgements
@@ -57,7 +49,7 @@ body:
           required: true
         - label: I have written a meaningful title describing the feature.
           required: true
-        - label: I have provided a clear description of what this feature should do.
+        - label: I have written a meaningful title with the source name.
           required: true
         - label: I will correctly fill out all of the requested information in this form.
           required: true
