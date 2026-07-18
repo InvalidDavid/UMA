@@ -37,24 +37,13 @@ body:
       required: true
 
   - type: textarea
-    id: expected-behavior
+    id: error-logs
     attributes:
-      label: Expected behavior
+      label: Error logs or stack trace
+      description: |
+        If applicable, paste any error messages or stack traces.
       placeholder: |
-        Example:
-          "This should happen..."
-    validations:
-      required: true
-      
-  - type: textarea
-    id: actual-behavior
-    attributes:
-      label: Actual behavior
-      placeholder: |
-        Example:
-          "This happened instead..."
-    validations:
-      required: true
+        Paste error output here...
 
   - type: input
     id: app-version
@@ -77,15 +66,6 @@ body:
         Example: "Android 11"
     validations:
       required: true
-
-  - type: textarea
-    id: error-logs
-    attributes:
-      label: Error logs or stack trace
-      description: |
-        If applicable, paste any error messages or stack traces.
-      placeholder: |
-        Paste error output here...
 
   - type: textarea
     id: other-details
