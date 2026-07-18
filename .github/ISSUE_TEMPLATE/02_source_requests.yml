@@ -1,0 +1,75 @@
+name: 🌐 Feature request
+description: Suggest a new feature or integration for UMA
+labels: [Feature request]
+body:
+
+  - type: input
+    id: name
+    attributes:
+      label: Feature name
+      placeholder: |
+        Example: "OAuth Integration"
+    validations:
+      required: true
+
+  - type: input
+    id: link
+    attributes:
+      label: Reference link
+      placeholder: |
+        Example: "https://oauth.net"
+    validations:
+      required: true
+
+  - type: input
+    id: category
+    attributes:
+      label: Feature category
+      placeholder: |
+        Example: "Authentication", "Database", "API"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Feature description
+      placeholder: |
+        Describe what this feature should do and why it would be valuable.
+
+  - type: textarea
+    id: other-details
+    attributes:
+      label: Other details
+      placeholder: |
+        Additional details and attachments.
+        Example:
+            "Priority: High"
+            "Estimated effort: Medium"
+
+  - type: checkboxes
+    id: acknowledgements
+    attributes:
+      label: Acknowledgements
+      description: Your issue will be closed if you haven't done these steps.
+      options:
+        - label: I have searched [existing issues](https://github.com/InvalidDavid/UMA/issues) both open & closed, and confirm that this is a new unreported feature request.
+          required: true
+        - label: I have written a meaningful title describing the feature.
+          required: true
+        - label: I have provided a clear description of what this feature should do.
+          required: true
+        - label: I will correctly fill out all of the requested information in this form.
+          required: true
+
+  - type: textarea
+    attributes:
+      label: <!-- footer -->
+      description: Do **not** modify. This is a reminder for other users to vote.
+      value: |
+        ---
+
+        Add a :+1: [reaction] to [issues you find important].
+
+        [reaction]: https://github.blog/2016-03-10-add-reactions-to-pull-requests-issues-and-comments/
+        [issues you find important]: https://github.com/InvalidDavid/UMA/issues?q=is%3Aissue+is%3Aopen+sort%3Areactions-%2B1-desc
