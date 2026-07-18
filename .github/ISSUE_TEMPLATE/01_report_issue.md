@@ -1,7 +1,10 @@
 ---
 name: 🐞 Bug Report
-description: Create a report to help us improve
+about: report issue / bug
 labels: [bug]
+title: ''
+labels: ''
+assignees: ''
 ---
 
 body:
