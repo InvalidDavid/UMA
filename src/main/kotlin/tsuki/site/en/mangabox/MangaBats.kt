@@ -1,0 +1,392 @@
+@file:Suppress("DEPRECATION")
+
+package tsuki.site.en.mangabox
+
+import tsuki.MangaLoaderContext
+import tsuki.MangaSourceParser
+import tsuki.config.ConfigKey
+import tsuki.network.OkHttpWebClient
+
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaState
+import tsuki.model.MangaTag
+import tsuki.model.SortOrder
+import tsuki.model.search.MangaSearchQuery
+import tsuki.model.search.MangaSearchQueryCapabilities
+import tsuki.model.search.QueryCriteria
+import tsuki.model.search.SearchCapability
+import tsuki.model.search.SearchableField
+import tsuki.parsers.MangaboxParser
+
+import tsuki.util.generateUid
+import tsuki.util.mapToSet
+import tsuki.util.nullIfEmpty
+import tsuki.util.parseHtml
+import tsuki.util.parseJson
+import tsuki.util.parseSafe
+import tsuki.util.toAbsoluteUrl
+import tsuki.util.toTitleCase
+
+import okhttp3.Interceptor
+import okhttp3.Response
+import org.json.JSONObject
+import org.jsoup.nodes.Document
+import java.text.SimpleDateFormat
+import java.util.EnumSet
+import java.util.LinkedHashSet
+import java.util.Locale
+import java.util.TimeZone
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+
+@MangaSourceParser("MANGABAT", "MangaBats", "en")
+internal class Mangabats(context: MangaLoaderContext) :
+    MangaboxParser(context, MangaParserSource.MANGABAT) {
+
+    override val configKeyDomain = ConfigKey.Domain("mangabats.com")
+
+    override val webClient = OkHttpWebClient(
+        context.httpClient.newBuilder()
+            .build(),
+        source,
+    )
+
+
+    override val listUrl = "/genre/all"
+    override val searchUrl = "/search/story"
+
+    override val availableSortOrders: Set<SortOrder> = EnumSet.of(
+        SortOrder.UPDATED,
+        SortOrder.POPULARITY,
+        SortOrder.NEWEST,
+    )
+    override suspend fun getDetails(manga: Manga): Manga = coroutineScope {
+        val fullUrl = manga.url.toAbsoluteUrl(domain)
+        val doc = webClient.httpGet(fullUrl).parseHtml()
+
+        val chaptersDeferred = async { getChapters(doc) }
+
+        val stateText = doc.findInfo("Status")?.lowercase()
+
+        val state = when {
+            stateText?.contains("ongoing") == true -> MangaState.ONGOING
+            stateText?.contains("completed") == true ||
+                    stateText?.contains("finish") == true -> MangaState.FINISHED
+            else -> null
+        }
+
+        val alt = doc.findInfo("Alternative")
+
+        manga.copy(
+            tags = doc.body()
+                .select(selectTag)
+                .mapToSet { a ->
+                    val href = a.attr("href")
+
+                    MangaTag(
+                        key = href.substringAfterLast("category=")
+                            .substringBefore("&")
+                            .takeIf { it != href }
+                            ?: href.removeSuffix("/")
+                                .substringAfterLast("/"),
+
+                        title = a.text().toTitleCase(),
+                        source = source,
+                    )
+                },
+
+            description = "If empty Chapters, reload Manga!",
+            altTitles = setOfNotNull(alt),
+            state = state,
+            chapters = chaptersDeferred.await()
+        )
+    }
+
+    private fun Document.findInfo(label: String): String? {
+        return select("ul.manga-info-text li")
+            .firstOrNull { it.text().contains(label, ignoreCase = true) }
+            ?.text()
+            ?.substringAfter(":")
+            ?.trim()
+            ?.nullIfEmpty()
+    }
+
+    @Deprecated("Use availableSortOrders instead", ReplaceWith("availableSortOrders"))
+    override val searchQueryCapabilities: MangaSearchQueryCapabilities
+        get() = MangaSearchQueryCapabilities(
+            SearchCapability(
+                field = SearchableField.TAG,
+                criteriaTypes = setOf(QueryCriteria.Include::class),
+                isMultiple = false,
+            ),
+            SearchCapability(
+                field = SearchableField.TITLE_NAME,
+                criteriaTypes = setOf(QueryCriteria.Match::class),
+                isMultiple = false,
+                isExclusive = true,
+            ),
+            SearchCapability(
+                field = SearchableField.STATE,
+                criteriaTypes = setOf(QueryCriteria.Include::class),
+                isMultiple = false,
+            ),
+        )
+
+    override suspend fun getListPage(
+        query: MangaSearchQuery,
+        page: Int
+    ): List<Manga> {
+
+        val titleQuery = query.criteria.filterIsInstance<QueryCriteria.Match<*>>()
+            .firstOrNull { it.field == SearchableField.TITLE_NAME }
+            ?.value as? String
+
+        val tagCriterion = query.criteria.filterIsInstance<QueryCriteria.Include<*>>()
+            .firstOrNull { it.field == SearchableField.TAG }
+
+        val tagKey = (tagCriterion?.values?.firstOrNull() as? MangaTag)?.key
+            ?: tagCriterion?.values?.firstOrNull()?.toString()
+
+        val state = query.criteria.filterIsInstance<QueryCriteria.Include<*>>()
+            .firstOrNull { it.field == SearchableField.STATE }
+            ?.values
+            ?.firstOrNull() as? MangaState
+
+        val url = if (!titleQuery.isNullOrBlank()) {
+
+            "https://$domain/search/story/${
+                normalizeSearchQuery(titleQuery).replace('_', '-')
+            }?page=$page"
+
+        } else {
+
+            val base = if (!tagKey.isNullOrBlank()) {
+                "https://$domain/genre/$tagKey"
+            } else {
+                "https://$domain/genre/all"
+            }
+
+            val filter = when {
+                state == MangaState.ONGOING && query.order == SortOrder.NEWEST -> 3
+                state == MangaState.ONGOING && query.order == SortOrder.UPDATED -> 6
+
+                state == MangaState.FINISHED && query.order == SortOrder.NEWEST -> 2
+                state == MangaState.FINISHED && query.order == SortOrder.UPDATED -> 5
+
+                query.order == SortOrder.POPULARITY -> 7
+                query.order == SortOrder.NEWEST -> 1
+
+                else -> 4 // all + latest
+            }
+
+            "$base?filter=$filter&page=$page"
+        }
+
+        val doc = webClient.httpGet(url).parseHtml()
+        return parseSearchResults(doc)
+    }
+
+    override suspend fun fetchAvailableTags(): Set<MangaTag> {
+        val doc = webClient.httpGet("https://$domain").parseHtml()
+        val tags = doc.select("td a[href*='/genre/'], div.panel-genres-list a[href*='/genre/']")
+            .drop(1)
+
+        val result = LinkedHashSet<MangaTag>()
+
+        for (a in tags) {
+            val key = a.attr("href")
+                .removeSuffix("/")
+                .substringAfter("/genre/")
+                .substringBefore("?")
+                .nullIfEmpty()
+                ?: continue
+
+            if (result.any { it.key == key }) {
+                continue
+            }
+
+            val title = a.text()
+                .replace(" Manga", "")
+                .toTitleCase(sourceLocale)
+
+            result.add(
+                MangaTag(
+                    key = key,
+                    title = title,
+                    source = source,
+                ),
+            )
+        }
+
+        return result
+    }
+
+    override suspend fun getChapters(doc: Document): List<MangaChapter> {
+        val slug = doc.location()
+            .substringAfter("/manga/", "")
+            .substringBefore("/")
+            .trim()
+            .ifEmpty { return super.getChapters(doc) }
+
+        val apiChapters = runCatching {
+            fetchChaptersApi(slug)
+        }.getOrDefault(emptyList())
+
+        return apiChapters.ifEmpty {
+            super.getChapters(doc)
+        }
+    }
+
+    private suspend fun fetchChaptersApi(slug: String): List<MangaChapter> {
+
+        suspend fun request(offset: Int): JSONObject {
+            val apiUrl =
+                "https://$domain/api/manga/$slug/chapters" +
+                        "?limit=$CHAPTER_LIST_TAKE&offset=$offset"
+
+            return webClient.httpGet(apiUrl).parseJson()
+        }
+
+        fun extractChapters(json: JSONObject): List<JSONObject> {
+            val array = json
+                .optJSONObject("data")
+                ?.optJSONArray("chapters")
+                ?: return emptyList()
+
+            return buildList {
+                for (i in 0 until array.length()) {
+                    array.optJSONObject(i)?.let(::add)
+                }
+            }
+        }
+        // first request
+        val first = request(0)
+
+        val chapters = mutableListOf<JSONObject>()
+        chapters += extractChapters(first)
+
+        val pagination =
+            first.optJSONObject("data")
+                ?.optJSONObject("pagination")
+
+        val hasMore =
+            pagination?.optBoolean("has_more", false) ?: false
+
+        if (!hasMore) {
+            return mapChapters(slug, chapters)
+        }
+
+        val total =
+            pagination.optInt("total", 0)
+
+        val offsets =
+            (CHAPTER_LIST_TAKE until total step CHAPTER_LIST_TAKE)
+                .toList()
+        // parallel loading
+        coroutineScope {
+            val results = offsets.map { offset ->
+                async {
+                    request(offset)
+                }
+            }.awaitAll()
+            results.forEach {
+                chapters += extractChapters(it)
+            }
+        }
+        return mapChapters(slug, chapters)
+    }
+
+    private fun mapChapters(
+        slug: String,
+        chapters: List<JSONObject>
+    ): List<MangaChapter> {
+
+        return chapters.mapNotNull { chapter ->
+            val chapterSlug =
+                chapter.optString("chapter_slug")
+                    .nullIfEmpty()
+                    ?: return@mapNotNull null
+
+            val chapterName =
+                chapter.optString("chapter_name")
+                    .nullIfEmpty()
+                    ?: "Chapter"
+
+            val number =
+                chapter.optString("chapter_num")
+                    .toFloatOrNull()
+                    ?: 0f
+
+            val url = "/manga/$slug/$chapterSlug"
+
+            MangaChapter(
+                id = generateUid(url),
+                title = chapterName,
+                number = number,
+                volume = 0,
+                url = url,
+                uploadDate = parseApiDate(
+                    chapter.optString("updated_at")
+                ),
+                source = source,
+                scanlator = null,
+                branch = null,
+            )
+        }.sortedBy {
+            it.number
+        }
+    }
+
+
+    private fun parseApiDate(date: String?): Long {
+        if (date.isNullOrBlank()) {
+            return 0L
+        }
+
+        val formats = listOf(
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'", Locale.US),
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US),
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US),
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US),
+        ).onEach {
+            it.timeZone = TimeZone.getTimeZone("UTC")
+        }
+
+        for (format in formats) {
+            val parsed = format.parseSafe(date)
+            if (parsed != 0L) {
+                return parsed
+            }
+        }
+
+        return 0L
+    }
+
+    @Deprecated("Use getRequestHeaders instead", ReplaceWith("getRequestHeaders()"))
+    override fun getRequestHeaders() = super.getRequestHeaders().newBuilder()
+        .set("Referer", "https://www.mangabats.com/")
+        .build()
+
+    override fun intercept(chain: Interceptor.Chain): Response {
+        val request = chain.request()
+
+        if (request.method == "GET" || request.method == "POST") {
+            val newRequest = request.newBuilder()
+                .removeHeader("Content-Encoding")
+                .removeHeader("Accept-Encoding")
+                .build()
+
+            return chain.proceed(newRequest)
+        }
+
+        return chain.proceed(request)
+    }
+
+    companion object {
+
+        private const val CHAPTER_LIST_TAKE = 1000
+    }
+}
