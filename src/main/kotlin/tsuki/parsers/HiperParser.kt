@@ -4,24 +4,8 @@ import tsuki.MangaLoaderContext
 import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
 import tsuki.network.OkHttpWebClient
-
-import tsuki.model.RATING_UNKNOWN
-import tsuki.model.ContentRating
-import tsuki.model.Manga
-import tsuki.model.MangaChapter
-import tsuki.model.MangaListFilter
-import tsuki.model.MangaListFilterCapabilities
-import tsuki.model.MangaListFilterOptions
-import tsuki.model.MangaPage
-import tsuki.model.MangaParserSource
-import tsuki.model.MangaTag
-import tsuki.model.SortOrder
-import tsuki.model.ContentType
-import tsuki.model.MangaState
-
-import tsuki.util.generateUid
-import tsuki.util.parseHtml
-import tsuki.util.urlEncoded
+import tsuki.model.*
+import tsuki.util.*
 
 import okhttp3.Headers
 import okhttp3.Request
@@ -38,22 +22,19 @@ abstract class HiperParser(
 ) : PagedMangaParser(context, source, pageSize = 30) {
 
     protected open val availableContentTypes: Set<ContentType> = EnumSet.of(ContentType.MANGA, ContentType.MANHWA, ContentType.MANHUA)
-
     protected open val availableStates: Set<MangaState> = EnumSet.of(MangaState.ONGOING, MangaState.FINISHED, MangaState.PAUSED, MangaState.ABANDONED)
-
     protected open val availableContentRating: Set<ContentRating> = EnumSet.of(ContentRating.SAFE, ContentRating.SUGGESTIVE, ContentRating.ADULT)
-
     protected open val mangaPath = "manga"
 
     override val configKeyDomain = ConfigKey.Domain(domainName)
     override val availableSortOrders: Set<SortOrder> = EnumSet.of(
+        SortOrder.RELEVANCE,
         SortOrder.POPULARITY,
+        SortOrder.RATING,
         SortOrder.UPDATED,
         SortOrder.NEWEST,
         SortOrder.NEWEST_ASC,
-        SortOrder.RATING,
-        SortOrder.ALPHABETICAL,
-        SortOrder.RELEVANCE
+        SortOrder.ALPHABETICAL
     )
     override val filterCapabilities = MangaListFilterCapabilities(
         isSearchSupported = true,
@@ -127,8 +108,8 @@ abstract class HiperParser(
 
     private fun searchPayload(query: String, sort: String, limit: Int, offset: Int, filter: MangaListFilter): String {
         val genres = filter.tags.map { it.key }
-        val types = filter.types.map { it.name.lowercase() }
-        val statusStr = filter.states.firstOrNull()?.let {
+        val typeValue = filter.types.firstOrNull()?.name?.lowercase()
+        val statusValue = filter.states.firstOrNull()?.let {
             when (it) {
                 MangaState.ONGOING -> "ongoing"
                 MangaState.FINISHED -> "completed"
@@ -137,23 +118,25 @@ abstract class HiperParser(
                 else -> null
             }
         }
-        val contentRatingStr = filter.contentRating.firstOrNull()?.let {
+        val ratingValue = filter.contentRating.firstOrNull()?.let {
             when (it) {
                 ContentRating.SAFE -> "safe"
                 ContentRating.SUGGESTIVE -> "suggestive"
                 ContentRating.ADULT -> "pornographic"
             }
         }
+
         return JSONObject().apply {
             put("0", JSONObject().apply {
                 put("json", JSONObject().apply {
                     put("q", query)
                     put("sort", sort)
                     put("filters", JSONObject().apply {
-                        if (genres.isNotEmpty()) put("genres", JSONArray(genres)) else put("genres", JSONObject.NULL)
-                        if (types.isNotEmpty()) put("type", types.first()) else put("type", JSONObject.NULL)
-                        if (statusStr != null) put("status", statusStr) else put("status", JSONObject.NULL)
-                        if (contentRatingStr != null) put("contentRating", contentRatingStr) else put("contentRating", JSONObject.NULL)
+                        if (genres.isEmpty()) put("genres", JSONObject.NULL)
+                        else put("genres", JSONArray(genres))
+                        put("type", typeValue)
+                        put("status", statusValue)
+                        put("contentRating", ratingValue)
                         put("author", JSONObject.NULL)
                         put("artist", JSONObject.NULL)
                         put("year", JSONObject.NULL)
@@ -165,9 +148,9 @@ abstract class HiperParser(
                 put("meta", JSONObject().apply {
                     put("values", JSONObject().apply {
                         if (genres.isEmpty()) put("filters.genres", JSONArray().put("undefined"))
-                        if (types.isEmpty()) put("filters.type", JSONArray().put("undefined"))
-                        if (statusStr == null) put("filters.status", JSONArray().put("undefined"))
-                        if (contentRatingStr == null) put("filters.contentRating", JSONArray().put("undefined"))
+                        if (typeValue == null) put("filters.type", JSONArray().put("undefined"))
+                        if (statusValue == null) put("filters.status", JSONArray().put("undefined"))
+                        if (ratingValue == null) put("filters.contentRating", JSONArray().put("undefined"))
                         put("filters.author", JSONArray().put("undefined"))
                         put("filters.artist", JSONArray().put("undefined"))
                         put("filters.year", JSONArray().put("undefined"))
@@ -179,6 +162,7 @@ abstract class HiperParser(
 
     private fun detailsPayload(slug: String) = JSONObject().apply {
         put("0", JSONObject().apply {
+            put("json", JSONObject.NULL)
             put("meta", JSONObject().apply { put("values", JSONArray().put("undefined")) })
         })
         put("1", JSONObject().apply {
@@ -193,9 +177,10 @@ abstract class HiperParser(
         put("1", JSONObject().apply {
             put("json", JSONObject().apply {
                 put("seriesId", mangaId)
+                put("chapterId", JSONObject.NULL)
                 put("sort", "best")
                 put("page", 1)
-                put("limit", 20)
+                put("limit", 9999)
             })
             put("meta", JSONObject().apply {
                 put("values", JSONObject().apply { put("chapterId", JSONArray().put("undefined")) })
@@ -208,6 +193,7 @@ abstract class HiperParser(
 
     private fun pagesPayload(slug: String, number: Float) = JSONObject().apply {
         put("0", JSONObject().apply {
+            put("json", JSONObject.NULL)
             put("meta", JSONObject().apply { put("values", JSONArray().put("undefined")) })
         })
         put("1", JSONObject().apply {
@@ -224,25 +210,17 @@ abstract class HiperParser(
         })
     }.toString()
 
-    private fun parseLastItemJsonArray(body: String): JSONArray? = try {
-        val root = JSONArray(body)
-        root.optJSONObject(root.length() - 1)
-            ?.optJSONObject("result")
-            ?.optJSONObject("data")
-            ?.optJSONArray("json")
-    } catch (_: Exception) { null }
-
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
         val q = filter.query?.trim().orEmpty()
         val sort = when (order) {
+            SortOrder.RELEVANCE -> "relevance"
             SortOrder.POPULARITY -> "popular"
+            SortOrder.RATING -> "score"
             SortOrder.UPDATED -> "recent"
             SortOrder.NEWEST -> "newest"
             SortOrder.NEWEST_ASC -> "oldest"
-            SortOrder.RATING -> "score"
             SortOrder.ALPHABETICAL -> "alphabetical"
-            SortOrder.RELEVANCE -> "relevance"
-            else -> "newest"
+            else -> "relevance"
         }
         val input = searchPayload(q, sort, pageSize, (page - 1) * pageSize, filter)
         val res = client.httpGet(apiUrl("search.query", input), getRequestHeaders())
@@ -263,10 +241,15 @@ abstract class HiperParser(
                     id = generateUid("/$mangaPath/$slug#$id"),
                     url = "/$mangaPath/$slug#$id",
                     publicUrl = "https://$domainName/$mangaPath/$slug#$id",
-                    title = title, coverUrl = cover,
-                    altTitles = emptySet(), authors = emptySet(), tags = emptySet(),
-                    rating = RATING_UNKNOWN, state = null,
-                    contentRating = ContentRating.ADULT, source = source
+                    title = title,
+                    coverUrl = cover,
+                    altTitles = emptySet(),
+                    authors = emptySet(),
+                    tags = emptySet(),
+                    rating = RATING_UNKNOWN,
+                    state = null,
+                    contentRating = ContentRating.ADULT,
+                    source = source
                 )
             }
         }
@@ -313,18 +296,24 @@ abstract class HiperParser(
     private suspend fun loadChapters(manga: Manga): List<MangaChapter> {
         val mangaId = manga.url.substringAfterLast("#").toLongOrNull() ?: return emptyList()
         val slug = manga.url.substringAfterLast("$mangaPath/").substringBefore("#").ifBlank { return emptyList() }
-        val res = client.httpGet(apiUrl("auth.me,comments.list,series.chapters", chaptersPayload(mangaId)), getRequestHeaders())
+        val res = client.httpGet(apiUrl("auth.me,series.chapters", chaptersPayload(mangaId)), getRequestHeaders())
         val body = res.body?.string() ?: return emptyList()
         val chaptersArray = parseLastItemJsonArray(body) ?: return emptyList()
         return (0 until chaptersArray.length()).mapNotNull { i ->
             chaptersArray.optJSONObject(i)?.let { obj ->
                 val number = obj.optDouble("number", 0.0).toFloat()
+                val title = obj.optString("title", null)
                 val createdAt = obj.optString("createdAt", null)
                 val uploadDate = createdAt?.let { dateFormat.parse(it)?.time } ?: 0L
+                val displayTitle = when {
+                    !title.isNullOrBlank() && title != "null" && !Regex("""\d+""").containsMatchIn(title) ->
+                        "Chapter ${number.formatForTitle()} $title"
+                    else -> "Chapter ${number.formatForTitle()}"
+                }
                 MangaChapter(
                     id = generateUid("/$mangaPath/$slug/$number"),
                     url = "/$mangaPath/$slug/$number",
-                    title = "Chapter ${number.formatForTitle()}",
+                    title = displayTitle,
                     number = number, volume = 0, uploadDate = uploadDate,
                     scanlator = null, branch = null, source = source
                 )
@@ -332,7 +321,6 @@ abstract class HiperParser(
         }.sortedBy { it.number }
     }
 
-    // triyng first tRPC API if it fails then chapter html scraping
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
         val path = chapter.url.removePrefix("/$mangaPath/")
         val slug = path.substringBefore("/")
@@ -347,7 +335,6 @@ abstract class HiperParser(
         val chapterUrl = "https://$domainName/$mangaPath/$slug/$num"
         val doc = client.httpGet(chapterUrl).parseHtml()
 
-        // search in json results image URLs
         val script = doc.select("script").find { it.data().contains("\"webpUrl\"") }
             ?: doc.select("script").find { it.data().contains("\"avifUrl\"") }
         if (script != null) {
@@ -387,6 +374,14 @@ abstract class HiperParser(
             MangaPage(id = generateUid(url), url = url, preview = null, source = source)
         }
     }
+
+    private fun parseLastItemJsonArray(body: String): JSONArray? = try {
+        val root = JSONArray(body)
+        root.optJSONObject(root.length() - 1)
+            ?.optJSONObject("result")
+            ?.optJSONObject("data")
+            ?.optJSONArray("json")
+    } catch (_: Exception) { null }
 
     override suspend fun getPageUrl(page: MangaPage) = page.url
 
