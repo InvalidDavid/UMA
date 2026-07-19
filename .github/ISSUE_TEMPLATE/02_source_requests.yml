@@ -1,6 +1,6 @@
-name: 🌐 Feature request
-description: Suggest a new feature or integration for UMA
-labels: [Feature request]
+name: 🌐 Source request
+description: Suggest a new source in UMA
+labels: [Source request]
 body:
 
   - type: input
