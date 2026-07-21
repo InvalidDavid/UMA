@@ -145,6 +145,8 @@ internal class MangaGeko(context: MangaLoaderContext) :
         val cover = header.selectFirst(".cover img")?.let {
             it.attr("data-src").ifBlank { it.attr("src") }
         } ?: manga.coverUrl
+        val altTitle = doc.selectFirst(".alternative-title")?.textOrNull()
+        val description = doc.selectFirst(".description")?.html()
 
         val author = header.selectFirst(".author a")?.attr("title")?.trim()?.takeIf {
             it.lowercase() != "updating"
@@ -167,12 +169,12 @@ internal class MangaGeko(context: MangaLoaderContext) :
 
         return manga.copy(
             title = title,
-            altTitles = emptySet(),
+            altTitles = setOfNotNull(altTitle),
             coverUrl = cover,
             largeCoverUrl = cover,
             state = state,
             authors = setOfNotNull(author),
-            description = null,
+            description = description,
             tags = tags,
             chapters = chapters,
         )
@@ -203,17 +205,20 @@ internal class MangaGeko(context: MangaLoaderContext) :
     }
 
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
-        val doc = webClient.httpGet(chapter.url.toAbsoluteUrl(domain)).parseHtml()
-        return doc.select("#chapter-reader img").mapNotNull { img ->
-            val src = img.absUrl("src")
-            if (src.isEmpty()) return@mapNotNull null
-            MangaPage(
-                id = generateUid(src),
-                url = src,
-                preview = null,
-                source = source,
-            )
-        }
+        val fullUrl = chapter.url.toAbsoluteUrl(domain)
+        val doc = webClient.httpGet(fullUrl).parseHtml()
+        return doc.select("center img")
+            .mapNotNull { it.attr("src").takeIf { src -> src.isNotBlank() } }
+            .filterNot { it.startsWith("data:image") || it.contains("credits-mgeko.png") }
+            .distinct().map { url ->
+                val finalUrl = url.toRelativeUrl(domain)
+                MangaPage(
+                    id = generateUid(finalUrl),
+                    url = finalUrl,
+                    preview = null,
+                    source = source,
+                )
+            }
     }
 
     private fun Element.toManga(): Manga {
@@ -223,6 +228,7 @@ internal class MangaGeko(context: MangaLoaderContext) :
         val cover = selectFirst(".comic-card__cover img, .novel-cover img")?.let {
             it.attr("data-src").ifBlank { it.attr("src") }
         } ?: ""
+        val coverUrl = cover.takeIf { it.isNotEmpty() }?.toAbsoluteUrl(domain)
         return Manga(
             id = generateUid(href),
             url = href,
@@ -231,15 +237,13 @@ internal class MangaGeko(context: MangaLoaderContext) :
             altTitles = emptySet(),
             rating = RATING_UNKNOWN,
             contentRating = null,
-            coverUrl = cover,
+            coverUrl = coverUrl,
             tags = emptySet(),
             state = null,
             authors = emptySet(),
             source = source,
         )
     }
-
-    override suspend fun getRelatedManga(seed: Manga): List<Manga> = emptyList()
-
+    
     private fun SimpleDateFormat.parseSafe(date: String): Long? = runCatching { parse(date)?.time }.getOrNull()
 }
