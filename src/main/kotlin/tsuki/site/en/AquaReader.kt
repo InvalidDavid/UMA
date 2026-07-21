@@ -14,8 +14,8 @@ import java.util.EnumSet
 import java.util.Locale
 import java.util.TimeZone
 
-@MangaSourceParser("AQUAMANGA", "AquaManga", "en")
-internal class AquaManga(context: MangaLoaderContext) :
+@MangaSourceParser("AQUAMANGA", "AquaReader", "en")
+internal class AquaReader(context: MangaLoaderContext) :
     MadaraParser(context, MangaParserSource.AQUAMANGA, "aquareader.org", 20) {
 
     override val withoutAjax = true
