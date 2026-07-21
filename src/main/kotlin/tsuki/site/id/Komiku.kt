@@ -1,35 +1,17 @@
-package org.koitharu.kotatsu.parsers.site.mangareader.id
+package tsuki.site.id
+
+import okhttp3.Headers
+import tsuki.MangaLoaderContext
+import tsuki.MangaSourceParser
+import tsuki.parsers.MangaReaderParser
+import tsuki.model.*
+import tsuki.util.*
 
 import org.jsoup.nodes.Document
-import org.koitharu.kotatsu.parsers.MangaLoaderContext
-import org.koitharu.kotatsu.parsers.MangaSourceParser
-import org.koitharu.kotatsu.parsers.model.ContentType
-import org.koitharu.kotatsu.parsers.model.Manga
-import org.koitharu.kotatsu.parsers.model.MangaChapter
-import org.koitharu.kotatsu.parsers.model.MangaListFilter
-import org.koitharu.kotatsu.parsers.model.MangaListFilterCapabilities
-import org.koitharu.kotatsu.parsers.model.MangaListFilterOptions
-import org.koitharu.kotatsu.parsers.model.MangaParserSource
-import org.koitharu.kotatsu.parsers.model.MangaState
-import org.koitharu.kotatsu.parsers.model.MangaTag
-import org.koitharu.kotatsu.parsers.model.RATING_UNKNOWN
-import org.koitharu.kotatsu.parsers.model.SortOrder
-import org.koitharu.kotatsu.parsers.site.mangareader.MangaReaderParser
-import org.koitharu.kotatsu.parsers.util.attrAsRelativeUrl
-import org.koitharu.kotatsu.parsers.util.generateUid
-import org.koitharu.kotatsu.parsers.util.mapChapters
-import org.koitharu.kotatsu.parsers.util.mapNotNullToSet
-import org.koitharu.kotatsu.parsers.util.oneOrThrowIfMany
-import org.koitharu.kotatsu.parsers.util.parseHtml
-import org.koitharu.kotatsu.parsers.util.parseSafe
-import org.koitharu.kotatsu.parsers.util.toAbsoluteUrl
-import org.koitharu.kotatsu.parsers.util.toRelativeUrl
-import org.koitharu.kotatsu.parsers.util.toTitleCase
-import org.koitharu.kotatsu.parsers.util.urlEncoded
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.EnumSet
 
-/* Need some refactors */
 @MangaSourceParser("KOMIKU", "Komiku", "id")
 internal class Komiku(context: MangaLoaderContext) :
     MangaReaderParser(context, MangaParserSource.KOMIKU, "komiku.org", 10, 10) {
@@ -45,23 +27,57 @@ internal class Komiku(context: MangaLoaderContext) :
     override val selectChapter = "#Daftar_Chapter tr:has(td.judulseries)"
     override val detailsDescriptionSelector = "#Sinopsis > p"
 
-    override val filterCapabilities: MangaListFilterCapabilities
-        get() = MangaListFilterCapabilities(
-            isSearchSupported = true,
-            isMultipleTagsSupported = true,
-        )
+    override val filterCapabilities = MangaListFilterCapabilities(
+        isSearchSupported = true,
+        isMultipleTagsSupported = true,
+    )
+
+    private val allGenres = listOf(
+        "action" to "Action", "adult" to "Adult", "adventure" to "Adventure",
+        "comedy" to "Comedy", "cooking" to "Cooking", "drama" to "Drama",
+        "ecchi" to "Ecchi", "fantasy" to "Fantasy", "gender-bender" to "Gender Bender",
+        "harem" to "Harem", "historical" to "Historical", "horror" to "Horror",
+        "isekai" to "Isekai", "josei" to "Josei", "magic" to "Magic",
+        "manga" to "Manga", "manhwa" to "Manhwa", "martial-arts" to "Martial Arts",
+        "mature" to "Mature", "mecha" to "Mecha", "medical" to "Medical",
+        "military" to "Military", "mystery" to "Mystery", "one-shot" to "One Shot",
+        "psychological" to "Psychological", "romance" to "Romance",
+        "school-life" to "School Life", "sci-fi" to "Sci-fi", "seinen" to "Seinen",
+        "shoujo" to "Shoujo", "shounen" to "Shounen", "slice-of-life" to "Slice of Life",
+        "sports" to "Sports", "supernatural" to "Supernatural", "tragedy" to "Tragedy",
+        "yaoi" to "Yaoi", "yuri" to "Yuri",
+        "academy" to "Academy", "adaptation" to "Adaptation", "apocalypse" to "Apocalypse",
+        "beasts" to "Beasts", "blacksmith" to "Blacksmith", "comic" to "Comic",
+        "crime" to "Crime", "crossdressing" to "Crossdressing",
+        "dark-fantasy" to "Dark Fantasy", "demons" to "Demons",
+        "doujinshi" to "Doujinshi", "entertainment" to "Entertainment",
+        "game" to "Game", "genderswap" to "Genderswap", "genius" to "Genius",
+        "ghosts" to "Ghosts", "gore" to "Gore", "gyaru" to "Gyaru",
+        "hentai" to "Hentai", "knight" to "Knight", "long-strip" to "Long Strip",
+        "magical-girls" to "Magical Girls", "mangatoon" to "Mangatoon",
+        "martial-art" to "Martial Art", "mc-rebirth" to "MC Rebirth",
+        "monster" to "Monster", "monster-girls" to "Monster Girls",
+        "monsters" to "Monsters", "murim" to "Murim", "music" to "Music",
+        "office-workers" to "Office Workers", "oneshot" to "Oneshot",
+        "police" to "Police", "regression" to "Regression",
+        "reincarnation" to "Reincarnation", "revenge" to "Revenge",
+        "school" to "School", "sexual-violence" to "Sexual Violence",
+        "shotacon" to "Shotacon", "shoujo-ai" to "Shoujo Ai",
+        "shounen-ai" to "Shounen Ai", "slow-life" to "Slow Life",
+        "smut" to "Smut", "sport" to "Sport", "strategy" to "Strategy",
+        "super-power" to "Super Power", "survival" to "Survival",
+        "sword-fight" to "Sword Fight", "sword-master" to "Sword Master",
+        "swormanship" to "Swormanship", "system" to "System",
+        "thriller" to "Thriller", "trauma" to "Trauma", "vampire" to "Vampire",
+        "villainess" to "Villainess", "violence" to "Violence",
+        "web-comic" to "Web Comic", "webtoon" to "Webtoon",
+        "webtoons" to "Webtoons", "xianxia" to "Xianxia", "xuanhuan" to "Xuanhuan"
+    )
 
     override suspend fun getFilterOptions() = MangaListFilterOptions(
-        availableTags = fetchAvailableTags(),
-        availableStates = EnumSet.of(
-            MangaState.ONGOING,
-            MangaState.FINISHED,
-        ),
-        availableContentTypes = EnumSet.of(
-            ContentType.MANGA,
-            ContentType.MANHWA,
-            ContentType.MANHUA,
-        ),
+        availableTags = allGenres.map { (title, key) -> MangaTag(key, title, source) }.toSet(),
+        availableStates = EnumSet.of(MangaState.ONGOING, MangaState.FINISHED),
+        availableContentTypes = EnumSet.of(ContentType.MANGA, ContentType.MANHWA, ContentType.MANHUA),
     )
 
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
@@ -106,7 +122,7 @@ internal class Komiku(context: MangaLoaderContext) :
                         MangaState.FINISHED -> "end"
                         else -> null
                     }
-                }?.let { params += "status=$it" }
+                }?.let { params += "statusmanga=$it" }
                 if (params.isNotEmpty()) {
                     append("?")
                     append(params.joinToString("&"))
@@ -127,7 +143,7 @@ internal class Komiku(context: MangaLoaderContext) :
 
             val thumbnailUrl = element.selectFirst(selectMangaListImg)?.let { img ->
                 img.attr("data-src").ifBlank { img.attr("src") }
-            }?.substringBeforeLast("?")
+            }?.substringBeforeLast("?")?.toAbsoluteUrl(domain)
 
             val title = element.selectFirst(selectMangaListTitle)?.text()
                 ?: return@mapNotNull null
@@ -152,11 +168,15 @@ internal class Komiku(context: MangaLoaderContext) :
 
     override suspend fun getDetails(manga: Manga): Manga {
         val docs = webClient.httpGet(manga.url.toAbsoluteUrl(domain)).parseHtml()
-        val dateFormat = SimpleDateFormat(datePattern, sourceLocale)
         val chapters = docs.select(selectChapter).mapChapters(reversed = true) { index, element ->
             val a = element.selectFirst("td.judulseries a") ?: return@mapChapters null
             val url = a.attrAsRelativeUrl("href")
             val dateText = element.selectFirst("td.tanggalseries")?.text()
+            val date = if (dateText != null && dateText.contains("lalu")) {
+                parseRelativeDate(dateText)
+            } else {
+                SimpleDateFormat(datePattern, sourceLocale).parseSafe(dateText)
+            }
             MangaChapter(
                 id = generateUid(url),
                 title = a.selectFirst("span")?.text() ?: a.text(),
@@ -164,7 +184,7 @@ internal class Komiku(context: MangaLoaderContext) :
                 number = index + 1f,
                 volume = 0,
                 scanlator = null,
-                uploadDate = dateFormat.parseSafe(dateText),
+                uploadDate = date,
                 branch = null,
                 source = source,
             )
@@ -188,9 +208,7 @@ internal class Komiku(context: MangaLoaderContext) :
         val statusText = docs.selectFirst("table.inftable tr > td:contains(Status) + td")?.text().orEmpty()
         val state = when {
             statusText.contains("Ongoing", true) -> MangaState.ONGOING
-            statusText.contains("Completed", true) -> MangaState.FINISHED
-            statusText.contains("Tamat", true) -> MangaState.FINISHED
-            statusText.contains("End", true) -> MangaState.FINISHED
+            statusText.contains("Completed", true) || statusText.contains("Tamat", true) || statusText.contains("End", true) -> MangaState.FINISHED
             else -> null
         }
 
@@ -199,7 +217,7 @@ internal class Komiku(context: MangaLoaderContext) :
 
         val thumbnail = docs.selectFirst("div.ims > img")?.let { img ->
             img.attr("data-src").ifBlank { img.attr("src") }
-        }?.substringBeforeLast("?")
+        }?.substringBeforeLast("?")?.toAbsoluteUrl(domain)
 
         return manga.copy(
             altTitles = setOfNotNull(altTitle),
@@ -212,24 +230,35 @@ internal class Komiku(context: MangaLoaderContext) :
         )
     }
 
-    private suspend fun fetchAvailableTags(): Set<MangaTag> {
-        val doc = webClient.httpGet("https://$domain/pustaka/").parseHtml()
-        val tags = mutableSetOf<MangaTag>()
-
-        doc.select("select[name='genre'] option").forEach { option ->
-            val value = option.attr("value").trim()
-            val title = option.text().substringBefore("(").trim()
-
-            if (value.isNotBlank() && !title.equals("Genre", true)) {
-                tags.add(
-                    MangaTag(
-                        key = value,
-                        title = title,
-                        source = source,
-                    ),
-                )
-            }
+    private fun parseRelativeDate(date: String): Long {
+        val trimmedDate = date.substringBefore(" lalu").removeSuffix("s").split(" ")
+        val calendar = Calendar.getInstance()
+        when (trimmedDate[1]) {
+            "jam" -> calendar.add(Calendar.HOUR_OF_DAY, -trimmedDate[0].toInt())
+            "menit" -> calendar.add(Calendar.MINUTE, -trimmedDate[0].toInt())
+            "detik" -> calendar.add(Calendar.SECOND, 0)
         }
-        return tags
+        return calendar.timeInMillis
     }
+
+    override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
+        val fullUrl = chapter.url.toAbsoluteUrl(domain)
+        val doc = webClient.httpGet(fullUrl).parseHtml()
+        return doc.select(selectPage).mapIndexed { _, img ->
+            val src = img.attr("abs:src")
+            MangaPage(
+                id = generateUid(src),
+                url = src,
+                preview = null,
+                source = source,
+            )
+        }
+    }
+
+    override suspend fun getPageUrl(page: MangaPage): String = page.url
+
+    override fun getRequestHeaders(): Headers = super.getRequestHeaders().newBuilder()
+        .set("Referer", "https://$domain/")
+        .set("Accept-Language", "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7")
+        .build()
 }
