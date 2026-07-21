@@ -46,11 +46,11 @@ internal class NHentaiParser(context: MangaLoaderContext) :
 
     private val preferredServerKey = ConfigKey.PreferredImageServer(
         presetValues = mapOf(
-            _root_ide_package_.tsuki.site.all.hentais.TWO_IMG_SERVER to "First server",
-            _root_ide_package_.tsuki.site.all.hentais.THREE_IMG_SERVER to "Second server",
-            _root_ide_package_.tsuki.site.all.hentais.FOUR_IMG_SERVER to "Third server",
+            TWO_IMG_SERVER to "First server",
+            THREE_IMG_SERVER to "Second server",
+            FOUR_IMG_SERVER to "Third server",
         ),
-        defaultValue = _root_ide_package_.tsuki.site.all.hentais.TWO_IMG_SERVER,
+        defaultValue = TWO_IMG_SERVER,
     )
 
     override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
@@ -842,7 +842,6 @@ internal class NHentaiParser(context: MangaLoaderContext) :
     ): List<Manga> {
         ensureNhConfig()
 
-        // Direct ID search
         val directId = extractGalleryId(filter.query)
         if (directId != null) {
             return try {
@@ -860,31 +859,38 @@ internal class NHentaiParser(context: MangaLoaderContext) :
             return (0 until items.length()).map { i -> items.getJSONObject(i).toManga() }
         }
 
-        val lang = filter.locale?.let { loc ->
-            LANG_MAP[loc.language]
+        val lang = filter.locale?.let { LANG_MAP[it.language] }
+        val searchQuery = buildString {
+            if (!filter.query.isNullOrBlank()) {
+                append("title:\"${filter.query}\"")
+            }
+            if (lang != null) {
+                if (isNotEmpty()) append(" ")
+                append("language:$lang")
+            }
         }
 
-        val url = when {
-            // Search with language
-            lang != null -> {
-                val sort = when (order) {
-                    SortOrder.POPULARITY -> "popular"
-                    else -> "date"
+        val url: String
+        when (order) {
+            SortOrder.UPDATED -> {
+                url = if (searchQuery.isEmpty()) {
+                    "https://$domain/api/v2/galleries?page=$page"
+                } else {
+                    "https://$domain/api/v2/search?query=${searchQuery.urlEncoded()}&sort=date&page=$page"
                 }
-                "https://$domain/api/v2/search?query=language:$lang&sort=$sort&page=$page"
             }
-            // Latest
-            order == SortOrder.UPDATED -> "https://$domain/api/v2/galleries?page=$page"
-            // Popular (all / today / week / month)
             else -> {
                 val sort = when (order) {
+                    SortOrder.POPULARITY       -> "popular"
                     SortOrder.POPULARITY_TODAY -> "popular-today"
-                    SortOrder.POPULARITY_WEEK -> "popular-week"
+                    SortOrder.POPULARITY_WEEK  -> "popular-week"
                     SortOrder.POPULARITY_MONTH -> "popular-month"
-                    SortOrder.POPULARITY -> "popular"
                     else -> "popular"
                 }
-                "https://$domain/api/v2/search?query=%22%22&sort=$sort&page=$page"
+                val finalQuery = searchQuery.ifBlank {
+                    lang?.let { "language:$it" } ?: "language:english"
+                }
+                url = "https://$domain/api/v2/search?query=${finalQuery.urlEncoded()}&sort=$sort&page=$page"
             }
         }
 
@@ -1026,7 +1032,7 @@ internal class NHentaiParser(context: MangaLoaderContext) :
             publicUrl = "https://$domain/g/$id/",
             rating = RATING_UNKNOWN,
             contentRating = ContentRating.ADULT,
-            coverUrl = "$thumbServer/$thumbPath",
+            coverUrl = "$thumbServer/$coverPath",
             largeCoverUrl = "$imageServer/$coverPath",
             tags = tags,
             state = null,
