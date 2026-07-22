@@ -49,7 +49,7 @@ internal abstract class NatsuParser(
 ) : PagedMangaParser(context, source, pageSize, pageSize) {
 
     override val configKeyDomain = ConfigKey.Domain(domain)
-    
+
     override val sourceLocale: Locale = Locale.ENGLISH
 
     override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
@@ -261,6 +261,9 @@ internal abstract class NatsuParser(
         val authors = getTermNames("series-author")
         val tags = genres.map { name -> MangaTag(name, name.lowercase().replace(" ", "-"), source) }.toSet()
         val chapters = loadChapters(id.toString(), "https://$domain/manga/$slug/")
+        val rawRating = fetchRatingFromPage("https://$domain/manga/$slug/")
+        val rating = if (rawRating >= 0.0f) rawRating else RATING_UNKNOWN
+        val altTitles = fetchAltTitlesFromPage("https://$domain/manga/$slug/")
 
         val result = manga.copy(
             title = title,
@@ -270,6 +273,8 @@ internal abstract class NatsuParser(
             authors = authors.toSet(),
             tags = tags,
             chapters = chapters,
+            rating = rating,
+            altTitles = altTitles,
         )
 
         detailsCache[manga.url] = result
@@ -280,6 +285,22 @@ internal abstract class NatsuParser(
         val url = "https://$domain/wp-json/wp/v2/manga?slug=$slug"
         val jsonArray = webClient.httpGet(url).parseJsonArray()
         return if (jsonArray.length() > 0) jsonArray.getJSONObject(0).getInt("id") else null
+    }
+
+    private suspend fun fetchRatingFromPage(pageUrl: String): Float {
+        val doc = webClient.httpGet(pageUrl).parseHtml()
+        val ratingEl = doc.selectFirst("meta[itemprop=ratingValue]")
+            ?: doc.selectFirst("div[itemprop=ratingValue]")
+        val ratingStr = ratingEl?.attr("content")?.ifEmpty { ratingEl.text() }
+        val rawRating = ratingStr?.toFloatOrNull() ?: -1f
+        return if (rawRating >= 0.0f) rawRating else -1f
+    }
+
+    private suspend fun fetchAltTitlesFromPage(pageUrl: String): Set<String> {
+        val doc = webClient.httpGet(pageUrl).parseHtml()
+        val titleElement = doc.selectFirst("h1[itemprop=name]")
+        val altText = titleElement?.nextElementSibling()?.text()
+        return altText?.split(',')?.mapNotNull { it.trim().takeIf(String::isNotBlank) }?.toSet() ?: emptySet()
     }
 
     protected open suspend fun loadChapters(mangaId: String, mangaAbsoluteUrl: String): List<MangaChapter> {
