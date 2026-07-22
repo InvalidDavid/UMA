@@ -30,7 +30,6 @@ internal class Mangadotnet(context: MangaLoaderContext) :
     private val showAdultKey = ConfigKey.ShowSuspiciousContent(false)
 
     private val genreNames = setOf(
-        "Josei", "Seinen", "Shoujo", "Shounen",
         "Action", "Adventure", "Comedy", "Drama", "Fantasy",
         "Historical", "Horror", "Mecha", "Mystery", "Psychological",
         "Romance", "Sci-Fi", "Slice of Life", "Sports", "Supernatural", "Thriller", "Tragedy",
@@ -43,8 +42,8 @@ internal class Mangadotnet(context: MangaLoaderContext) :
         "Erotica", "Female Protagonist", "Femdom", "Fight", "futanari on male", "futunari",
         "Gender Bender", "Genderswap", "Ghosts", "Girls Love", "Gore", "Gourmet",
         "Gyaru", "Hentai", "Hunters", "Idol", "Incest", "Loli", "Lolicon", "Mafia",
-        "Magical Girls", "Mahou Shoujo", "Manga", "Manhua", "Manhwa", "Mature",
-        "Medieval Area", "Monster Girls", "Monsters", "Ninja", "Nobility",
+        "Magical Girls", "Mahou Shoujo", "Mature", "Medieval Area",
+        "Monster Girls", "Monsters", "Ninja", "Nobility",
         "Office Romance", "Office Worker", "Office Workers", "One Shot", "Otome",
         "Overpowered", "Philosophical", "playboy", "Police", "Post-Apocalyptic",
         "Reincarnation", "Revenge", "Reverse Harem", "Royalty", "Samurai", "School",
