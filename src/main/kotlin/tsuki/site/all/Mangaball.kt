@@ -33,7 +33,7 @@ internal abstract class MangaBallParser(
     private val siteLanguages: Set<String>,
 ) : PagedMangaParser(context, source, pageSize = 20), Interceptor {
 
-    override val configKeyDomain = ConfigKey.Domain(_root_ide_package_.tsuki.site.all.DOMAIN)
+    override val configKeyDomain = ConfigKey.Domain(DOMAIN)
 
     private val showSuspiciousContentKey = ConfigKey.ShowSuspiciousContent(false)
     private val rawHttpClient: OkHttpClient by lazy { context.httpClient.newBuilder().build() }
@@ -527,10 +527,7 @@ internal abstract class MangaBallParser(
         if (csrfToken.isNullOrEmpty()) {
             refreshCsrf()
             if (csrfToken.isNullOrEmpty()) {
-                refreshCsrf()
-            }
-            if (csrfToken.isNullOrEmpty()) {
-                error("CSRF token not found after two attempts")
+                error("CSRF token not found")
             }
         }
         return csrfToken!!
