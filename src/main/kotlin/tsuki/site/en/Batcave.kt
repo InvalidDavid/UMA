@@ -199,13 +199,16 @@ internal class Batcave(context: MangaLoaderContext) :
         }.filterNotNull()
     }
 
-    @get:Synchronized
+    private val detailsCacheLock = Any()
+
     private val detailsCache = object : LinkedHashMap<String, Manga>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Manga>?): Boolean = size > 10
     }
 
     override suspend fun getDetails(manga: Manga): Manga {
-        detailsCache[manga.url]?.let { return it }
+        synchronized(detailsCacheLock) {
+            detailsCache[manga.url]?.let { return it }
+        }
 
         val doc = apiClient.httpGet(manga.url.toAbsoluteUrl(domain)).parseHtml()
 
@@ -254,7 +257,9 @@ internal class Batcave(context: MangaLoaderContext) :
             tags = tags,
             chapters = chapters,
         )
-        detailsCache[manga.url] = result
+        synchronized(detailsCacheLock) {
+            detailsCache[manga.url] = result
+        }
         return result
     }
 
