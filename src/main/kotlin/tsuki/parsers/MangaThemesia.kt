@@ -60,7 +60,7 @@ abstract class MangaThemesia(
     protected open val withoutAjax = false
     protected open val searchSelector = ".utao .uta .imgu, .listupd .bs .bsx, .listo .bs .bsx"
     protected open val relatedSelector = ".related-posts .bsx, .bixbox .bsx, .related-manga .related-reading-wrap"
-    protected open val chapterListSelector = "div.bxcl li, div.cl li, #chapterlist li, ul li:has(div.chbox):has(div.eph-num), div.bxcl li:not(a[data-bs-target='#lockedChapterModal'])"
+    protected open val chapterListSelector = "div.bxcl li, div.cl li, #chapterlist li, ul li:has(div.chbox):has(div.eph-num)"
     protected open val pageSelector = "div#readerarea img"
 
     override val availableSortOrders: EnumSet<SortOrder> = EnumSet.of(
