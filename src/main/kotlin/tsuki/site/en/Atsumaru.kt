@@ -255,7 +255,9 @@ internal class Atsumaru(context: MangaLoaderContext) :
 
     // limit tags to 20
     override suspend fun getDetails(manga: Manga): Manga {
-        detailsCache[manga.url]?.let { return it }
+        synchronized(detailsCacheLock) {
+            detailsCache[manga.url]?.let { return it }
+        }
 
         val result = coroutineScope {
             val mangaId = manga.url.substringAfterLast("/")
@@ -368,16 +370,16 @@ internal class Atsumaru(context: MangaLoaderContext) :
                 altTitles = altTitles,
             )
         }
-
-        detailsCache.put(manga.url, result)
+        synchronized(detailsCacheLock) {
+            detailsCache[manga.url] = result
+        }
         return result
     }
 
-    @get:Synchronized
+    private val detailsCacheLock = Any()
+
     private val detailsCache = object : LinkedHashMap<String, Manga>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Manga>?): Boolean {
-            return size > 10
-        }
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Manga>?): Boolean = size > 10
     }
 
     override suspend fun getRelatedManga(seed: Manga): List<Manga> {
