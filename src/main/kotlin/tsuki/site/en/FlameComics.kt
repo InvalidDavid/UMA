@@ -17,9 +17,9 @@ import tsuki.util.json.mapJSONNotNull
 import tsuki.util.json.toStringSet
 import tsuki.util.suspendlazy.suspendLazy
 
-import androidx.collection.ArraySet
 import okhttp3.HttpUrl
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
 import java.util.EnumSet
 import java.util.concurrent.TimeUnit
@@ -32,56 +32,90 @@ internal class FlameComics(context: MangaLoaderContext) :
     private val removeSpecialCharsRegex = Regex("[^A-Za-z0-9 ]")
 
     override val availableSortOrders: Set<SortOrder> = EnumSet.of(
-        SortOrder.ALPHABETICAL,
+        SortOrder.POPULARITY,
+        SortOrder.UPDATED,
     )
 
     override val filterCapabilities: MangaListFilterCapabilities
         get() = MangaListFilterCapabilities(
             isMultipleTagsSupported = true,
-            isTagsExclusionSupported = true,
+            isTagsExclusionSupported = false,
             isSearchSupported = true,
-            isSearchWithFiltersSupported = true,
+            isSearchWithFiltersSupported = false,
         )
 
     override val configKeyDomain = ConfigKey.Domain("flamecomics.xyz")
 
+    private fun JSONObject.getJSONArraySafe(key: String): JSONArray? {
+        return try {
+            val value = get(key)
+            value as? JSONArray
+        } catch (_: JSONException) {
+            null
+        }
+    }
+
     override suspend fun getList(order: SortOrder, filter: MangaListFilter): List<Manga> {
-        val url = urlBuilder()
-            .addPathSegment("_next")
-            .addPathSegment("data")
-            .addPathSegment(commonPrefix.get())
-            .addPathSegment("browse.json")
-            .build()
+        val query = filter.query
+        val hasSearchQuery = !query.isNullOrEmpty()
+        val hasTagFilter = filter.tags.isNotEmpty() || filter.tagsExclude.isNotEmpty()
 
-        val json = webClient.httpGet(url).parseJson().getJSONObject("pageProps").getJSONArray("series")
+        val rawMangas = if (hasSearchQuery || hasTagFilter || order != SortOrder.UPDATED) {
+            val url = urlBuilder()
+                .addPathSegment("_next")
+                .addPathSegment("data")
+                .addPathSegment(commonPrefix.get())
+                .addPathSegment("browse.json")
+                .build()
+            val json = webClient.httpGet(url).parseJson().getJSONObject("pageProps").getJSONArray("series")
 
-        val allManga = json.mapJSONNotNull { jo ->
-            parseManga(jo).takeIf { it.tags.matches(filter) }
+            json.mapJSONNotNull { jo ->
+                val manga = parseManga(jo)
+                val lastEdit = jo.getLongOrDefault("last_edit", 0L)
+                val views = jo.getLongOrDefault("views", 0L)
+                Triple(manga, lastEdit, views)
+            }
+        } else {
+            val url = urlBuilder()
+                .addPathSegment("_next")
+                .addPathSegment("data")
+                .addPathSegment(commonPrefix.get())
+                .addPathSegment("index.json")
+                .build()
+            val json = webClient.httpGet(url).parseJson()
+            val seriesArray = json
+                .getJSONObject("pageProps")
+                .getJSONObject("latestEntries")
+                .getJSONArray("blocks")
+                .getJSONObject(0)
+                .getJSONArray("series")
+
+            seriesArray.mapJSONNotNull { jo ->
+                val manga = parseManga(jo)
+                Triple(manga, 0L, 0L)
+            }
         }
 
-        // Filter by search if provided
-        val query = filter.query
-        val filteredManga = if (!query.isNullOrEmpty()) {
+        val filteredByTags = rawMangas.filter { (manga, _, _) -> manga.tags.matches(filter) }
+
+        val filteredManga = if (hasSearchQuery) {
             val normalizedQuery = removeSpecialCharsRegex.replace(query.lowercase(), "")
-            allManga.filter { manga ->
+            filteredByTags.filter { (manga, _, _) ->
                 val titles = mutableListOf(manga.title)
                 titles.addAll(manga.altTitles)
-
                 titles.any { title ->
                     normalizedQuery in removeSpecialCharsRegex.replace(title.lowercase(), "")
                 }
             }
         } else {
-            allManga
+            filteredByTags
         }
-
-        return filteredManga
-            .let { list ->
-                when (order) {
-                    SortOrder.ALPHABETICAL -> list.sortedBy { it.title }
-                    else -> list
-                }
-            }
+        val sorted = when (order) {
+            SortOrder.UPDATED   -> filteredManga.sortedByDescending { it.second }
+            SortOrder.POPULARITY -> filteredManga.sortedByDescending { it.third }
+            else                -> filteredManga
+        }
+        return sorted.map { it.first }
     }
 
     override suspend fun getDetails(manga: Manga): Manga = getDetailsImpl(manga.url.toLong())
@@ -156,21 +190,26 @@ internal class FlameComics(context: MangaLoaderContext) :
             .addPathSegment(commonPrefix.get())
             .addPathSegment("browse.json")
             .build()
-        return webClient.httpGet(url).parseJson()
+        val seriesArray = webClient.httpGet(url).parseJson()
             .getJSONObject("pageProps")
             .getJSONArray("series")
-            .mapJSONNotNull { it.getStringOrNull("categories") }
-            .flatMapTo(ArraySet()) {
-                JSONArray(it).asTypedList<String>().mapToSet { tagName -> tagName.toMangaTag() }
+
+        val tags = mutableSetOf<MangaTag>()
+        for (i in 0 until seriesArray.length()) {
+            val jo = seriesArray.getJSONObject(i)
+            val categoriesArray = jo.getJSONArraySafe("categories")
+            categoriesArray?.asTypedList<String>()?.forEach { tagName ->
+                tags += tagName.toMangaTag()
             }
+        }
+        return tags
     }
 
     private fun parseManga(jo: JSONObject): Manga {
-        // Try different possible field names for series ID, including string conversion
         val seriesId = jo.getLongOrDefault("series_id", -1L).takeIf { it != -1L }
-            ?: jo.getLongOrDefault("novel_id", -1L).takeIf { it != -1L }  // Handle novels
+            ?: jo.getLongOrDefault("novel_id", -1L).takeIf { it != -1L }
             ?: jo.getStringOrNull("series_id")?.toLongOrNull()
-            ?: jo.getStringOrNull("novel_id")?.toLongOrNull()  // Handle novels as string
+            ?: jo.getStringOrNull("novel_id")?.toLongOrNull()
             ?: jo.getLongOrDefault("id", -1L).takeIf { it != -1L }
             ?: jo.getStringOrNull("id")?.toLongOrNull()
             ?: jo.getLongOrDefault("seriesId", -1L).takeIf { it != -1L }
@@ -184,7 +223,13 @@ internal class FlameComics(context: MangaLoaderContext) :
                         "JSON sample: ${jo.toString().take(500)}"
             )
         val cover = jo.getStringOrNull("cover")
-        val author = jo.getStringOrNull("author")
+
+        val authorArray = jo.getJSONArraySafe("author")
+        val authors = authorArray?.asTypedList<String>()?.toSet() ?: emptySet()
+
+        val categoriesArray = jo.getJSONArraySafe("categories")
+        val tags = categoriesArray?.asTypedList<String>()?.mapToSet { it.toMangaTag() } ?: emptySet()
+
         return Manga(
             id = generateUid(seriesId),
             title = jo.getString("title"),
@@ -197,12 +242,8 @@ internal class FlameComics(context: MangaLoaderContext) :
             contentRating = null,
             coverUrl = if (cover != null) {
                 imageUrl(seriesId, cover, 384)
-            } else {
-                null
-            },
-            tags = jo.getStringOrNull("categories")?.let {
-                JSONArray(it).asTypedList<String>().mapToSet { tagName -> tagName.toMangaTag() }
-            }.orEmpty(),
+            } else null,
+            tags = tags,
             state = when (jo.getStringOrNull("status")) {
                 "Dropped" -> MangaState.ABANDONED
                 "Completed" -> MangaState.FINISHED
@@ -210,12 +251,10 @@ internal class FlameComics(context: MangaLoaderContext) :
                 "Ongoing" -> MangaState.ONGOING
                 else -> null
             },
-            authors = setOfNotNull(author),
+            authors = authors,
             largeCoverUrl = if (cover != null) {
                 imageUrl(seriesId, cover, 720)
-            } else {
-                null
-            },
+            } else null,
             description = jo.getStringOrNull("description"),
             source = source,
         )
