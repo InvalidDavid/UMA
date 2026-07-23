@@ -70,7 +70,8 @@ internal class Manhwa210(context: MangaLoaderContext) :
         }
     }
 
-    @get:Synchronized
+    private val detailsCacheLock = Any()
+
     private val detailsCache = object : LinkedHashMap<String, Manga>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Manga>?): Boolean = size > 10
     }
@@ -78,12 +79,14 @@ internal class Manhwa210(context: MangaLoaderContext) :
     private val chapterDateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ENGLISH)
 
     override suspend fun getDetails(manga: Manga): Manga {
-        detailsCache[manga.url]?.let { return it }
+        synchronized(detailsCacheLock) {
+            detailsCache[manga.url]?.let { return it }
+        }
 
         val root = webClient.httpGet(manga.url.toAbsoluteUrl(domain)).parseHtml()
         val author = root.selectFirst("div.mt-2:contains(Artist) span a")?.textOrNull()
 
-        val details = manga.copy(
+        val result = manga.copy(
             altTitles = setOfNotNull(root.selectLast("div.grow div:contains(Alt name) span")?.textOrNull()),
             state = when (root.selectFirst("div.mt-2:contains(Status) span.text-blue-500")?.text()) {
                 "Ongoing" -> MangaState.ONGOING
@@ -119,9 +122,10 @@ internal class Manhwa210(context: MangaLoaderContext) :
                 }
                 .sortedBy { it.number }
         )
-
-        detailsCache[manga.url] = details
-        return details
+        synchronized(detailsCacheLock) {
+            detailsCache[manga.url] = result
+        }
+        return result
     }
 
     private fun extractChapterNumber(title: String): Float {
