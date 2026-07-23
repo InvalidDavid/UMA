@@ -6,8 +6,15 @@ import tsuki.MangaParserAuthProvider
 import tsuki.parsers.MangaThemesia
 import tsuki.exception.ParseException
 
-import tsuki.model.*
-import tsuki.util.*
+import tsuki.model.ContentType
+import tsuki.model.MangaChapter
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+
+import tsuki.util.generateUid
+import tsuki.util.parseHtml
+import tsuki.util.selectFirstOrThrow
+import tsuki.util.toAbsoluteUrl
 
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
