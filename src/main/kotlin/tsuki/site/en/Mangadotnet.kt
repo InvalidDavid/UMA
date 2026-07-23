@@ -229,14 +229,17 @@ internal class Mangadotnet(context: MangaLoaderContext) :
         )
     }
 
-    @get:Synchronized
+    private val detailsCacheLock = Any()
+
     private val detailsCache = object : LinkedHashMap<String, Manga>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Manga>?): Boolean = size > 10
     }
 
     @Suppress("UNCHECKED_CAST")
     override suspend fun getDetails(manga: Manga): Manga {
-        detailsCache[manga.url]?.let { return it }
+        synchronized(detailsCacheLock) {
+            detailsCache[manga.url]?.let { return it }
+        }
 
         val url = "$baseUrl/manga/${manga.url}.data?_routes=pages/MangaDetailPage"
         val mangaData = fetchRscData(url, "pages/MangaDetailPage") ?: return manga
@@ -314,8 +317,9 @@ internal class Mangadotnet(context: MangaLoaderContext) :
             authors = setOfNotNull(author).filterTo(mutableSetOf()) { it.isNotBlank() },
             chapters = chapters,
         )
-
-        detailsCache[manga.url] = result
+        synchronized(detailsCacheLock) {
+            detailsCache[manga.url] = result
+        }
         return result
     }
 
