@@ -31,10 +31,10 @@ internal class MangaKatana(context: MangaLoaderContext):
 
     private val preferredServerKey = ConfigKey.PreferredImageServer(
         presetValues = mapOf(
-            _root_ide_package_.tsuki.site.en.two to "First server",
-            _root_ide_package_.tsuki.site.en.three to "Second server",
+            two to "First server",
+            three to "Second server",
         ),
-        defaultValue = _root_ide_package_.tsuki.site.en.two,
+        defaultValue = two,
     )
 
     override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
