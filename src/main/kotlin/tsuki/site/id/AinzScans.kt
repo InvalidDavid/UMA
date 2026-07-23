@@ -74,7 +74,8 @@ internal class AinzScans(context: MangaLoaderContext) :
         }
     }
 
-    @get:Synchronized
+    private val detailsCacheLock = Any()
+
     private val detailsCache = object : LinkedHashMap<String, Manga>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Manga>?): Boolean = size > 10
     }
@@ -170,13 +171,17 @@ internal class AinzScans(context: MangaLoaderContext) :
     }
 
     override suspend fun getDetails(manga: Manga): Manga {
-        detailsCache[manga.url]?.let { return it }
+        synchronized(detailsCacheLock) {
+            detailsCache[manga.url]?.let { return it }
+        }
 
         val slug = manga.url.substringAfter("/comic/")
         val json = webClient.httpGet("$apiBase/series/comic/$slug").body?.string().orEmpty()
         val result = parseDetailsJson(json, manga)
 
-        detailsCache[manga.url] = result
+        synchronized(detailsCacheLock) {
+            detailsCache[manga.url] = result
+        }
         return result
     }
 
