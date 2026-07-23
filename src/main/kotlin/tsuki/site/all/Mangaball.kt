@@ -113,7 +113,9 @@ internal abstract class MangaBallParser(
     }
 
     override suspend fun getDetails(manga: Manga): Manga {
-        detailsCache[manga.url]?.let { return it }
+        synchronized(detailsCacheLock) {
+            detailsCache[manga.url]?.let { return it }
+        }
 
         ensureAdultCookie()
         val doc = client.httpGet(getMangaUrl(manga.url)).parseHtml()
@@ -159,7 +161,9 @@ internal abstract class MangaBallParser(
             chapters = getChapterList(manga.url),
             contentRating = contentRating,
         )
-        detailsCache[manga.url] = result
+        synchronized(detailsCacheLock) {
+            detailsCache[manga.url] = result
+        }
         return result
     }
 
@@ -558,7 +562,8 @@ internal abstract class MangaBallParser(
         }
     }
 
-    @get:Synchronized
+    private val detailsCacheLock = Any()
+
     private val detailsCache = object : LinkedHashMap<String, Manga>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Manga>?): Boolean = size > 10
     }
