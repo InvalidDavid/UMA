@@ -154,13 +154,16 @@ internal class Manhwa18Com(context: MangaLoaderContext) :
         }.filterNotNull()
     }
 
-    @get:Synchronized
+    private val detailsCacheLock = Any()
+
     private val detailsCache = object : LinkedHashMap<String, Manga>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Manga>?): Boolean = size > 10
     }
 
     override suspend fun getDetails(manga: Manga): Manga {
-        detailsCache[manga.url]?.let { return it }
+        synchronized(detailsCacheLock) {
+            detailsCache[manga.url]?.let { return it }
+        }
 
         val doc = webClient.httpGet(manga.url.toAbsoluteUrl(domain)).parseHtml()
 
@@ -186,7 +189,7 @@ internal class Manhwa18Com(context: MangaLoaderContext) :
 
         val chapters = parseChapters(doc)
 
-        val fullManga = manga.copy(
+        val result = manga.copy(
             title = title,
             coverUrl = coverUrl,
             description = description,
@@ -195,9 +198,10 @@ internal class Manhwa18Com(context: MangaLoaderContext) :
             authors = emptySet(),
             chapters = chapters,
         )
-
-        detailsCache[manga.url] = fullManga
-        return fullManga
+        synchronized(detailsCacheLock) {
+            detailsCache[manga.url] = result
+        }
+        return result
     }
 
     private fun parseChapters(doc: org.jsoup.nodes.Document): List<MangaChapter> {
