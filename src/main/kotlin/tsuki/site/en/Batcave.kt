@@ -4,6 +4,8 @@ import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
+import tsuki.exception.ParseException
+import tsuki.network.OkHttpWebClient
 
 import tsuki.model.*
 import tsuki.util.*
@@ -15,8 +17,6 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.json.JSONObject
-import tsuki.exception.ParseException
-import tsuki.network.OkHttpWebClient
 import java.text.SimpleDateFormat
 import java.util.EnumSet
 import java.util.Locale
@@ -27,21 +27,24 @@ internal class Batcave(context: MangaLoaderContext) :
 
     override val configKeyDomain = ConfigKey.Domain("batcave.biz")
 
-    private var publishers: List<Pair<String, Int>> = emptyList()
-    private var genres: List<Pair<String, Int>> = emptyList()
-    private var filterParseFailed = false
-
     private val dateFormat = SimpleDateFormat("dd.MM.yyyy", Locale.ENGLISH)
 
-    private val apiClient: OkHttpWebClient by lazy {
-        val httpClient = context.httpClient.newBuilder()
+    @Volatile
+    private var genreList: List<Pair<String, Int>>? = null
+    @Volatile
+    private var publisherList: List<Pair<String, Int>>? = null
+    private var filterFetchFailed = false
+
+    private val rawHttpClient: OkHttpClient by lazy {
+        context.httpClient.newBuilder()
             .addInterceptor(::refererInterceptor)
             .addInterceptor(::dleGuardInterceptor)
             .build()
-        OkHttpWebClient(httpClient, source)
     }
 
-    private val rawHttpClient: OkHttpClient by lazy { context.httpClient.newBuilder().build() }
+    private val apiClient: OkHttpWebClient by lazy {
+        OkHttpWebClient(rawHttpClient, source)
+    }
 
     private fun refererInterceptor(chain: okhttp3.Interceptor.Chain): Response {
         val request = chain.request()
@@ -73,17 +76,38 @@ internal class Batcave(context: MangaLoaderContext) :
         keys.add(userAgentKey)
     }
 
-    override val availableSortOrders: Set<SortOrder> = EnumSet.of(SortOrder.POPULARITY, SortOrder.UPDATED)
+    override val availableSortOrders: Set<SortOrder> = EnumSet.of(
+        SortOrder.POPULARITY,
+        SortOrder.UPDATED,
+    )
 
     override val filterCapabilities = MangaListFilterCapabilities(
         isSearchSupported = true,
         isMultipleTagsSupported = false,
+        isYearSupported = false,
     )
 
-    override suspend fun getFilterOptions(): MangaListFilterOptions {
-        return MangaListFilterOptions(
-            availableTags = emptySet(),
-        )
+    private suspend fun fetchFilters() {
+        if (genreList != null && publisherList != null) return
+        if (filterFetchFailed) return
+
+        try {
+            val doc = apiClient.httpGet("https://$domain/comix").parseHtml()
+            val script = doc.selectFirst("script:containsData(window.__XFILTER__)")?.data()
+                ?: throw ParseException("Filter data not found", "https://$domain/comix")
+
+            val rawJson = script
+                .substringAfter("window.__XFILTER__ = ")
+                .substringBeforeLast(";")
+                .trim()
+            val root = JSONObject(rawJson)
+            val filterItems = root.getJSONObject("filter_items")
+
+            genreList = parseFilterValues(filterItems, "g")
+            publisherList = parseFilterValues(filterItems, "p")
+        } catch (_: Exception) {
+            filterFetchFailed = true
+        }
     }
 
     private fun parseFilterValues(filterItems: JSONObject, key: String): List<Pair<String, Int>> {
@@ -97,14 +121,26 @@ internal class Batcave(context: MangaLoaderContext) :
         return result
     }
 
+    override suspend fun getFilterOptions(): MangaListFilterOptions {
+        fetchFilters()
+        val tags = mutableSetOf<MangaTag>()
+        genreList?.forEach { (name, id) ->
+            tags += MangaTag(name, "g_$id", source)
+        }
+        publisherList?.forEach { (name, id) ->
+            tags += MangaTag(name, "p_$id", source)
+        }
+        return MangaListFilterOptions(
+            availableTags = tags,
+        )
+    }
+
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
         val query = filter.query?.trim()?.takeIf { it.isNotEmpty() }
         if (query != null) return searchManga(query, page)
 
         val urlBuilder = StringBuilder().apply {
             append("https://$domain/ComicList/")
-            if (filter.yearFrom != YEAR_UNKNOWN) append("y[from]=${filter.yearFrom}/")
-            if (filter.yearTo != YEAR_UNKNOWN) append("y[to]=${filter.yearTo}/")
             val pIds = filter.tags.filter { it.key.startsWith("p_") }.map { it.key.removePrefix("p_") }
             val gIds = filter.tags.filter { it.key.startsWith("g_") }.map { it.key.removePrefix("g_") }
             if (pIds.isNotEmpty()) append("p=${pIds.joinToString(",")}/")
@@ -176,11 +212,16 @@ internal class Batcave(context: MangaLoaderContext) :
         val title = doc.selectFirst("header.page__header h1")?.text() ?: manga.title
         val cover = doc.selectFirst("div.page__poster img")?.absUrl("src")
         val description = doc.selectFirst("div.page__text")?.text()
-        val author = doc.selectFirst(".page__list > li:has(> div:contains(Writer))")?.ownText()
+
+        val author = doc.selectFirst(".page__list > li:has(> div:contains(Writer)) a")?.text()
+            ?: doc.selectFirst(".page__list > li:has(> div:contains(Writer))")?.ownText()
         val state = when (doc.selectFirst(".page__list > li:has(> div:contains(Release type))")?.ownText()?.trim()) {
             "Ongoing" -> MangaState.ONGOING
             else -> MangaState.FINISHED
         }
+        val tags = doc.select("div.page__tags a").map { a ->
+            MangaTag(a.text(), a.text().lowercase().replace(" ", "-"), source)
+        }.toSet() + MangaTag("Comic", "comic", source)
 
         val script = doc.selectFirst("script:containsData(window.__DATA__)")?.data()
             ?: throw ParseException("Chapter data script not found", manga.url)
@@ -210,7 +251,7 @@ internal class Batcave(context: MangaLoaderContext) :
             description = description,
             authors = setOfNotNull(author),
             state = state,
-            tags = emptySet(),
+            tags = tags,
             chapters = chapters,
         )
         detailsCache[manga.url] = result
@@ -229,16 +270,13 @@ internal class Batcave(context: MangaLoaderContext) :
             .url("https://$domain/engine/ajax/controller.php?mod=api&action=reader/getChapterData")
             .header("Referer", "https://$domain/")
             .header("Content-Type", "application/json")
-            .post(
-                jsonBody
-                    .toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
-            )
+            .post(jsonBody.toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull()))
             .build()
 
         val response = rawHttpClient.newCall(request).execute()
         val json = JSONObject(response.body?.string() ?: throw ParseException("Empty response", chapter.url))
         val data = json.getJSONObject("data")
-        val images = data.getJSONArray("images")
+        val images = data.optJSONArray("images") ?: throw ParseException("No images found", chapter.url)
 
         return (0 until images.length()).map { i ->
             var img = images.getString(i).trim()
