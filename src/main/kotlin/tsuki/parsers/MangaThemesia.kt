@@ -217,6 +217,13 @@ abstract class MangaThemesia(
                     doc.selectFirst("div.post-content_item:contains(Status) div.summary-content")?.text()
                 }
         }
+        val altnames = if (hasTable) {
+            table.selectFirst("tr:has(td:contains(Alternative)) td:last-child")
+                ?.text()
+                ?.trim()
+                ?.takeIf { it.isNotBlank() && it != "n/a" && it != "N/A" }
+                ?.let { setOf(it) }
+        } else emptySet()
         val state = parseStatus(statusText)
 
         val rating = doc.selectFirst(".num[itemprop=ratingValue]")?.attr("content")?.toFloatOrNull()
@@ -234,6 +241,7 @@ abstract class MangaThemesia(
             state = state,
             rating = normalizedRating,
             chapters = chapters,
+            altTitles = altnames ?: emptySet()
         )
     }
 
