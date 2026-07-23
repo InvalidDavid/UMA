@@ -261,8 +261,6 @@ internal abstract class NatsuParser(
         val authors = getTermNames("series-author")
         val tags = genres.map { name -> MangaTag(name, name.lowercase().replace(" ", "-"), source) }.toSet()
         val chapters = loadChapters(id.toString(), "https://$domain/manga/$slug/")
-        val rawRating = fetchRatingFromPage("https://$domain/manga/$slug/")
-        val rating = if (rawRating >= 0.0f) rawRating else RATING_UNKNOWN
         val altTitles = fetchAltTitlesFromPage("https://$domain/manga/$slug/")
 
         val result = manga.copy(
@@ -273,7 +271,6 @@ internal abstract class NatsuParser(
             authors = authors.toSet(),
             tags = tags,
             chapters = chapters,
-            rating = rating,
             altTitles = altTitles,
         )
 
@@ -285,15 +282,6 @@ internal abstract class NatsuParser(
         val url = "https://$domain/wp-json/wp/v2/manga?slug=$slug"
         val jsonArray = webClient.httpGet(url).parseJsonArray()
         return if (jsonArray.length() > 0) jsonArray.getJSONObject(0).getInt("id") else null
-    }
-
-    private suspend fun fetchRatingFromPage(pageUrl: String): Float {
-        val doc = webClient.httpGet(pageUrl).parseHtml()
-        val ratingEl = doc.selectFirst("meta[itemprop=ratingValue]")
-            ?: doc.selectFirst("div[itemprop=ratingValue]")
-        val ratingStr = ratingEl?.attr("content")?.ifEmpty { ratingEl.text() }
-        val rawRating = ratingStr?.toFloatOrNull() ?: -1f
-        return if (rawRating >= 0.0f) rawRating else -1f
     }
 
     private suspend fun fetchAltTitlesFromPage(pageUrl: String): Set<String> {
