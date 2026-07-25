@@ -14,20 +14,22 @@ import okhttp3.Interceptor
 import org.jsoup.Jsoup
 import java.util.EnumSet
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.supervisorScope
 import java.util.Base64
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.ScheduledThreadPoolExecutor
+import java.util.concurrent.Semaphore
 
 internal class VrfSigner {
-
     fun interceptor() = Interceptor { chain ->
         val request = chain.request()
         val url = request.url
-
         if (url.encodedPath.startsWith("/api/")) {
             val params = url.queryParameterNames
                 .flatMap { key -> url.queryParameterValues(key).map { key to it } }
                 .sortedBy { it.first }
-
             val sortedQueryUrl = buildString {
                 append(url.encodedPath.removePrefix("/api"))
                 if (params.isNotEmpty()) {
@@ -48,11 +50,9 @@ internal class VrfSigner {
                     )
                 }
             }
-
             val builder = url.newBuilder().query(null)
             params.forEach { (k, v) -> builder.addQueryParameter(k, v) }
             builder.addQueryParameter("vrf", sign(sortedQueryUrl))
-
             val newRequest = request.newBuilder().url(builder.build()).build()
             chain.proceed(newRequest)
         } else {
@@ -97,6 +97,26 @@ internal class VrfSigner {
     }
 }
 
+private class RateLimitInterceptor(
+    maxRequestsPerSecond: Int = 2
+) : Interceptor {
+
+    private val semaphore = Semaphore(maxRequestsPerSecond)
+    private val scheduler = ScheduledThreadPoolExecutor(1).apply {
+        removeOnCancelPolicy = true
+    }
+    private val releaseDelayMs = 1000L / maxRequestsPerSecond
+
+    override fun intercept(chain: Interceptor.Chain): okhttp3.Response {
+        semaphore.acquire()
+        try {
+            return chain.proceed(chain.request())
+        } finally {
+            scheduler.schedule({ semaphore.release() }, releaseDelayMs, TimeUnit.MILLISECONDS)
+        }
+    }
+}
+
 internal abstract class MangaFireParser(
     context: MangaLoaderContext,
     source: MangaParserSource,
@@ -106,25 +126,27 @@ internal abstract class MangaFireParser(
     override val configKeyDomain = ConfigKey.Domain("mangafire.to")
 
     override val availableSortOrders: Set<SortOrder> = EnumSet.of(
-        SortOrder.UPDATED, // chapter update
-        SortOrder.POPULARITY, // most views
-        SortOrder.RATING, // rating score
-        SortOrder.NEWEST, // created manga
-        SortOrder.ALPHABETICAL, // title asc
-        SortOrder.RELEVANCE, // relevance sc
+        SortOrder.UPDATED,
+        SortOrder.POPULARITY,
+        SortOrder.RATING,
+        SortOrder.NEWEST,
+        SortOrder.ALPHABETICAL,
+        SortOrder.RELEVANCE,
         SortOrder.POPULARITY_WEEK,
         SortOrder.POPULARITY_MONTH,
     )
 
     private val apiClient by lazy {
         val newHttpClient = context.httpClient.newBuilder()
+//            .addInterceptor(RateLimitInterceptor(2)) future feature?
             .addInterceptor(VrfSigner().interceptor())
             .addInterceptor { chain ->
-                val request = chain.request().newBuilder()
-                    .header("Referer", "https://$domain/")
-                    .header("Accept", "application/json")
-                    .build()
-                chain.proceed(request)
+                chain.proceed(
+                    chain.request().newBuilder()
+                        .header("Referer", "https://$domain/")
+                        .header("Accept", "application/json")
+                        .build()
+                )
             }
             .build()
         OkHttpWebClient(newHttpClient, source)
@@ -222,7 +244,7 @@ internal abstract class MangaFireParser(
         page: Int,
         order: SortOrder,
         filter: MangaListFilter,
-    ): List<Manga> {
+    ): List<Manga> = try {
         val urlBuilder = okhttp3.HttpUrl.Builder()
             .scheme("https")
             .host(domain)
@@ -233,7 +255,6 @@ internal abstract class MangaFireParser(
         if (!filter.query.isNullOrBlank()) {
             urlBuilder.addQueryParameter("keyword", filter.query)
         }
-
         if (filter.yearFrom > 0) {
             urlBuilder.addQueryParameter("year_from", filter.yearFrom.toString())
         }
@@ -242,52 +263,50 @@ internal abstract class MangaFireParser(
         }
 
         filter.contentRating.forEach { rating ->
-            val value = when (rating) {
+            urlBuilder.addQueryParameter("content_rating[]", when (rating) {
                 ContentRating.SAFE -> "safe"
                 ContentRating.SUGGESTIVE -> "suggestive"
                 ContentRating.ADULT -> "pornographic"
-            }
-            value.let { urlBuilder.addQueryParameter("content_rating[]", it) }
+            })
         }
 
         filter.types.forEach { type ->
-            val value = when (type) {
-                ContentType.MANGA -> "manga"
-                ContentType.MANHWA -> "manhwa"
-                ContentType.MANHUA -> "manhua"
-                ContentType.OTHER -> "other"
-                else -> null
+            when (type) {
+                ContentType.MANGA -> urlBuilder.addQueryParameter("types[]", "manga")
+                ContentType.MANHWA -> urlBuilder.addQueryParameter("types[]", "manhwa")
+                ContentType.MANHUA -> urlBuilder.addQueryParameter("types[]", "manhua")
+                ContentType.OTHER -> urlBuilder.addQueryParameter("types[]", "other")
+                else -> {}
             }
-            value?.let { urlBuilder.addQueryParameter("types[]", it) }
         }
 
         filter.demographics.forEach { demo ->
-            val id = when (demo) {
-                Demographic.JOSEI -> "268919"
-                Demographic.SEINEN -> "268920"
-                Demographic.SHOUJO -> "268917"
-                Demographic.SHOUNEN -> "268918"
-                else -> null
+            when (demo) {
+                Demographic.JOSEI -> urlBuilder.addQueryParameter("demographics[]", "268919")
+                Demographic.SEINEN -> urlBuilder.addQueryParameter("demographics[]", "268920")
+                Demographic.SHOUJO -> urlBuilder.addQueryParameter("demographics[]", "268917")
+                Demographic.SHOUNEN -> urlBuilder.addQueryParameter("demographics[]", "268918")
+                else -> {}
             }
-            id?.let { urlBuilder.addQueryParameter("demographics[]", it) }
         }
 
         filter.tags.forEach { urlBuilder.addQueryParameter("genres_in[]", it.key) }
         filter.tagsExclude.forEach { urlBuilder.addQueryParameter("genres_ex[]", it.key) }
 
         filter.states.forEach { state ->
-            val apiState = when (state) {
-                MangaState.ONGOING -> "releasing"
-                MangaState.FINISHED -> "finished"
-                MangaState.ABANDONED -> "discontinued"
-                MangaState.PAUSED -> "on_hiatus"
-                MangaState.UPCOMING -> "not_yet_released"
-                else -> null
+            when (state) {
+                MangaState.ONGOING -> urlBuilder.addQueryParameter("statuses[]", "releasing")
+                MangaState.FINISHED -> urlBuilder.addQueryParameter("statuses[]", "finished")
+                MangaState.ABANDONED -> urlBuilder.addQueryParameter("statuses[]", "discontinued")
+                MangaState.PAUSED -> urlBuilder.addQueryParameter("statuses[]", "on_hiatus")
+                MangaState.UPCOMING -> urlBuilder.addQueryParameter("statuses[]", "not_yet_released")
+                else -> {}
             }
-            apiState?.let { urlBuilder.addQueryParameter("statuses[]", it) }
         }
 
-        val sortParam = when (order) {
+        val sortParam = if (!filter.query.isNullOrBlank()) {
+            "relevance" to "desc"
+        } else when (order) {
             SortOrder.UPDATED -> "chapter_updated_at" to "desc"
             SortOrder.POPULARITY -> "views_total" to "desc"
             SortOrder.RATING -> "score" to "desc"
@@ -298,125 +317,126 @@ internal abstract class MangaFireParser(
             SortOrder.POPULARITY_MONTH -> "views_30d" to "desc"
             else -> null
         }
-
         sortParam?.let { (field, dir) ->
             urlBuilder.addQueryParameter("order[$field]", dir)
         }
 
         val url = urlBuilder.build().toString()
-
         val response = apiClient.httpGet(url).parseJson()
-        val items = response.getJSONArray("items")
+        val items = response.optJSONArray("items") ?: return emptyList()
+
         val mangas = mutableListOf<Manga>()
         for (i in 0 until items.length()) {
-            val obj = items.getJSONObject(i)
-            val hid = obj.getString("hid")
-            val slug = obj.optString("slug", null)
-            val title = obj.getString("title")
-            val poster = obj.optJSONObject("poster")
-            val cover = poster?.optString("large")
-                ?: poster?.optString("medium")
+            try {
+                val obj = items.getJSONObject(i)
+                val hid = obj.getString("hid")
+                val title = obj.getString("title")
+                val slug = obj.optString("slug", null)
+                val poster = obj.optJSONObject("poster")
+                val cover = poster?.optString("large") ?: poster?.optString("medium")
                 ?: poster?.optString("small") ?: ""
-            val urlPath = "/title/$hid${slug?.let { "-$it" } ?: ""}"
-            mangas.add(
-                Manga(
-                    id = generateUid(urlPath),
-                    url = urlPath,
-                    publicUrl = "https://$domain$urlPath",
-                    title = title,
-                    coverUrl = cover,
-                    source = source,
-                    altTitles = emptySet(),
-                    largeCoverUrl = null,
-                    authors = emptySet(),
-                    contentRating = null,
-                    rating = RATING_UNKNOWN,
-                    state = null,
-                    tags = emptySet(),
+                val urlPath = "/title/$hid${slug?.let { "-$it" } ?: ""}"
+                mangas.add(
+                    Manga(
+                        id = generateUid(urlPath),
+                        url = urlPath,
+                        publicUrl = "https://$domain$urlPath",
+                        title = title,
+                        coverUrl = cover,
+                        source = source,
+                        altTitles = emptySet(),
+                        largeCoverUrl = null,
+                        authors = emptySet(),
+                        contentRating = null,
+                        rating = RATING_UNKNOWN,
+                        state = null,
+                        tags = emptySet(),
+                    )
                 )
-            )
+            } catch (_: Exception) {
+            }
         }
-        return mangas
+        mangas
+    } catch (_: Exception) {
+        emptyList()
     }
 
     private val detailsCacheLock = Any()
-
     private val detailsCache = object : LinkedHashMap<String, Manga>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Manga>?): Boolean = size > 10
     }
+
     override suspend fun getDetails(manga: Manga): Manga {
         synchronized(detailsCacheLock) {
             detailsCache[manga.url]?.let { return it }
         }
+        val result = try {
+            coroutineScope {
+                val hid = extractHid(manga.url)
+                val detailsJson = apiClient.httpGet("https://$domain/api/titles/$hid").parseJson()
+                val data = detailsJson.getJSONObject("data")
+                val hasVolumes = data.optBoolean("hasVolumes", false)
 
-        val result = coroutineScope {
-            val hid = extractHid(manga.url)
+                val chaptersDeferred = async { fetchChapters(hid, hasVolumes) }
 
-            val detailsJson = apiClient.httpGet("https://$domain/api/titles/$hid").parseJson()
-            val data = detailsJson.getJSONObject("data")
-
-            val hasVolumes = data.optBoolean("hasVolumes", false)
-
-            val chaptersDeferred = async { fetchChapters(hid, hasVolumes) }
-
-            val title = data.getString("title")
-            val poster = data.optJSONObject("poster")
-            val cover = poster?.optString("large")
-                ?: poster?.optString("medium")
+                val title = data.getString("title")
+                val poster = data.optJSONObject("poster")
+                val cover = poster?.optString("large") ?: poster?.optString("medium")
                 ?: poster?.optString("small")
-            val synopsisHtml = data.optString("synopsisHtml", null)
-            val status = data.optString("status", null)
-            val type = data.optString("type", null)
-            val authorsList = data.optJSONArray("authors")?.let { arr ->
-                (0 until arr.length()).map { arr.getJSONObject(it).getString("title") }
-            }.orEmpty()
-            val artistsList = data.optJSONArray("artists")?.let { arr ->
-                (0 until arr.length()).map { arr.getJSONObject(it).getString("title") }
-            }.orEmpty()
-            val genres = data.optJSONArray("genres")?.let { arr ->
-                (0 until arr.length()).map { arr.getJSONObject(it).getString("title") }
+                val synopsisHtml = data.optString("synopsisHtml", null)
+                val status = data.optString("status", null)
+                val type = data.optString("type", null)
+                val authorsList = data.optJSONArray("authors")?.let { arr ->
+                    (0 until arr.length()).map { arr.getJSONObject(it).getString("title") }
+                }.orEmpty()
+                val artistsList = data.optJSONArray("artists")?.let { arr ->
+                    (0 until arr.length()).map { arr.getJSONObject(it).getString("title") }
+                }.orEmpty()
+                val genres = data.optJSONArray("genres")?.let { arr ->
+                    (0 until arr.length()).map { arr.getJSONObject(it).getString("title") }
+                }
+                val themes = data.optJSONArray("themes")?.let { arr ->
+                    (0 until arr.length()).map { arr.getJSONObject(it).getString("title") }
+                }
+                val altTitlesArray = data.optJSONArray("altTitles")?.let { arr ->
+                    (0 until arr.length()).map { arr.getString(it) }
+                } ?: emptyList()
+                val rawRating = data.optDouble("rating", -1.0)
+                val rating = if (rawRating >= 0.0) (rawRating / 10.0).toFloat() else RATING_UNKNOWN
+                val synopsisText = synopsisHtml?.let { Jsoup.parseBodyFragment(it).text() } ?: ""
+
+                val genreList = buildList {
+                    type?.let { add(it.replaceFirstChar { c -> c.uppercase() }) }
+                    genres?.let { addAll(it) }
+                    themes?.let { addAll(it) }
+                }
+                val genreTags = genreList.mapNotNull { name ->
+                    tags.find { it.title == name }
+                }.toSet()
+
+                val chapters = chaptersDeferred.await()
+
+                manga.copy(
+                    title = title,
+                    coverUrl = cover ?: manga.coverUrl,
+                    authors = (authorsList + artistsList).toSet(),
+                    description = synopsisText.trim(),
+                    rating = rating,
+                    state = when (status?.lowercase()) {
+                        "releasing" -> MangaState.ONGOING
+                        "finished" -> MangaState.FINISHED
+                        "discontinued" -> MangaState.ABANDONED
+                        "on_hiatus" -> MangaState.PAUSED
+                        "not_yet_released" -> MangaState.UPCOMING
+                        else -> null
+                    },
+                    tags = genreTags,
+                    altTitles = altTitlesArray.toSet(),
+                    chapters = chapters,
+                )
             }
-            val themes = data.optJSONArray("themes")?.let { arr ->
-                (0 until arr.length()).map { arr.getJSONObject(it).getString("title") }
-            }
-            val altTitlesArray = data.optJSONArray("altTitles")?.let { arr ->
-                (0 until arr.length()).map { arr.getString(it) }
-            } ?: emptyList()
-
-            val rawRating = data.optDouble("rating", -1.0)
-            val rating = if (rawRating >= 0.0) (rawRating / 10.0).toFloat() else RATING_UNKNOWN
-
-            val synopsisText = synopsisHtml?.let { Jsoup.parseBodyFragment(it).text() } ?: ""
-
-            val genreList = buildList {
-                type?.let { add(it.replaceFirstChar { c -> c.uppercase() }) }
-                genres?.let { addAll(it) }
-                themes?.let { addAll(it) }
-            }
-            val genreTags = genreList.mapNotNull { name ->
-                tags.find { it.title == name }
-            }.toSet()
-
-            val chapters = chaptersDeferred.await()
-
-            manga.copy(
-                title = title,
-                coverUrl = cover ?: manga.coverUrl,
-                authors = (authorsList + artistsList).toSet(),
-                description = synopsisText.trim(),
-                rating = rating,
-                state = when (status?.lowercase()) {
-                    "releasing" -> MangaState.ONGOING
-                    "finished" -> MangaState.FINISHED
-                    "discontinued" -> MangaState.ABANDONED
-                    "on_hiatus" -> MangaState.PAUSED
-                    "not_yet_released" -> MangaState.UPCOMING
-                    else -> null
-                },
-                tags = genreTags,
-                altTitles = altTitlesArray.toSet(),
-                chapters = chapters,
-            )
+        } catch (_: Exception) {
+            manga
         }
         synchronized(detailsCacheLock) {
             detailsCache[manga.url] = result
@@ -424,37 +444,102 @@ internal abstract class MangaFireParser(
         return result
     }
 
-
     private suspend fun fetchChapters(hid: String, hasVolumes: Boolean): List<MangaChapter> {
-        val chapters = mutableListOf<MangaChapter>()
         val base = "https://$domain/api/titles/$hid"
+        val chapters = mutableListOf<MangaChapter>()
 
-        var page = 1
-        var lastPage: Int
-        do {
-            val json = apiClient.httpGet(
-                "$base/chapters?language=$siteLang&sort=number&order=desc&page=$page&limit=200"
-            ).parseJson()
-            val items = json.getJSONArray("items")
-            val meta = json.optJSONObject("meta")
-            lastPage = meta?.optInt("lastPage", 1) ?: 1
+        try {
+            val firstUrl = "$base/chapters?language=$siteLang&sort=number&order=desc&page=1&limit=200"
+            val firstJson = apiClient.httpGet(firstUrl).parseJson()
+            val firstItems = firstJson.optJSONArray("items") ?: org.json.JSONArray()
+            val meta = firstJson.optJSONObject("meta")
+            val lastPage = meta?.optInt("lastPage", 1) ?: 1
 
-            for (i in 0 until items.length()) {
+            addChapters(firstItems, hid, chapters)
+
+            if (lastPage > 1) {
+                supervisorScope {
+                    val deferred = (2..lastPage).map { page ->
+                        async {
+                            try {
+                                val json = apiClient.httpGet(
+                                    "$base/chapters?language=$siteLang&sort=number&order=desc&page=$page&limit=200"
+                                ).parseJson()
+                                json.optJSONArray("items") ?: org.json.JSONArray()
+                            } catch (_: Exception) {
+                                org.json.JSONArray()
+                            }
+                        }
+                    }
+                    deferred.awaitAll().forEach { items ->
+                        addChapters(items, hid, chapters)
+                    }
+                }
+            }
+        } catch (_: Exception) {
+        }
+
+        if (hasVolumes) {
+            try {
+                val volJson = apiClient.httpGet("$base/volumes?language=$siteLang").parseJson()
+                val volItems = volJson.optJSONArray("items") ?: org.json.JSONArray()
+                for (i in 0 until volItems.length()) {
+                    val vol = volItems.getJSONObject(i)
+                    if (vol.optString("language", "") != siteLang) continue
+                    val volId = vol.getInt("id")
+                    val volNumber = vol.getDouble("number").toFloat()
+                    val volName = vol.optString("name", "").takeIf { it.isNotBlank() }
+                    val chapterCount = vol.optInt("chapterCount", 0)
+                    val title = buildString {
+                        append("Vol. ")
+                        append(volNumber.toString().removeSuffix(".0"))
+                        if (volName != null) append(" - $volName")
+                    }
+                    chapters.add(
+                        MangaChapter(
+                            id = generateUid("/title/$hid/vol/$volId"),
+                            title = title,
+                            number = volNumber,
+                            volume = 0,
+                            url = "/title/$hid/vol/$volId",
+                            scanlator = if (chapterCount > 0) "$chapterCount chapters" else "",
+                            uploadDate = 0L,
+                            branch = "Volume",
+                            source = source,
+                        )
+                    )
+                }
+            } catch (_: Exception) {}
+        }
+
+        val distinctBranches = chapters.map { it.branch }.distinct()
+        val useGroups = distinctBranches.size > 1
+        return chapters
+            .map { chapter ->
+                chapter.copy(
+                    branch = if (useGroups) (chapter.branch ?: "").replaceFirstChar { it.uppercase() } else null
+                )
+            }
+            .sortedBy { it.number }
+    }
+
+    private fun addChapters(items: org.json.JSONArray, hid: String, list: MutableList<MangaChapter>) {
+        for (i in 0 until items.length()) {
+            try {
                 val ch = items.getJSONObject(i)
-                if (ch.getString("language") != siteLang) continue
-
+                if (ch.optString("language", "") != siteLang) continue
                 val id = ch.getInt("id")
                 val number = ch.getDouble("number").toFloat()
                 val name = ch.optString("name", null)
                 val createdAt = ch.optLong("createdAt", 0L) * 1000L
-                val type = ch.getString("type")
+                val type = ch.optString("type", "Unknown")
                 val chapterUrl = "/title/$hid/$id"
                 val displayName = buildString {
                     append("Ch. ")
                     append(number.toString().removeSuffix(".0"))
                     if (!name.isNullOrBlank()) append(" - $name")
                 }
-                chapters.add(
+                list.add(
                     MangaChapter(
                         id = generateUid(chapterUrl),
                         title = displayName,
@@ -467,67 +552,19 @@ internal abstract class MangaFireParser(
                         source = source,
                     )
                 )
-            }
-            page++
-        } while (page <= lastPage)
-
-        if (hasVolumes) {
-            try {
-                val volJson = apiClient.httpGet("$base/volumes?language=$siteLang").parseJson()
-                val volItems = volJson.getJSONArray("items")
-                for (i in 0 until volItems.length()) {
-                    val vol = volItems.getJSONObject(i)
-                    if (vol.getString("language") != siteLang) continue
-
-                    val volId = vol.getInt("id")
-                    val volNumber = vol.getDouble("number").toFloat()
-                    val volName = vol.optString("name", "").takeIf { it.isNotBlank() }
-                    val chapterCount = vol.optInt("chapterCount", 0)
-
-                    val title = buildString {
-                        append("Vol. ")
-                        append(volNumber.toString().removeSuffix(".0"))
-                        if (volName != null) append(" - $volName")
-                    }
-                    val name = if (chapterCount > 0) "$chapterCount chapters" else ""
-
-                    chapters.add(
-                        MangaChapter(
-                            id = generateUid("/title/$hid/vol/$volId"),
-                            title = title,
-                            number = volNumber,
-                            volume = 0,
-                            url = "/title/$hid/vol/$volId",
-                            scanlator = name,
-                            uploadDate = 0L,
-                            branch = "Volume",
-                            source = source,
-                        )
-                    )
-                }
             } catch (_: Exception) {
             }
         }
-
-        val distinctBranches = chapters.map { it.branch }.distinct()
-        val useGroups = distinctBranches.size > 1
-
-        return chapters
-            .map { chapter ->
-                chapter.copy(
-                    branch = if (useGroups) (chapter.branch ?: "").replaceFirstChar { it.uppercase() } else null
-                )
-            }
-            .sortedBy { it.number }
     }
 
-    override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
-        val chapterId = chapter.url.substringAfterLast("/") // numeric ID
+    override suspend fun getPages(chapter: MangaChapter): List<MangaPage> = try {
+        val chapterId = chapter.url.substringAfterLast("/")
         val isVolume = chapter.url.contains("/vol/")
         val endpoint = if (isVolume) "volumes" else "chapters"
 
         val response = apiClient.httpGet("https://$domain/api/$endpoint/$chapterId").parseJson()
-        val pagesArray = response.getJSONObject("data").getJSONArray("pages")
+        val data = response.optJSONObject("data") ?: return emptyList()
+        val pagesArray = data.optJSONArray("pages") ?: return emptyList()
         val pages = ArrayList<MangaPage>(pagesArray.length())
         for (i in 0 until pagesArray.length()) {
             val pageObj = pagesArray.getJSONObject(i)
@@ -541,7 +578,9 @@ internal abstract class MangaFireParser(
                 )
             )
         }
-        return pages
+        pages
+    } catch (_: Exception) {
+        emptyList()
     }
 
     override suspend fun getRelatedManga(seed: Manga): List<Manga> = emptyList()
@@ -549,7 +588,6 @@ internal abstract class MangaFireParser(
     override val authUrl: String get() = "https://$domain"
     override suspend fun isAuthorized(): Boolean = true
     override suspend fun getUsername(): String = ""
-
 
     private fun extractHid(url: String): String {
         val lastPart = url.removeSuffix("/").substringAfterLast("/")
@@ -563,10 +601,7 @@ internal abstract class MangaFireParser(
     @MangaSourceParser("MANGAFIRE_EN", "MangaFire (English)", "en")
     class English(context: MangaLoaderContext) : MangaFireParser(context, MangaParserSource.MANGAFIRE_EN, "en")
 
-    @MangaSourceParser("MANGAFIRE_ES", "MangaFire (Spanish)", "es")
-    class Spanish(context: MangaLoaderContext) : MangaFireParser(context, MangaParserSource.MANGAFIRE_ES, "es")
-
-    @MangaSourceParser("MANGAFIRE_ESLA", "MangaFire Spanish (Latin)", "es")
+    @MangaSourceParser("MANGAFIRE_ESLA", "MangaFire (Spanish)", "es")
     class SpanishLatim(context: MangaLoaderContext) : MangaFireParser(context, MangaParserSource.MANGAFIRE_ESLA, "es-la")
 
     @MangaSourceParser("MANGAFIRE_FR", "MangaFire (French)", "fr")
@@ -575,10 +610,6 @@ internal abstract class MangaFireParser(
     @MangaSourceParser("MANGAFIRE_JA", "MangaFire (Japanese)", "ja")
     class Japanese(context: MangaLoaderContext) : MangaFireParser(context, MangaParserSource.MANGAFIRE_JA, "ja")
 
-    @MangaSourceParser("MANGAFIRE_PT", "MangaFire (Portuguese)", "pt")
-    class Portuguese(context: MangaLoaderContext) : MangaFireParser(context, MangaParserSource.MANGAFIRE_PT, "pt")
-
-    @MangaSourceParser("MANGAFIRE_PTBR", "MangaFire Portuguese (Brazil)", "pt")
-    class PortugueseBR(context: MangaLoaderContext) :
-        MangaFireParser(context, MangaParserSource.MANGAFIRE_PTBR, "pt-br")
+    @MangaSourceParser("MANGAFIRE_PTBR", "MangaFire (Portuguese)", "pt")
+    class PortugueseBR(context: MangaLoaderContext) : MangaFireParser(context, MangaParserSource.MANGAFIRE_PTBR, "pt-br")
 }
