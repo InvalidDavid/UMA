@@ -24,10 +24,10 @@ internal class MangaKatana(context: MangaLoaderContext):
 
     override val configKeyDomain = ConfigKey.Domain("mangakatana.com")
 
-    override val availableSortOrders = EnumSet.of(
+    override val availableSortOrders: Set<SortOrder> = EnumSet.of(
         SortOrder.UPDATED,
         SortOrder.NEWEST,
-    )!!
+    )
 
     private val preferredServerKey = ConfigKey.PreferredImageServer(
         presetValues = mapOf(
