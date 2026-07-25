@@ -1,5 +1,4 @@
 import tasks.ReportGenerateTask
-import tasks.DexPluginTask
 
 plugins {
     `java-library`
@@ -27,20 +26,6 @@ tasks.jar {
     exclude("androidx/annotation/**")
     exclude("androidx/preference/**")
 }
-
-tasks.register("buildJar") {
-    description = "Build all sources to a JAR file"
-    dependsOn("dexJar")
-}
-
-tasks.register<DexPluginTask>("dexJar") {
-    description = "Dex classes after build"
-    dependsOn(tasks.jar)
-    inputJar.set(tasks.jar.flatMap { it.archiveFile })
-    outputJar.set(layout.projectDirectory.file("build/libs/uma.jar"))
-    classpath.from(configurations.runtimeClasspath)
-}
-
 
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
     compilerOptions {
