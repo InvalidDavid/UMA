@@ -1,5 +1,4 @@
 import tasks.ReportGenerateTask
-import tasks.DexPluginTask
 
 plugins {
     `java-library`
@@ -10,7 +9,7 @@ plugins {
 }
 
 group = "org.usagi"
-version = "1.0.2"
+version = "1.0.3"
 
 tasks.test {
     useJUnitPlatform()
@@ -21,7 +20,8 @@ ksp {
 }
 
 tasks.jar {
-    archiveFileName.set("raw.jar")
+    // remember to dex it with d8 before sideloading
+    archiveFileName.set("uma.jar")
     exclude("android/**")
     exclude("androidx/annotation/**")
     exclude("androidx/preference/**")
@@ -54,6 +54,7 @@ publishing {
 
 dependencies {
     implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.serialization.json)
     implementation(libs.okhttp)
     implementation(libs.okio)
     implementation(libs.json)
@@ -72,19 +73,7 @@ dependencies {
     testImplementation(libs.quickjs)
 }
 
-tasks.register("buildJar") {
-    description = "Build all sources to a JAR file"
-    dependsOn("dexJar")
-}
-
-tasks.register<DexPluginTask>("dexJar") {
-    description = "Dex classes after build"
-    dependsOn(tasks.jar)
-    inputJar.set(tasks.jar.flatMap { it.archiveFile })
-    outputJar.set(layout.projectDirectory.file("build/libs/uma.jar"))
-    classpath.from(configurations.runtimeClasspath)
-}
-
 tasks.register<ReportGenerateTask>("generateTestsReport") {
     description = "Generate a HTML file to get tests report"
 }
+
