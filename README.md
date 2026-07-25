@@ -3,6 +3,7 @@
 [![Stars][stars-shield]][stars-url]
 [![Issues][issues-shield]][issues-url]
 [![License][license-shield]][license-url]
+# For Usagi 0.0.032-beta --> [https://github.com/InvalidDavid/UMA/releases/tag/fc90bab](https://github.com/InvalidDavid/UMA/releases/tag/82110f1)
 ### Please give the repo a ⭐
 It motivates me. =^..^=
 
