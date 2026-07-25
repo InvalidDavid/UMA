@@ -12,8 +12,10 @@ json = "20251224"
 jsoup = "1.17.2"
 quickjs = "1.1.0"
 korte = "4.0.10"
+#noinspection NewerVersionAvailable
+serialization = "1.7.3"
 simplexml = "2.7.1"
-tsuki = "1.0.1"
+tsuki = "1.0.3"
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
@@ -25,6 +27,7 @@ tsuki = { module = "com.github.UsagiApp:Tsuki", version.ref = "tsuki"}
 ksp-symbol-processing-api = { module = "com.google.devtools.ksp:symbol-processing-api", version.ref = "ksp" }
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
 junit-launcher = { group = "org.junit.platform", name = "junit-platform-launcher" }
 junit-api = { group = "org.junit.jupiter", name = "junit-jupiter-api", version.ref = "junit" }
 junit-engine = { group = "org.junit.jupiter", name = "junit-jupiter-engine", version.ref = "junit" }
