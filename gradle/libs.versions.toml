@@ -12,8 +12,7 @@ json = "20251224"
 jsoup = "1.17.2"
 quickjs = "1.1.0"
 korte = "4.0.10"
-#noinspection NewerVersionAvailable
-serialization = "1.7.3"
+serialization = "1.11.0"
 simplexml = "2.7.1"
 tsuki = "1.0.3"
 
