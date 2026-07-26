@@ -1,4 +1,4 @@
-package tsuki.site.pt.hentais
+package tsuki.site.pt.nsfw
 
 import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
