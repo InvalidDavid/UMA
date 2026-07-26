@@ -74,7 +74,7 @@ abstract class MangaThemesia(
     override val filterCapabilities = MangaListFilterCapabilities(
         isSearchSupported = true,
         isMultipleTagsSupported = true,
-        isTagsExclusionSupported = true,
+        isTagsExclusionSupported = false,
     )
 
     @Volatile
@@ -148,7 +148,6 @@ abstract class MangaThemesia(
                 })
             }
             filter.tags.forEach { append("&genre[]=${it.key.urlEncoded()}") }
-            filter.tagsExclude.forEach { append("&genre[]=-${it.key.urlEncoded()}") }
             append("&order=")
             append(when (order) {
                 SortOrder.UPDATED -> "update"
