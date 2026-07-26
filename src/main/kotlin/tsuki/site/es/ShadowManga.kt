@@ -1,5 +1,13 @@
 package tsuki.site.es
 
+import tsuki.MangaLoaderContext
+import tsuki.MangaSourceParser
+import tsuki.config.ConfigKey
+import tsuki.core.PagedMangaParser
+
+import tsuki.model.*
+import tsuki.util.*
+
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
@@ -8,14 +16,8 @@ import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.json.JSONArray
 import org.json.JSONObject
-import tsuki.MangaLoaderContext
-import tsuki.MangaSourceParser
-import tsuki.config.ConfigKey
-import tsuki.core.PagedMangaParser
-import tsuki.model.*
-import tsuki.util.*
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.EnumSet
 import kotlin.time.Duration.Companion.milliseconds
 
 @MangaSourceParser("SHADOWMANGA", "Shadow Manga", "es")
