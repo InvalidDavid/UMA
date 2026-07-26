@@ -88,7 +88,7 @@ internal class MadaraDex(context: MangaLoaderContext) :
                 .toRelativeUrl(domain)
                 .toHttpUrl()
                 .newBuilder()
-                .fragment(_root_ide_package_.tsuki.site.en.hentais.F_URL + fullUrl)
+                .fragment(F_URL + fullUrl)
                 .build()
                 .toString()
 
@@ -143,7 +143,7 @@ internal class MadaraDex(context: MangaLoaderContext) :
         val url = request.url
 
         val fullUrl = url.fragment
-            ?.substringAfter(_root_ide_package_.tsuki.site.en.hentais.F_URL, "")
+            ?.substringAfter(F_URL, "")
 
         if (!fullUrl.isNullOrEmpty()) {
 
