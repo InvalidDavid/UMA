@@ -17,10 +17,11 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.supervisorScope
-import java.util.Base64
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.concurrent.Semaphore
+import okio.ByteString
+import okio.ByteString.Companion.decodeBase64
 
 internal class VrfSigner {
     fun interceptor() = Interceptor { chain ->
@@ -65,7 +66,7 @@ internal class VrfSigner {
         for ((table, key, iv) in STAGES) {
             data = encryptStage(data, table, key, iv)
         }
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(data)
+        return ByteString.of(*data).base64Url().trimEnd('=')
     }
 
     private fun encryptStage(data: ByteArray, table: ByteArray, key: ByteArray, iv: Int): ByteArray {
@@ -80,7 +81,7 @@ internal class VrfSigner {
     }
 
     companion object {
-        private val decoder = Base64.getDecoder()
+        private fun decodeB64(str: String) = str.decodeBase64()!!.toByteArray()
 
         private const val TABLE_1 = "yINlmUNho8VYJT+ibTIP+9ESiULpVEtMOoD6U6lRE0R/xwXo/Xp9NrUgC4cw/Lmo33vUyjUE40kUoEWIr/fxfNNcq2s79ShQ5NhNrFnJ4hXPwOu/SuXzIbuTQKGFvfm08E9jvCfqAtoDqvQq3dVWPQFmJjgvkISBeXY3BgANR+yVnjGbcxZ47d6kLNfZPIayTq3/YGySb1KuVZodWp/WGNAO5pfMcpaK53Hhs0allBszaMaxuouOwdxbwgxIw6YunSsXjI05Yi0j9j4eHKfSXR8Ifo/Od+8iamRfCXTyvm7NGRGYdcQ0ywcK/u6RXhrbcCm4t2eCtrDgQVecJGkQ+A=="
         private const val KEY_1 = "0Ec58JOY3uBzJK9m3zqIOpdlF7UFiax9DmA="
@@ -90,9 +91,9 @@ internal class VrfSigner {
         private const val KEY_3 = "DELOJgPsVaCcblDtTGMdHzM="
 
         private val STAGES: List<Triple<ByteArray, ByteArray, Int>> = listOf(
-            Triple(decoder.decode(TABLE_1), decoder.decode(KEY_1), 0x5A),
-            Triple(decoder.decode(TABLE_2), decoder.decode(KEY_2), 0x35),
-            Triple(decoder.decode(TABLE_3), decoder.decode(KEY_3), 0xBA),
+            Triple(decodeB64(TABLE_1), decodeB64(KEY_1), 0x5A),
+            Triple(decodeB64(TABLE_2), decodeB64(KEY_2), 0x35),
+            Triple(decodeB64(TABLE_3), decodeB64(KEY_3), 0xBA),
         )
     }
 }
@@ -604,6 +605,9 @@ internal abstract class MangaFireParser(
     @MangaSourceParser("MANGAFIRE_ESLA", "MangaFire (Spanish)", "es")
     class SpanishLatim(context: MangaLoaderContext) : MangaFireParser(context, MangaParserSource.MANGAFIRE_ESLA, "es-la")
 
+    @MangaSourceParser("MANGAFIRE_ES", "MangaFire (Spanish 2)", "es")
+    class Spanish(context: MangaLoaderContext) : MangaFireParser(context, MangaParserSource.MANGAFIRE_ES, "es-419")
+
     @MangaSourceParser("MANGAFIRE_FR", "MangaFire (French)", "fr")
     class French(context: MangaLoaderContext) : MangaFireParser(context, MangaParserSource.MANGAFIRE_FR, "fr")
 
@@ -612,4 +616,7 @@ internal abstract class MangaFireParser(
 
     @MangaSourceParser("MANGAFIRE_PTBR", "MangaFire (Portuguese)", "pt")
     class PortugueseBR(context: MangaLoaderContext) : MangaFireParser(context, MangaParserSource.MANGAFIRE_PTBR, "pt-br")
+
+    @MangaSourceParser("MANGAFIRE_PT", "MangaFire (Portuguese 2)", "pt")
+    class Portuguese(context: MangaLoaderContext) : MangaFireParser(context, MangaParserSource.MANGAFIRE_PT, "pt")
 }
