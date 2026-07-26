@@ -47,10 +47,10 @@ internal class HentaiNexus(context: MangaLoaderContext) :
 
     private val preferredImageModeKey = ConfigKey.PreferredImageServer(
         presetValues = mapOf(
-            _root_ide_package_.tsuki.site.en.hentais.SERVER_PNG to "Old method (png)",
-            _root_ide_package_.tsuki.site.en.hentais.SERVER_WEBP to "New method (webp/avif)",
+            SERVER_PNG to "Old method (png)",
+            SERVER_WEBP to "New method (webp/avif)",
         ),
-        defaultValue = _root_ide_package_.tsuki.site.en.hentais.SERVER_PNG,
+        defaultValue = SERVER_PNG,
     )
 
     override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
@@ -249,19 +249,19 @@ internal class HentaiNexus(context: MangaLoaderContext) :
         val decryptedString = decrypt(encryptedPagesData)
             .replace("\\/", "/")
         val jsonArray = JSONArray(decryptedString)
-        val mode = config[preferredImageModeKey] ?: _root_ide_package_.tsuki.site.en.hentais.SERVER_WEBP
+        val mode = config[preferredImageModeKey] ?: SERVER_WEBP
         return buildList {
             for (i in 0 until jsonArray.length()) {
                 val item = jsonArray.getJSONObject(i)
                 val url = when (mode) {
-                    _root_ide_package_.tsuki.site.en.hentais.SERVER_PNG -> {
+                    SERVER_PNG -> {
                         val image = item.optString("image")
                             .takeIf { it.isNotBlank() }
                         val fallback = item.optString("image_fallback")
                             .takeIf { it.isNotBlank() }
                         fallback ?: image
                     }
-                    _root_ide_package_.tsuki.site.en.hentais.SERVER_WEBP -> {
+                    SERVER_WEBP -> {
                         var found: String? = null
                         val keys = item.keys()
                         while (keys.hasNext()) {
