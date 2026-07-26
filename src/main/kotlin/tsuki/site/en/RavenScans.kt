@@ -8,6 +8,6 @@ import tsuki.model.MangaParserSource
 
 @MangaSourceParser("RAVENSCANS", "RavenScans", "en")
 internal class RavensScan(context: MangaLoaderContext) :
-    MangaThemesia(context, MangaParserSource.RAVENSCANS, "ravenscans.org") {
+    MangaThemesia(context, MangaParserSource.RAVENSCANS, "ravenscans.net") {
     override val mangaDirectory = "series"
 }
