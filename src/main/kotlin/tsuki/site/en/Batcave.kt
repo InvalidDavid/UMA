@@ -31,8 +31,6 @@ internal class Batcave(context: MangaLoaderContext) :
 
     @Volatile
     private var genreList: List<Pair<String, Int>>? = null
-    @Volatile
-    private var publisherList: List<Pair<String, Int>>? = null
     private var filterFetchFailed = false
 
     private val rawHttpClient: OkHttpClient by lazy {
@@ -88,7 +86,7 @@ internal class Batcave(context: MangaLoaderContext) :
     )
 
     private suspend fun fetchFilters() {
-        if (genreList != null && publisherList != null) return
+        if (genreList != null) return
         if (filterFetchFailed) return
 
         try {
@@ -103,15 +101,14 @@ internal class Batcave(context: MangaLoaderContext) :
             val root = JSONObject(rawJson)
             val filterItems = root.getJSONObject("filter_items")
 
-            genreList = parseFilterValues(filterItems, "g")
-            publisherList = parseFilterValues(filterItems, "p")
+            genreList = parseFilterValues(filterItems)
         } catch (_: Exception) {
             filterFetchFailed = true
         }
     }
 
-    private fun parseFilterValues(filterItems: JSONObject, key: String): List<Pair<String, Int>> {
-        val obj = filterItems.optJSONObject(key) ?: return emptyList()
+    private fun parseFilterValues(filterItems: JSONObject): List<Pair<String, Int>> {
+        val obj = filterItems.optJSONObject("g") ?: return emptyList()
         val values = obj.optJSONArray("values") ?: return emptyList()
         val result = mutableListOf<Pair<String, Int>>()
         for (i in 0 until values.length()) {
@@ -127,9 +124,6 @@ internal class Batcave(context: MangaLoaderContext) :
         genreList?.forEach { (name, id) ->
             tags += MangaTag(name, "g_$id", source)
         }
-        publisherList?.forEach { (name, id) ->
-            tags += MangaTag(name, "p_$id", source)
-        }
         return MangaListFilterOptions(
             availableTags = tags,
         )
@@ -141,9 +135,7 @@ internal class Batcave(context: MangaLoaderContext) :
 
         val urlBuilder = StringBuilder().apply {
             append("https://$domain/ComicList/")
-            val pIds = filter.tags.filter { it.key.startsWith("p_") }.map { it.key.removePrefix("p_") }
             val gIds = filter.tags.filter { it.key.startsWith("g_") }.map { it.key.removePrefix("g_") }
-            if (pIds.isNotEmpty()) append("p=${pIds.joinToString(",")}/")
             if (gIds.isNotEmpty()) append("g=${gIds.joinToString(",")}/")
             append("sort")
             if (page > 1) append("/page/$page/")
@@ -200,7 +192,6 @@ internal class Batcave(context: MangaLoaderContext) :
     }
 
     private val detailsCacheLock = Any()
-
     private val detailsCache = object : LinkedHashMap<String, Manga>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Manga>?): Boolean = size > 10
     }
