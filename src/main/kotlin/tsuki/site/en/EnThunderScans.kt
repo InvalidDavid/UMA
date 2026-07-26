@@ -19,11 +19,6 @@ internal class EnThunderScans(context: MangaLoaderContext) :
 
     override val chapterListSelector = "div.bxcl li:not(:has(a[data-bs-target='#lockedChapterModal']))"
 
-    override val filterCapabilities: MangaListFilterCapabilities
-        get() = super.filterCapabilities.copy(
-            isTagsExclusionSupported = false,
-        )
-
     override suspend fun getDetails(manga: Manga): Manga {
         val fullUrl = manga.url.toAbsoluteUrl(domain)
         val doc = webClient.httpGet(fullUrl).parseHtml()
