@@ -5,7 +5,6 @@ import tsuki.MangaSourceParser
 import tsuki.parsers.MangaThemesia
 
 import tsuki.model.Manga
-import tsuki.model.MangaListFilterCapabilities
 import tsuki.model.MangaParserSource
 
 import tsuki.util.parseHtml
