@@ -314,8 +314,12 @@ abstract class HiperParser(
                     id = generateUid("/$mangaPath/$slug/$number"),
                     url = "/$mangaPath/$slug/$number",
                     title = displayTitle,
-                    number = number, volume = 0, uploadDate = uploadDate,
-                    scanlator = null, branch = null, source = source
+                    number = number, 
+                    volume = 0, 
+                    uploadDate = uploadDate,
+                    scanlator = null,
+                    branch = null, 
+                    source = source
                 )
             }
         }.sortedBy { it.number }
@@ -348,7 +352,12 @@ abstract class HiperParser(
                         val url = page.optString("webpUrl", "").ifEmpty {
                             page.optString("avifUrl", "")
                         }.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
-                        MangaPage(id = generateUid(url), url = url, preview = null, source = source)
+                        MangaPage(
+                            id = generateUid(url), 
+                            url = url, 
+                            preview = null, 
+                            source = source
+                        )
                     }
                 } catch (_: Exception) { emptyList() }
             }
@@ -371,7 +380,12 @@ abstract class HiperParser(
             val url = page.optString("webpUrl", "").ifEmpty {
                 page.optString("avifUrl", "")
             }.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
-            MangaPage(id = generateUid(url), url = url, preview = null, source = source)
+            MangaPage(
+                id = generateUid(url), 
+                url = url, 
+                preview = null, 
+                source = source
+            )
         }
     }
 
