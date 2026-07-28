@@ -289,7 +289,7 @@ internal abstract class DoujinDesuParser(
             rating = obj.optDouble("rating", 0.0).toFloat() / 10f,
             tags = tags,
             coverUrl = coverUrl ?: manga.coverUrl,
-            chapters = chapters.reversed()
+            chapters = chapters.sortedBy { it.number }
         )
 
         synchronized(detailsCacheLock) {
