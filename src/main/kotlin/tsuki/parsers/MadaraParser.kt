@@ -685,7 +685,7 @@ internal abstract class MadaraParser(
 
     protected open suspend fun getChapters(manga: Manga, doc: Document): List<MangaChapter> {
         val dateFormat = SimpleDateFormat(datePattern, sourceLocale)
-        return doc.body().select(selectChapter).mapChapters(reversed = true) { i, li ->
+        return doc.body().select(selectChapter).mapChapters(reversed = false) { i, li ->
             val a = li.selectFirstOrThrow("a")
             val href = a.attrAsRelativeUrl("href")
             val link = href + stylePage
@@ -705,7 +705,7 @@ internal abstract class MadaraParser(
                 scanlator = null,
                 branch = null,
             )
-        }
+        }.sortedBy { it.number }
     }
 
     protected open val postDataReq = "action=manga_get_chapters&manga="
@@ -721,7 +721,7 @@ internal abstract class MadaraParser(
             webClient.httpPost(url, emptyMap()).parseHtml()
         }
         val dateFormat = SimpleDateFormat(datePattern, sourceLocale)
-        return doc.select(selectChapter).mapChapters(reversed = true) { i, li ->
+        return doc.select(selectChapter).mapChapters(reversed = false) { i, li ->
             val a = li.selectFirstOrThrow("a")
             val href = a.attrAsRelativeUrl("href")
             val link = href + stylePage
@@ -741,7 +741,7 @@ internal abstract class MadaraParser(
                 scanlator = null,
                 source = source,
             )
-        }
+        }.sortedBy { it.number }
     }
 
     override suspend fun getRelatedManga(seed: Manga): List<Manga> {
