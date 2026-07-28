@@ -253,6 +253,12 @@ internal class Atsumaru(context: MangaLoaderContext) :
         }
     }
 
+    private val detailsCacheLock = Any()
+
+    private val detailsCache = object : LinkedHashMap<String, Manga>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Manga>?): Boolean = size > 10
+    }
+
     // limit tags to 20
     override suspend fun getDetails(manga: Manga): Manga {
         synchronized(detailsCacheLock) {
@@ -262,13 +268,7 @@ internal class Atsumaru(context: MangaLoaderContext) :
         val result = coroutineScope {
             val mangaId = manga.url.substringAfterLast("/")
 
-            val pageDeferred = async {
-                webClient.httpGet("$baseUrl/api/manga/page?id=$mangaId", apiHeaders).parseJson()
-            }
-            val chaptersDeferred = async {
-                webClient.httpGet("$baseUrl/api/manga/allChapters?mangaId=$mangaId", apiHeaders).parseJson()
-            }
-
+            val pageDeferred = async { webClient.httpGet("$baseUrl/api/manga/page?id=$mangaId", apiHeaders).parseJson() }
             val pageJson = pageDeferred.await()
             val mangaPage = pageJson.optJSONObject("mangaPage") ?: return@coroutineScope manga
 
@@ -313,9 +313,6 @@ internal class Atsumaru(context: MangaLoaderContext) :
                 }
             }
 
-            val chaptersJson = chaptersDeferred.await()
-            val chaptersArray = chaptersJson.optJSONArray("chapters") ?: JSONArray()
-
             val scanlators = mutableMapOf<String, String>()
             mangaPage.optJSONArray("scanlators")?.let { scanArr ->
                 for (i in 0 until scanArr.length()) {
@@ -326,37 +323,13 @@ internal class Atsumaru(context: MangaLoaderContext) :
                 }
             }
 
-            val chapters = (0 until chaptersArray.length()).map { i ->
-                val ch = chaptersArray.getJSONObject(i)
-                val chId = ch.getString("id")
-                val number = ch.optDouble("number", 0.0).toFloat()
-                val chTitle = ch.optString("title")
-                val scanId = ch.optString("scanlationMangaId").nullIfEmpty()
-                val scanName = scanId?.let { scanlators[it] }
-                val createdAt = ch.optLong("createdAt", 0L)
-
-                MangaChapter(
-                    id = generateUid("$mangaId/$chId"),
-                    title = chTitle.ifBlank { "Chapter $number" },
-                    number = number,
-                    volume = 0,
-                    url = "$mangaId/$chId",
-                    uploadDate = createdAt,
-                    source = source,
-                    scanlator = scanName,
-                    branch = scanName,
-                )
-            }.reversed()
-
-            val groupedChapters = if (chapters.map { it.branch }.distinct().size > 1) {
-                chapters.map { it.copy(branch = it.branch ?: "Unknown") }
-            } else {
-                chapters.map { it.copy(branch = null, scanlator = null) }
-            }
+            val chaptersDeferred = async { loadChapters(mangaId, scanlators) }
 
             val altTitles = mangaPage.optJSONArray("otherNames")?.let { arr ->
                 (0 until arr.length()).mapNotNull { arr.optString(it) }.toSet()
             } ?: emptySet()
+
+            val chapters = chaptersDeferred.await()
 
             manga.copy(
                 title = title,
@@ -366,7 +339,7 @@ internal class Atsumaru(context: MangaLoaderContext) :
                 state = state,
                 tags = tagSet,
                 rating = rating,
-                chapters = groupedChapters,
+                chapters = chapters,
                 altTitles = altTitles,
             )
         }
@@ -376,11 +349,40 @@ internal class Atsumaru(context: MangaLoaderContext) :
         return result
     }
 
-    private val detailsCacheLock = Any()
+    private suspend fun loadChapters(mangaId: String, scanlators: Map<String, String>): List<MangaChapter> {
+        val chaptersJson = webClient.httpGet("$baseUrl/api/manga/allChapters?mangaId=$mangaId", apiHeaders).parseJson()
+        val chaptersArray = chaptersJson.optJSONArray("chapters") ?: JSONArray()
 
-    private val detailsCache = object : LinkedHashMap<String, Manga>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Manga>?): Boolean = size > 10
+        val chapters = (0 until chaptersArray.length()).map { i ->
+            val ch = chaptersArray.getJSONObject(i)
+            val chId = ch.getString("id")
+            val number = ch.optDouble("number", 0.0).toFloat()
+            val chTitle = ch.optString("title")
+            val scanId = ch.optString("scanlationMangaId").nullIfEmpty()
+            val scanName = scanId?.let { scanlators[it] }
+            val createdAt = ch.optLong("createdAt", 0L)
+
+            MangaChapter(
+                id = generateUid("$mangaId/$chId"),
+                title = chTitle.ifBlank { "Chapter $number" },
+                number = number,
+                volume = 0,
+                url = "$mangaId/$chId",
+                uploadDate = createdAt,
+                source = source,
+                scanlator = scanName,
+                branch = scanName,
+            )
+        }.sortedBy { it.number }
+
+        val distinctBranches = chapters.map { it.branch }.distinct()
+        return if (distinctBranches.size > 1) {
+            chapters.map { it.copy(branch = it.branch ?: "Unknown") }
+        } else {
+            chapters.map { it.copy(branch = null, scanlator = null) }
+        }
     }
+
 
     override suspend fun getRelatedManga(seed: Manga): List<Manga> {
         val mangaId = seed.url.substringAfterLast("/")
