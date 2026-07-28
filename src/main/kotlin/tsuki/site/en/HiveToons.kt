@@ -124,10 +124,7 @@ internal class HiveToons(context: MangaLoaderContext):
         return mangas
     }
 
-    private suspend fun fetchSearchPageWithFallback(
-        initialUrlBuilder: HttpUrl.Builder,
-        startPage: Int
-    ): Pair<List<Manga>, Boolean> {
+    private suspend fun fetchSearchPageWithFallback(initialUrlBuilder: HttpUrl.Builder, startPage: Int): Pair<List<Manga>, Boolean> {
         var currentPage = startPage
         while (true) {
             val url = initialUrlBuilder
