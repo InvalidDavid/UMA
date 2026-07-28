@@ -27,11 +27,11 @@ import tsuki.util.src
 import tsuki.util.textOrNull
 import tsuki.util.toTitleCase
 import tsuki.util.urlEncoded
-import tsuki.util.mapChapters
 import tsuki.util.mapNotNullToSet
 import tsuki.util.nullIfEmpty
 import tsuki.util.parseSafe
 import tsuki.util.removeSuffix
+import tsuki.util.extractChapterNumber
 
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -234,14 +234,15 @@ internal abstract class Manga18Parser(
 
     protected open suspend fun getChapters(doc: Document): List<MangaChapter> {
         val dateFormat = SimpleDateFormat(datePattern, sourceLocale)
-        return doc.body().select(selectChapter).mapChapters(reversed = true) { i, li ->
+        return doc.body().select(selectChapter).map { li ->
             val a = li.selectFirstOrThrow("a")
             val href = a.attrAsRelativeUrl("href")
+            val name = a.textOrNull() ?: ""
             val dateText = li.selectFirst(selectDate)?.text()
             MangaChapter(
                 id = generateUid(href),
-                title = a.textOrNull(),
-                number = i + 1f,
+                title = name,
+                number = name.extractChapterNumber(),
                 volume = 0,
                 url = href,
                 uploadDate = dateFormat.parseSafe(dateText),
@@ -249,7 +250,7 @@ internal abstract class Manga18Parser(
                 scanlator = null,
                 branch = null,
             )
-        }
+        }.sortedBy { it.number }
     }
 
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
