@@ -40,6 +40,8 @@ import java.text.SimpleDateFormat
 import java.util.EnumSet
 import java.util.Locale
 import org.jsoup.nodes.Document
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 
 internal abstract class NatsuParser(
     context: MangaLoaderContext,
@@ -215,66 +217,79 @@ internal abstract class NatsuParser(
         return slugs.mapNotNull { mangaMap[it] }
     }
 
-    @get:Synchronized
+    private val detailsCacheLock = Any()
     private val detailsCache = object : LinkedHashMap<String, Manga>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Manga>?): Boolean = size > 10
     }
 
     override suspend fun getDetails(manga: Manga): Manga {
-        detailsCache[manga.url]?.let { return it }
+        synchronized(detailsCacheLock) {
+            detailsCache[manga.url]?.let { return it }
+        }
 
-        val slug = manga.url.removePrefix("/manga/").removeSuffix("/")
-        val id = getMangaIdFromSlug(slug) ?: return manga
+        val result = try {
+            coroutineScope {
+                val slug = manga.url.removePrefix("/manga/").removeSuffix("/")
+                val id = getMangaIdFromSlug(slug) ?: return@coroutineScope manga
 
-        val url = "https://$domain/wp-json/wp/v2/manga/$id?_embed"
-        val obj = webClient.httpGet(url).parseJson()
-        val title = obj.getJSONObject("title").getString("rendered")
-        val description = obj.getJSONObject("content").getString("rendered")
-            .let { org.jsoup.Jsoup.parseBodyFragment(it).wholeText().trim() }
-        val cover = obj.optJSONObject("_embedded")
-            ?.optJSONArray("wp:featuredmedia")
-            ?.optJSONObject(0)
-            ?.optString("source_url", null)
+                val chaptersDeferred = async { loadChapters(id.toString(), "https://$domain/manga/$slug/") }
 
-        val embedded = obj.optJSONObject("_embedded")
-        val terms = embedded?.optJSONArray("wp:term")
+                val url = "https://$domain/wp-json/wp/v2/manga/$id?_embed"
+                val obj = webClient.httpGet(url).parseJson()
+                val title = obj.getJSONObject("title").getString("rendered")
+                val description = obj.getJSONObject("content").getString("rendered")
+                    .let { org.jsoup.Jsoup.parseBodyFragment(it).wholeText().trim() }
+                val cover = obj.optJSONObject("_embedded")
+                    ?.optJSONArray("wp:featuredmedia")
+                    ?.optJSONObject(0)
+                    ?.optString("source_url", null)
 
-        fun getTermNames(taxonomy: String): List<String> {
-            if (terms == null) return emptyList()
-            for (i in 0 until terms.length()) {
-                val termArray = terms.optJSONArray(i) ?: continue
-                if (termArray.length() > 0 && termArray.getJSONObject(0).optString("taxonomy") == taxonomy)
-                    return (0 until termArray.length()).map { j -> termArray.getJSONObject(j).getString("name") }
+                val embedded = obj.optJSONObject("_embedded")
+                val terms = embedded?.optJSONArray("wp:term")
+
+                fun getTermNames(taxonomy: String): List<String> {
+                    if (terms == null) return emptyList()
+                    for (i in 0 until terms.length()) {
+                        val termArray = terms.optJSONArray(i) ?: continue
+                        if (termArray.length() > 0 && termArray.getJSONObject(0).optString("taxonomy") == taxonomy)
+                            return (0 until termArray.length()).map { j -> termArray.getJSONObject(j).getString("name") }
+                    }
+                    return emptyList()
+                }
+
+                val genres = getTermNames("genre") + getTermNames("type")
+                val statusList = getTermNames("status")
+                val state = when {
+                    statusList.any { it.equals("Ongoing", ignoreCase = true) } -> MangaState.ONGOING
+                    statusList.any { it.equals("Completed", ignoreCase = true) } -> MangaState.FINISHED
+                    statusList.any { it.equals("Cancelled", ignoreCase = true) } -> MangaState.ABANDONED
+                    statusList.any { it.equals("On Hiatus", ignoreCase = true) } -> MangaState.PAUSED
+                    else -> null
+                }
+                val authors = getTermNames("series-author")
+                val tags = genres.map { name -> MangaTag(name, name.lowercase().replace(" ", "-"), source) }.toSet()
+                val altTitles = fetchAltTitlesFromPage("https://$domain/manga/$slug/")
+
+                val chapters = chaptersDeferred.await()
+
+                manga.copy(
+                    title = title,
+                    description = description,
+                    coverUrl = cover ?: manga.coverUrl,
+                    state = state,
+                    authors = authors.toSet(),
+                    tags = tags,
+                    chapters = chapters,
+                    altTitles = altTitles,
+                )
             }
-            return emptyList()
+        } catch (_: Exception) {
+            manga
         }
 
-        val genres = getTermNames("genre") + getTermNames("type")
-        val statusList = getTermNames("status")
-        val state = when {
-            statusList.any { it.equals("Ongoing", ignoreCase = true) } -> MangaState.ONGOING
-            statusList.any { it.equals("Completed", ignoreCase = true) } -> MangaState.FINISHED
-            statusList.any { it.equals("Cancelled", ignoreCase = true) } -> MangaState.ABANDONED
-            statusList.any { it.equals("On Hiatus", ignoreCase = true) } -> MangaState.PAUSED
-            else -> null
+        synchronized(detailsCacheLock) {
+            detailsCache[manga.url] = result
         }
-        val authors = getTermNames("series-author")
-        val tags = genres.map { name -> MangaTag(name, name.lowercase().replace(" ", "-"), source) }.toSet()
-        val chapters = loadChapters(id.toString(), "https://$domain/manga/$slug/")
-        val altTitles = fetchAltTitlesFromPage("https://$domain/manga/$slug/")
-
-        val result = manga.copy(
-            title = title,
-            description = description,
-            coverUrl = cover ?: manga.coverUrl,
-            state = state,
-            authors = authors.toSet(),
-            tags = tags,
-            chapters = chapters,
-            altTitles = altTitles,
-        )
-
-        detailsCache[manga.url] = result
         return result
     }
 
@@ -334,7 +349,7 @@ internal abstract class NatsuParser(
                     )
                 }
             }
-        }.reversed()
+        }.sortedBy { it.number }
     }
 
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
