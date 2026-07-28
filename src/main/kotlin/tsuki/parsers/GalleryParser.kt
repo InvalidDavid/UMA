@@ -119,7 +119,9 @@ internal abstract class GalleryParser(
                     branch = null,
                     source = source,
                 )
-            }.orEmpty()
+            }
+            ?.sortedBy { it.number }
+            .orEmpty()
         return manga.copy(chapters = chapters, description = description)
     }
 
