@@ -38,6 +38,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
+// Only for the source id/DoujinDesu?
 
 internal abstract class DoujinDesuParser(
     context: MangaLoaderContext,
