@@ -277,7 +277,7 @@ internal abstract class MadthemeParser(
         val slug = doc.selectFirstOrThrow("script:containsData(bookSlug)").data().substringAfter("bookSlug = \"")
             .substringBefore("\";")
         val docChapter = webClient.httpGet("https://$domain/api/manga/$slug/chapters?source=detail").parseHtml()
-        return docChapter.select(selectChapter).mapChapters(reversed = true) { i, li ->
+        return docChapter.select(selectChapter).mapChapters(reversed = false) { i, li ->
             val a = li.selectFirstOrThrow("a")
             val href = a.attrAsRelativeUrl("href")
             val dateText = li.selectFirst(selectDate)?.text()
@@ -295,7 +295,7 @@ internal abstract class MadthemeParser(
                 scanlator = null,
                 branch = null,
             )
-        }
+        }.sortedBy { it.number }
     }
 
     protected open val selectPage = "div#chapter-images img"

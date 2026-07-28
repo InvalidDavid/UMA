@@ -31,7 +31,6 @@ import tsuki.util.src
 import tsuki.util.textOrNull
 import tsuki.util.toTitleCase
 import tsuki.util.urlEncoded
-import tsuki.util.mapChapters
 import tsuki.util.selectOrThrow
 import tsuki.util.CryptoAES
 import tsuki.util.getCookies
@@ -45,6 +44,7 @@ import tsuki.util.requireSrc
 import tsuki.util.selectLast
 import tsuki.util.toMutableMap
 import tsuki.util.toRelativeUrl
+import tsuki.util.extractChapterNumber
 
 import androidx.collection.scatterSetOf
 import kotlinx.coroutines.async
@@ -685,7 +685,7 @@ internal abstract class MadaraParser(
 
     protected open suspend fun getChapters(manga: Manga, doc: Document): List<MangaChapter> {
         val dateFormat = SimpleDateFormat(datePattern, sourceLocale)
-        return doc.body().select(selectChapter).mapChapters(reversed = true) { i, li ->
+        return doc.body().select(selectChapter).map { li ->
             val a = li.selectFirstOrThrow("a")
             val href = a.attrAsRelativeUrl("href")
             val link = href + stylePage
@@ -694,18 +694,15 @@ internal abstract class MadaraParser(
             MangaChapter(
                 id = generateUid(href),
                 title = name,
-                number = i + 1f,
+                number = name.extractChapterNumber(),
                 volume = 0,
                 url = link,
-                uploadDate = parseChapterDate(
-                    dateFormat,
-                    dateText,
-                ),
+                uploadDate = parseChapterDate(dateFormat, dateText),
                 source = source,
                 scanlator = null,
                 branch = null,
             )
-        }
+        }.sortedBy { it.number }
     }
 
     protected open val postDataReq = "action=manga_get_chapters&manga="
@@ -721,7 +718,7 @@ internal abstract class MadaraParser(
             webClient.httpPost(url, emptyMap()).parseHtml()
         }
         val dateFormat = SimpleDateFormat(datePattern, sourceLocale)
-        return doc.select(selectChapter).mapChapters(reversed = true) { i, li ->
+        return doc.select(selectChapter).map { li ->
             val a = li.selectFirstOrThrow("a")
             val href = a.attrAsRelativeUrl("href")
             val link = href + stylePage
@@ -731,17 +728,14 @@ internal abstract class MadaraParser(
                 id = generateUid(href),
                 url = link,
                 title = name,
-                number = i + 1f,
+                number = name.extractChapterNumber(),
                 volume = 0,
                 branch = null,
-                uploadDate = parseChapterDate(
-                    dateFormat,
-                    dateText,
-                ),
+                uploadDate = parseChapterDate(dateFormat, dateText),
                 scanlator = null,
                 source = source,
             )
-        }
+        }.sortedBy { it.number }
     }
 
     override suspend fun getRelatedManga(seed: Manga): List<Manga> {

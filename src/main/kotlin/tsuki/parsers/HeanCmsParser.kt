@@ -29,9 +29,9 @@ import tsuki.util.json.getFloatOrDefault
 import tsuki.util.json.mapJSON
 import tsuki.util.json.mapJSONToSet
 import tsuki.util.json.unescapeJson
-import tsuki.util.mapChapters
 import tsuki.util.parseJson
 import tsuki.util.parseSafe
+import tsuki.util.extractChapterNumber
 
 import org.json.JSONArray
 import org.json.JSONObject
@@ -182,23 +182,23 @@ internal abstract class HeanCmsParser(
         val response = webClient.httpGet(url).parseJson()
         val data = response.getJSONArray("data").asTypedList<JSONObject>()
         val dateFormat = SimpleDateFormat(datePattern, Locale.ENGLISH)
-        return manga.copy(
-            chapters = data.mapChapters(reversed = true) { i, it ->
-                val chapterUrl =
-                    "/series/${it.getJSONObject("series").getString("series_slug")}/${it.getString("chapter_slug")}"
-                MangaChapter(
-                    id = generateUid(it.getLong("id")),
-                    title = it.getString("chapter_name"),
-                    number = i + 1f,
-                    volume = 0,
-                    url = chapterUrl,
-                    scanlator = null,
-                    uploadDate = dateFormat.parseSafe(it.getString("created_at").substringBefore("T")),
-                    branch = null,
-                    source = source,
-                )
-            },
-        )
+
+        val chapters = data.map { ch ->
+            val chapterUrl = "/series/${ch.getJSONObject("series").getString("series_slug")}/${ch.getString("chapter_slug")}"
+            val name = ch.getString("chapter_name")
+            MangaChapter(
+                id = generateUid(ch.getLong("id")),
+                title = name,
+                number = name.extractChapterNumber(),
+                volume = 0,
+                url = chapterUrl,
+                scanlator = null,
+                uploadDate = dateFormat.parseSafe(ch.getString("created_at").substringBefore("T")),
+                branch = null,
+                source = source,
+            )
+        }.sortedBy { it.number }
+        return manga.copy(chapters = chapters)
     }
 
     protected open val selectPages = ".flex > img:not([alt])"

@@ -177,7 +177,7 @@ internal abstract class LikeMangaParser(
         val maxPageChapterSelect = doc.getElementById("nav_list_chapter_id_detail")?.select("a:not(.next)")
         var maxPageChapter = 1
         if (!maxPageChapterSelect.isNullOrEmpty()) {
-            maxPageChapterSelect.map {
+            maxPageChapterSelect.forEach {
                 val i = it.text().toInt()
                 if (i > maxPageChapter) {
                     maxPageChapter = i
@@ -212,7 +212,7 @@ internal abstract class LikeMangaParser(
                         result
                     }
                 }
-            }.reversed(),
+            }.sortedBy { it.number }
         )
     }
 

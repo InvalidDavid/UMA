@@ -42,6 +42,12 @@ import org.jsoup.nodes.Element
 import java.util.EnumSet
 import java.util.Locale
 
+/*
+Default: One chapter per manga
+
+Override getDetails chapters section if source contains more than one chapter.
+ */
+
 internal abstract class GalleryAdultsParser(
     context: MangaLoaderContext,
     source: MangaParserSource,

@@ -36,6 +36,7 @@ import tsuki.util.selectFirstOrThrow
 import tsuki.util.toRelativeUrl
 import tsuki.util.toTitleCase
 import tsuki.util.urlDecode
+import tsuki.util.extractChapterNumber
 
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -309,7 +310,7 @@ internal abstract class ZeistMangaParser(
             webClient.httpGet(url).parseJson().getJSONObject("feed").getJSONArray("entry").asTypedList<JSONObject>()
                 .reversed()
         val dateFormat = SimpleDateFormat(datePattern, sourceLocale)
-        return json.mapIndexedNotNull { i, j ->
+        return json.mapNotNull { j ->
             val name = j.getJSONObject("title").getString("\$t")
             val href =
                 j.getJSONArray("link").asTypedList<JSONObject>().first { it.getString("rel") == "alternate" }
@@ -318,20 +319,20 @@ internal abstract class ZeistMangaParser(
             val slug = mangaUrl.substringAfterLast('/')
             val slugChapter = href.substringAfterLast('/')
             if (slug == slugChapter) {
-                return@mapIndexedNotNull null
+                return@mapNotNull null
             }
             MangaChapter(
                 id = generateUid(href),
                 url = href,
                 title = name,
-                number = i + 1f,
+                number = name.extractChapterNumber(),
                 volume = 0,
                 branch = null,
                 uploadDate = dateFormat.parseSafe(dateText),
                 scanlator = null,
                 source = source,
             )
-        }
+        }.sortedBy { it.number }
     }
 
     protected open val selectPage =

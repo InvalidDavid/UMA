@@ -1,5 +1,7 @@
 package tsuki.parsers
 
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import tsuki.MangaLoaderContext
 import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
@@ -24,7 +26,7 @@ import tsuki.util.toAbsoluteUrl
 import tsuki.util.attrAsRelativeUrl
 import tsuki.util.parseHtml
 import tsuki.util.urlEncoded
-import tsuki.util.mapChapters
+import tsuki.util.extractChapterNumber
 
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -168,10 +170,12 @@ abstract class MangaThemesia(
             parseMangaElement(element)
         }
     }
-
-    override suspend fun getDetails(manga: Manga): Manga {
+    
+    override suspend fun getDetails(manga: Manga): Manga = coroutineScope {
         val fullUrl = manga.url.toAbsoluteUrl(domain)
         val doc = webClient.httpGet(fullUrl).parseHtml()
+
+        val chaptersDeferred = async { loadChapters(doc, manga.url) }
 
         val title = doc.selectFirst("h1.entry-title, .ts-breadcrumb li:last-child span, .infomanga h1, .animefull h1")
             ?.text() ?: manga.title
@@ -229,9 +233,9 @@ abstract class MangaThemesia(
             ?: doc.selectFirst(".num")?.text()?.toFloatOrNull()
         val normalizedRating = if (rating != null && rating > 0) rating / 10f else RATING_UNKNOWN
 
-        val chapters = loadChapters(doc, manga.url)
+        val chapters = chaptersDeferred.await()
 
-        return manga.copy(
+        manga.copy(
             title = title,
             description = description,
             coverUrl = coverUrl,
@@ -270,32 +274,23 @@ abstract class MangaThemesia(
     }
 
     private fun parseChapters(elements: Elements): List<MangaChapter> {
-        return elements.mapChapters(reversed = true) { i, element ->
-            val a = element.selectFirst("a") ?: return@mapChapters null
+        return elements.mapNotNull { element ->
+            val a = element.selectFirst("a") ?: return@mapNotNull null
             val href = a.attrAsRelativeUrl("href")
             val name = a.selectFirst(".chapternum")?.text() ?: a.ownText()
             val dateStr = element.selectFirst(".chapterdate")?.text()
-            val number = extractChapterNumber(name) ?: (i + 1).toFloat()
             MangaChapter(
                 id = generateUid(href),
                 url = href,
                 title = name,
-                number = number,
+                number = name.extractChapterNumber(),
                 volume = 0,
                 uploadDate = parseChapterDate(dateStr),
                 scanlator = null,
                 branch = null,
                 source = source,
             )
-        }
-    }
-
-    private fun extractChapterNumber(title: String): Float? {
-        return Regex("""(?i)(?:chapter|ch\.?)\s*([0-9]+(?:\.[0-9]+)?)""")
-            .find(title)
-            ?.groupValues
-            ?.getOrNull(1)
-            ?.toFloatOrNull()
+        }.sortedBy { it.number }
     }
 
     protected open fun parseChapterDate(date: String?): Long {

@@ -30,13 +30,13 @@ import tsuki.util.parseHtml
 import tsuki.util.selectFirstOrThrow
 import tsuki.util.src
 import tsuki.util.toTitleCase
-import tsuki.util.mapChapters
 import tsuki.util.nullIfEmpty
 import tsuki.util.parseSafe
 import tsuki.util.removeSuffix
 import tsuki.util.requireSrc
 import tsuki.util.attrAsRelativeUrlOrNull
 import tsuki.util.toRelativeUrl
+import tsuki.util.extractChapterNumber
 
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -280,26 +280,24 @@ internal abstract class MangaboxParser(
 
     protected open suspend fun getChapters(doc: Document): List<MangaChapter> {
         val dateFormat = SimpleDateFormat(datePattern, sourceLocale)
-        return doc.body().select(selectChapter).mapChapters(reversed = true) { i, li ->
+        return doc.body().select(selectChapter).map { li ->
             val a = li.selectFirstOrThrow("a")
             val href = a.attrAsRelativeUrl("href")
+            val name = a.text()
             val dateText = li.select(selectDate).last()?.text()
 
             MangaChapter(
                 id = generateUid(href),
-                title = a.text(),
-                number = i + 1f,
+                title = name,
+                number = name.extractChapterNumber(),
                 volume = 0,
                 url = href,
-                uploadDate = parseChapterDate(
-                    dateFormat,
-                    dateText,
-                ),
+                uploadDate = parseChapterDate(dateFormat, dateText),
                 source = source,
                 scanlator = null,
                 branch = null,
             )
-        }
+        }.sortedBy { it.number }
     }
 
     protected open val selectPage = "div#vungdoc img, div.container-chapter-reader img"

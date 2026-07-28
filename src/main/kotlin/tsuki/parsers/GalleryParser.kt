@@ -23,7 +23,7 @@ import tsuki.util.attrAsRelativeUrl
 import tsuki.util.attrAsRelativeUrlOrNull
 import tsuki.util.attrOrNull
 import tsuki.util.attrOrThrow
-import tsuki.util.mapChapters
+import tsuki.util.extractChapterNumber
 import tsuki.util.mapNotNullToSet
 import tsuki.util.parseHtml
 import tsuki.util.parseSafe
@@ -100,18 +100,20 @@ internal abstract class GalleryParser(
         }
     }
 
+
     override suspend fun getDetails(manga: Manga): Manga {
         val content = webClient.httpGet(manga.url.toAbsoluteUrl(domain)).parseHtml()
         val description = content.selectFirst("div.article-info")?.text()?.trim() ?: ""
         val df = SimpleDateFormat("HH:mm dd-MM-yyyy")
         val time = content.selectFirst("div.article-info > small")?.text()?.trim()
         val chapters = content.selectFirst("nav.pagination")?.select("a.pagination-link")
-            ?.mapChapters { index, element ->
+            ?.map { element ->
                 val relUrl = element.attrAsRelativeUrl("href")
+                val chapterText = element.ownText()
                 MangaChapter(
                     id = generateUid(relUrl),
-                    title = null,
-                    number = index + 1f,
+                    title = chapterText,
+                    number = chapterText.extractChapterNumber(),
                     volume = 0,
                     url = relUrl,
                     scanlator = null,
@@ -119,7 +121,9 @@ internal abstract class GalleryParser(
                     branch = null,
                     source = source,
                 )
-            }.orEmpty()
+            }
+            ?.sortedBy { it.number }
+            .orEmpty()
         return manga.copy(chapters = chapters, description = description)
     }
 

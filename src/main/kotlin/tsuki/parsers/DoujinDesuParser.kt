@@ -38,6 +38,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
+// Only for the source id/DoujinDesu?
 
 internal abstract class DoujinDesuParser(
     context: MangaLoaderContext,
@@ -289,7 +290,7 @@ internal abstract class DoujinDesuParser(
             rating = obj.optDouble("rating", 0.0).toFloat() / 10f,
             tags = tags,
             coverUrl = coverUrl ?: manga.coverUrl,
-            chapters = chapters.reversed()
+            chapters = chapters.sortedBy { it.number }
         )
 
         synchronized(detailsCacheLock) {
