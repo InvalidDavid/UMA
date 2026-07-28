@@ -27,7 +27,6 @@ import tsuki.util.src
 import tsuki.util.textOrNull
 import tsuki.util.toTitleCase
 import tsuki.util.urlEncoded
-import tsuki.util.mapChapters
 import tsuki.util.mapNotNullToSet
 import tsuki.util.nullIfEmpty
 import tsuki.util.oneOrThrowIfMany
@@ -44,6 +43,7 @@ import tsuki.util.mimeType
 import tsuki.util.parseRaw
 import tsuki.util.runCatchingCancellable
 import tsuki.util.toRelativeUrl
+import tsuki.util.extractChapterNumber
 
 import androidx.collection.ArrayMap
 import kotlinx.coroutines.runBlocking
@@ -221,20 +221,23 @@ internal abstract class MangaReaderParser(
     override suspend fun getDetails(manga: Manga): Manga {
         val docs = webClient.httpGet(manga.url.toAbsoluteUrl(domain)).parseHtml()
         val dateFormat = SimpleDateFormat(datePattern, sourceLocale)
-        val chapters = docs.select(selectChapter).mapChapters(reversed = true) { index, element ->
-            val url = element.selectFirst("a")?.attrAsRelativeUrlOrNull("href") ?: return@mapChapters null
+        val chapters = docs.select(selectChapter).mapNotNull { element ->
+            val url = element.selectFirst("a")?.attrAsRelativeUrlOrNull("href") ?: return@mapNotNull null
+            val chapterNumEl = element.selectFirst(".chapternum")
+            val name = chapterNumEl?.textOrNull() ?: ""
             MangaChapter(
                 id = generateUid(url),
-                title = element.selectFirst(".chapternum")?.textOrNull(),
+                title = name,
                 url = url,
-                number = index + 1f,
+                number = name.extractChapterNumber(),
                 volume = 0,
                 scanlator = null,
                 uploadDate = dateFormat.parseSafe(element.selectFirst(".chapterdate")?.text()),
                 branch = null,
                 source = source,
             )
-        }
+        }.sortedBy { it.number }
+
         return parseInfo(docs, manga, chapters)
     }
 
