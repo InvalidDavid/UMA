@@ -4,28 +4,41 @@ import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
-import tsuki.exception.ParseException
 import tsuki.network.OkHttpWebClient
+import tsuki.network.CloudFlareHelper
 
 import tsuki.model.*
 import tsuki.util.*
 
 import okhttp3.FormBody
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.json.JSONObject
+import tsuki.MangaParserAuthProvider
+import tsuki.exception.AuthRequiredException
+import tsuki.exception.ParseException
 import java.text.SimpleDateFormat
 import java.util.EnumSet
 import java.util.Locale
 
 @MangaSourceParser("BATCAVE", "Batcave", "en", ContentType.COMICS)
 internal class Batcave(context: MangaLoaderContext) :
-    PagedMangaParser(context, MangaParserSource.BATCAVE, 20) {
+    PagedMangaParser(context, MangaParserSource.BATCAVE, 20),
+    MangaParserAuthProvider {
 
     override val configKeyDomain = ConfigKey.Domain("batcave.biz")
+
+    override fun getRequestHeaders() = super.getRequestHeaders().newBuilder()
+        .set("User-Agent", "Mozilla/5.0 (Linux; Android 14; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+        .build()
+
+    override val authUrl: String get() = "https://$domain"
+    override suspend fun isAuthorized(): Boolean {
+        return context.cookieJar.getCookies(domain).any { it.name == "__guard_trust" }
+    }
+    override suspend fun getUsername(): String = ""
 
     private val dateFormat = SimpleDateFormat("dd.MM.yyyy", Locale.ENGLISH)
 
@@ -33,15 +46,24 @@ internal class Batcave(context: MangaLoaderContext) :
     private var genreList: List<Pair<String, Int>>? = null
     private var filterFetchFailed = false
 
-    private val rawHttpClient: OkHttpClient by lazy {
-        context.httpClient.newBuilder()
+    override val webClient: OkHttpWebClient by lazy {
+        val client = context.httpClient.newBuilder()
             .addInterceptor(::refererInterceptor)
-            .addInterceptor(::dleGuardInterceptor)
+            .addInterceptor { chain ->
+                val response = chain.proceed(chain.request())
+                if (!response.isSuccessful && (response.code == 403 || response.code == 503)) {
+                    try {
+                        val protection = CloudFlareHelper.checkResponseForProtection(response)
+                        if (protection == CloudFlareHelper.PROTECTION_CAPTCHA) {
+                            response.close()
+                            throw AuthRequiredException(source)
+                        }
+                    } catch (_: Exception) {}
+                }
+                response
+            }
             .build()
-    }
-
-    private val apiClient: OkHttpWebClient by lazy {
-        OkHttpWebClient(rawHttpClient, source)
+        OkHttpWebClient(client, source)
     }
 
     private fun refererInterceptor(chain: okhttp3.Interceptor.Chain): Response {
@@ -54,19 +76,18 @@ internal class Batcave(context: MangaLoaderContext) :
         return chain.proceed(request.newBuilder().header("Referer", referer).build())
     }
 
-    private fun dleGuardInterceptor(chain: okhttp3.Interceptor.Chain): Response {
-        val originalRequest = chain.request()
-        val response = chain.proceed(originalRequest)
-        if (response.request.url.pathSegments.firstOrNull() != "_c") {
-            return response
+    // gets cookie when opening source
+    private suspend fun ensureGuard() {
+        if (isAuthorized()) return
+        repeat(2) {
+            try {
+                val request = Request.Builder().url("https://$domain/").build()
+                val response = context.httpClient.newCall(request).execute()
+                response.close()
+                if (isAuthorized()) return
+            } catch (_: Exception) {}
         }
-        response.close()
-        val url = if (originalRequest.method == "GET") {
-            originalRequest.url.toString()
-        } else {
-            "https://$domain/"
-        }
-        context.requestBrowserAction(this, url)
+        throw AuthRequiredException(source)
     }
 
     override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
@@ -88,19 +109,17 @@ internal class Batcave(context: MangaLoaderContext) :
     private suspend fun fetchFilters() {
         if (genreList != null) return
         if (filterFetchFailed) return
-
         try {
-            val doc = apiClient.httpGet("https://$domain/comix").parseHtml()
+            ensureGuard()
+            val doc = webClient.httpGet("https://$domain/comix").parseHtml()
             val script = doc.selectFirst("script:containsData(window.__XFILTER__)")?.data()
                 ?: throw ParseException("Filter data not found", "https://$domain/comix")
-
             val rawJson = script
                 .substringAfter("window.__XFILTER__ = ")
                 .substringBeforeLast(";")
                 .trim()
             val root = JSONObject(rawJson)
             val filterItems = root.getJSONObject("filter_items")
-
             genreList = parseFilterValues(filterItems)
         } catch (_: Exception) {
             filterFetchFailed = true
@@ -124,12 +143,11 @@ internal class Batcave(context: MangaLoaderContext) :
         genreList?.forEach { (name, id) ->
             tags += MangaTag(name, "g_$id", source)
         }
-        return MangaListFilterOptions(
-            availableTags = tags,
-        )
+        return MangaListFilterOptions(availableTags = tags)
     }
 
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
+        ensureGuard()
         val query = filter.query?.trim()?.takeIf { it.isNotEmpty() }
         if (query != null) return searchManga(query, page)
 
@@ -149,7 +167,7 @@ internal class Batcave(context: MangaLoaderContext) :
         }
 
         return if (sortPair.first.isEmpty()) {
-            parseMangaList(apiClient.httpGet(url).parseHtml())
+            parseMangaList(webClient.httpGet(url).parseHtml())
         } else {
             val formBody = FormBody.Builder()
                 .add("dlenewssortby", sortPair.first)
@@ -158,21 +176,22 @@ internal class Batcave(context: MangaLoaderContext) :
                 .add("set_direction_sort", "dle_direction_xfilter")
                 .build()
             val request = Request.Builder().url(url).post(formBody).build()
-            val response = rawHttpClient.newCall(request).execute()
+            val response = context.httpClient.newCall(request).execute()
             parseMangaList(response.parseHtml())
         }
     }
 
     private suspend fun searchManga(query: String, page: Int): List<Manga> {
+        ensureGuard()
         val encoded = query.urlEncoded()
         val url = if (page == 1) "https://$domain/search/$encoded/"
         else "https://$domain/search/$encoded/page/$page/"
-        return parseMangaList(apiClient.httpGet(url).parseHtml())
+        return parseMangaList(webClient.httpGet(url).parseHtml())
     }
 
     private fun parseMangaList(doc: org.jsoup.nodes.Document): List<Manga> {
-        return doc.select("#dle-content > .readed").map { element ->
-            val a = element.selectFirst(".readed__title > a") ?: return@map null
+        return doc.select("#dle-content > .readed").mapNotNull { element ->
+            val a = element.selectFirst(".readed__title > a") ?: return@mapNotNull null
             val cover = element.selectFirst("img")?.attrAsAbsoluteUrl("data-src")
             Manga(
                 id = generateUid(a.attrAsRelativeUrl("href")),
@@ -188,7 +207,7 @@ internal class Batcave(context: MangaLoaderContext) :
                 authors = emptySet(),
                 source = source,
             )
-        }.filterNotNull()
+        }
     }
 
     private val detailsCacheLock = Any()
@@ -197,16 +216,14 @@ internal class Batcave(context: MangaLoaderContext) :
     }
 
     override suspend fun getDetails(manga: Manga): Manga {
+        ensureGuard()
         synchronized(detailsCacheLock) {
             detailsCache[manga.url]?.let { return it }
         }
-
-        val doc = apiClient.httpGet(manga.url.toAbsoluteUrl(domain)).parseHtml()
-
+        val doc = webClient.httpGet(manga.url.toAbsoluteUrl(domain)).parseHtml()
         val title = doc.selectFirst("header.page__header h1")?.text() ?: manga.title
         val cover = doc.selectFirst("div.page__poster img")?.absUrl("src")
         val description = doc.selectFirst("div.page__text")?.text()
-
         val author = doc.selectFirst(".page__list > li:has(> div:contains(Writer)) a")?.text()
             ?: doc.selectFirst(".page__list > li:has(> div:contains(Writer))")?.ownText()
         val state = when (doc.selectFirst(".page__list > li:has(> div:contains(Release type))")?.ownText()?.trim()) {
@@ -216,7 +233,6 @@ internal class Batcave(context: MangaLoaderContext) :
         val tags = doc.select("div.page__tags a").map { a ->
             MangaTag(a.text(), a.text().lowercase().replace(" ", "-"), source)
         }.toSet() + MangaTag("Comic", "comic", source)
-
         val script = doc.selectFirst("script:containsData(window.__DATA__)")?.data()
             ?: throw ParseException("Chapter data script not found", manga.url)
         val json = JSONObject(
@@ -237,7 +253,7 @@ internal class Batcave(context: MangaLoaderContext) :
                 branch = null,
                 source = source,
             )
-        }.reversed()
+        }.sortedBy { it.number }
 
         val result = manga.copy(
             title = title,
@@ -255,6 +271,7 @@ internal class Batcave(context: MangaLoaderContext) :
     }
 
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
+        ensureGuard()
         val (newsId, rawId) = chapter.url.substringAfter("reader/").split("/", limit = 2)
         val id = Regex("^\\d+").find(rawId)?.value ?: rawId
         val jsonBody = JSONObject().apply {
@@ -269,7 +286,7 @@ internal class Batcave(context: MangaLoaderContext) :
             .post(jsonBody.toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull()))
             .build()
 
-        val response = rawHttpClient.newCall(request).execute()
+        val response = context.httpClient.newCall(request).execute()
         val json = JSONObject(response.body?.string() ?: throw ParseException("Empty response", chapter.url))
         val data = json.getJSONObject("data")
         val images = data.optJSONArray("images") ?: throw ParseException("No images found", chapter.url)
