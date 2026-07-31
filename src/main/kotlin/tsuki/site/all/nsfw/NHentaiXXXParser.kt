@@ -68,15 +68,9 @@ internal class NHentaiXXXParser(context: MangaLoaderContext) :
                 else -> {
                     append("/search/?key=")
 
-                    val joiner = StringUtil.StringJoiner("+")
-                    tags.forEach { tag ->
-                        joiner.add(tag.title)
-                    }
-
-                    if (!query.isNullOrEmpty()) {
-                        joiner.add(query.urlEncoded())
-                    }
-                    append(joiner.complete())
+                    val parts = tags.map { it.title }.toMutableList()
+                    if (!query.isNullOrEmpty()) parts.add(query.urlEncoded())
+                    append(parts.joinToString("+"))
                 }
             }
 
