@@ -49,8 +49,10 @@ internal class MangaK(context: MangaLoaderContext) :
     override val availableSortOrders: Set<SortOrder> = EnumSet.of(
         SortOrder.UPDATED,
         SortOrder.NEWEST,
-        SortOrder.POPULARITY,
         SortOrder.RATING,
+        SortOrder.POPULARITY,
+        SortOrder.POPULARITY_WEEK,
+        SortOrder.POPULARITY_MONTH,
     )
 
     override val filterCapabilities: MangaListFilterCapabilities
@@ -66,8 +68,6 @@ internal class MangaK(context: MangaLoaderContext) :
         availableStates = EnumSet.of(
             MangaState.ONGOING,
             MangaState.FINISHED,
-//            MangaState.PAUSED,
-//            MangaState.ABANDONED,
         ),
         availableContentTypes = EnumSet.of(
             ContentType.MANGA,
@@ -118,6 +118,8 @@ internal class MangaK(context: MangaLoaderContext) :
                     SortOrder.NEWEST -> "newest"
                     SortOrder.POPULARITY -> "popular"
                     SortOrder.RATING -> "rating"
+                    SortOrder.POPULARITY_WEEK -> "views_7days"
+                    SortOrder.POPULARITY_MONTH -> "views_30days"
                     else -> "latest"
                 },
             )
@@ -180,8 +182,6 @@ internal class MangaK(context: MangaLoaderContext) :
                     when (it) {
                         MangaState.ONGOING -> "ongoing"
                         MangaState.FINISHED -> "completed"
-//                        MangaState.PAUSED -> "hiatus"
-//                        MangaState.ABANDONED -> "cancelled"
                         else -> null
                     } ?: return@let
                 )
