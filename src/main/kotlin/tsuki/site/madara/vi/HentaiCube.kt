@@ -33,7 +33,7 @@ import tsuki.util.urlBuilder
 import tsuki.util.urlEncoded
 
 // Do not use "hentaicb.sbs" domain, may cause duplicate tags!
-@Broken
+@Broken("Lười sửa web vl, thằng nào tạo issue thì mới sửa!")
 @MangaSourceParser("HENTAICUBE", "HentaiCube", "vi", ContentType.HENTAI)
 internal class HentaiCube(context: MangaLoaderContext) :
 	MadaraParser(context, MangaParserSource.HENTAICUBE, "hentaicube.xyz") {

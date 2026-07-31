@@ -22,7 +22,7 @@ internal class MimiHentai(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.MIMIHENTAI, 24) {
 
 	private val apiSuffix = "api"
-	override val configKeyDomain = ConfigKey.Domain("mimimoe.moe")
+	override val configKeyDomain = ConfigKey.Domain("mimimoe.moe", "mimihentai.moe")
 	override val userAgentKey = ConfigKey.UserAgent(UserAgents.KOTATSU)
 
 	override suspend fun getFavicons(): Favicons {

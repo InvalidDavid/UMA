@@ -28,7 +28,7 @@ import tsuki.util.suspendlazy.suspendLazy
 import java.util.*
 import kotlin.time.Duration.Companion.seconds
 
-@Broken("Tạm đóng web")
+@Broken("Lười sửa web vl, thằng nào tạo issue thì mới sửa!")
 internal abstract class YuriGardenParser(
 	context: MangaLoaderContext,
 	source: MangaParserSource,

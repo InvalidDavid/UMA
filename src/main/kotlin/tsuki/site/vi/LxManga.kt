@@ -15,7 +15,7 @@ import tsuki.util.*
 import java.text.SimpleDateFormat
 import java.util.*
 
-@Broken("Need to add / handle token resolver")
+@Broken("Lười sửa web vl, thằng nào tạo issue thì mới sửa!")
 @MangaSourceParser("LXMANGA", "LXManga", "vi", type = ContentType.HENTAI)
 internal class LxManga(context: MangaLoaderContext) : PagedMangaParser(context, MangaParserSource.LXMANGA, 60) {
 
