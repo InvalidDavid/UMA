@@ -137,7 +137,7 @@ internal class NHentaiXXXParser(context: MangaLoaderContext) :
         return try {
             webClient.httpHead(url)
             false
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             true
         }
     }
@@ -151,7 +151,7 @@ internal class NHentaiXXXParser(context: MangaLoaderContext) :
             try {
                 webClient.httpHead(newUrl)
                 newUrl
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 null // Skip errors and continue checking other formats
             }
         }
