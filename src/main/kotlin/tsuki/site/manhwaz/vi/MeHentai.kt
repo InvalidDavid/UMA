@@ -8,8 +8,7 @@ import tsuki.site.manhwaz.ManhwaZ
 
 @MangaSourceParser("MEHENTAI", "MeHentai", "vi", ContentType.HENTAI)
 internal class MeHentai(context: MangaLoaderContext) :
-	ManhwaZ(context, MangaParserSource.MEHENTAI, "mehentai.blog") {
-
+	ManhwaZ(context, MangaParserSource.MEHENTAI, "mehentai.live") {
 	override val searchPath = "tim-kiem"
 	override val tagPath = "the-loai"
 }

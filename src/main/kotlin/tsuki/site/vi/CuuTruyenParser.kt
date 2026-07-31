@@ -151,14 +151,18 @@ internal class CuuTruyenParser(context: MangaLoaderContext) :
 		return data.mapJSON { jo ->
 			val author = jo.getStringOrNull("author_name")
             val server = config[preferredServerKey] ?: DESKTOP_COVER
+			val coverUrl = if (server == MOBILE_COVER) {
+				jo.getString(MOBILE_COVER).toRelativeUrl(OLD_CDN).toAbsoluteUrl(NEW_CDN)
+			} else {
+				jo.getString(DESKTOP_COVER).toRelativeUrl(OLD_CDN).toAbsoluteUrl(NEW_CDN)
+			}
 			Manga(
 				id = generateUid(jo.getLong("id")),
 				url = "$apiSuffix/mangas/${jo.getLong("id")}",
 				publicUrl = "https://$domain/mangas/${jo.getLong("id")}",
 				title = jo.getString("name"),
 				altTitles = emptySet(),
-				coverUrl = if (server == MOBILE_COVER) jo.getString(MOBILE_COVER)
-                    else jo.getString(DESKTOP_COVER),
+				coverUrl = coverUrl,
 				largeCoverUrl = null,
 				authors = setOfNotNull(author),
 				tags = emptySet(),
@@ -228,8 +232,9 @@ internal class CuuTruyenParser(context: MangaLoaderContext) :
 					source = source,
 				)
 			},
-			largeCoverUrl = if (server == MOBILE_COVER) json.getString(MOBILE_PANORAMA)
-				else json.getString(DESKTOP_PANORAMA),
+			largeCoverUrl = if (server == MOBILE_COVER) {
+				json.getString(MOBILE_PANORAMA).toRelativeUrl(OLD_CDN).toAbsoluteUrl(NEW_CDN)
+			} else json.getString(DESKTOP_PANORAMA).toRelativeUrl(OLD_CDN).toAbsoluteUrl(NEW_CDN),
 		)
 	}
 
@@ -238,7 +243,8 @@ internal class CuuTruyenParser(context: MangaLoaderContext) :
 		val json = webClient.httpGet(url).parseJson().getJSONObject("data")
 
 		return json.getJSONArray("pages").mapJSON { jo ->
-			val imageUrl = jo.getString("image_url").toHttpUrl().newBuilder()
+			val imageUrl = jo.getString("image_path").toAbsoluteUrl(NEW_CDN)
+				.toHttpUrl().newBuilder()
 			val id = jo.getLong("id")
 			val drm = jo.getStringOrNull("drm_data")
 			if (!drm.isNullOrEmpty()) {
@@ -448,6 +454,8 @@ internal class CuuTruyenParser(context: MangaLoaderContext) :
 		const val MOBILE_PANORAMA = "panorama_mobile_url"
         const val DESKTOP_COVER = "cover_url"
         const val DESKTOP_PANORAMA = "panorama_url"
+		const val OLD_CDN = "storage-ct.lrclib.net"
+		const val NEW_CDN = "storage-bravo.cuutruyen.net"
 	}
 }
 

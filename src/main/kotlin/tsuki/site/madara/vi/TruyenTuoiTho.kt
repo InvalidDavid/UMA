@@ -7,7 +7,7 @@ import tsuki.site.madara.MadaraParser
 
 @MangaSourceParser("TRUYENTUOITHO", "Truyện Tuổi Thơ", "vi")
 internal class TruyenTuoiTho(context: MangaLoaderContext) :
-	MadaraParser(context, MangaParserSource.TRUYENTUOITHO, "truyentuoitho.com") {
+	MadaraParser(context, MangaParserSource.TRUYENTUOITHO, "truyentuoitho.online") {
 	override val datePattern = "dd/MM/yyyy"
 	override val withoutAjax = true
 }

@@ -8,4 +8,4 @@ import tsuki.site.manhwaz.ManhwaZ
 
 @MangaSourceParser("SAYHENTAI", "SayHentai", "vi", ContentType.HENTAI)
 internal class SayHentai(context: MangaLoaderContext) :
-	ManhwaZ(context, MangaParserSource.SAYHENTAI, "sayhentai.sh")
+	ManhwaZ(context, MangaParserSource.SAYHENTAI, "sayhentai.cx")

@@ -2,6 +2,7 @@ package tsuki.site.madara.vi
 
 import okhttp3.Headers
 import org.jsoup.nodes.Element
+import tsuki.Broken
 import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
 import tsuki.model.ContentRating
@@ -32,6 +33,7 @@ import tsuki.util.urlBuilder
 import tsuki.util.urlEncoded
 
 // Do not use "hentaicb.sbs" domain, may cause duplicate tags!
+@Broken
 @MangaSourceParser("HENTAICUBE", "HentaiCube", "vi", ContentType.HENTAI)
 internal class HentaiCube(context: MangaLoaderContext) :
 	MadaraParser(context, MangaParserSource.HENTAICUBE, "hentaicube.xyz") {
@@ -59,7 +61,7 @@ internal class HentaiCube(context: MangaLoaderContext) :
 				append("https://")
 				append(domain)
 				append("/tacgia/")
-				append(filter.author?.lowercase().orEmpty()?.replace(" ", "-"))
+				append(filter.author?.lowercase().orEmpty().replace(" ", "-"))
 
 				if (pages > 1) {
 					append("/page/")
