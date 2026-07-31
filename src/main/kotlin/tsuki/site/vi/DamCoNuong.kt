@@ -20,7 +20,7 @@ import java.util.*
 internal class DamCoNuong(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.DAMCONUONG, 30) {
 
-	override val configKeyDomain = ConfigKey.Domain("damconuong.lol")
+	override val configKeyDomain = ConfigKey.Domain("damconuong.store")
 
 	private val availableTags = suspendLazy(initializer = ::fetchTags)
 
@@ -122,10 +122,8 @@ internal class DamCoNuong(context: MangaLoaderContext) :
 	}
 
 	private fun parseMangaList(doc: Document): List<Manga> {
-		return doc.select(
-			"div.border.rounded-lg.border-gray-300.dark\\:border-dark-blue.bg-white.dark\\:bg-fire-blue"
-		).map { element ->
-			val mainA = element.selectFirstOrThrow("div.relative a")
+		return doc.select("div.manga-vertical").map { element ->
+			val mainA = element.selectFirstOrThrow("a[href*=/truyen/]")
 			val href = mainA.attrAsRelativeUrl("href")
 			val title = mainA.selectFirst("div.cover-frame img")?.attr("alt")
 				?.takeIf { it.isNotBlank() }
