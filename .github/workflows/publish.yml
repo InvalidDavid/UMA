@@ -6,7 +6,7 @@ on:
     branches:
       - master
     paths:
-      - 'src/main/kotlin/org/koitharu/kotatsu/parsers/**'
+      - 'src/main/kotlin/tsuki/**'
 
 jobs:
   publish:
