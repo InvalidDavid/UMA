@@ -8,7 +8,6 @@ import tsuki.parsers.GalleryAdultsParser
 import tsuki.model.*
 import tsuki.util.*
 
-import org.jsoup.internal.StringUtil
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.util.EnumSet
