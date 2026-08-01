@@ -5,31 +5,30 @@ import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
 import tsuki.model.*
 import tsuki.site.galleryadults.GalleryAdultsParser
+import tsuki.site.galleryadults.GalleryAdultsSelectors
+import tsuki.site.galleryadults.GalleryAdultsSiteConfig
 import tsuki.util.*
 import java.util.*
 
 @MangaSourceParser("HENTAIFORCE", "HentaiForce", type = ContentType.HENTAI)
 internal class HentaiForce(context: MangaLoaderContext) :
-    GalleryAdultsParser(context, MangaParserSource.HENTAIFORCE, "hentaiforce.net", pageSize = 30) {
-    override val selectGallery = ".gallery"
-    override val selectGalleryLink = "a.gallery-thumb"
-    override val pathTagUrl = "/tags/popular/"
-    override val selectTags = ".tag-listing"
-    override val selectUrlChapter = "#gallery-main-cover a"
-    override val selectTag = "div.tag-container:contains(Tags:)"
-    override val selectAuthor = "div.tag-container:contains(Artists:) a"
-    override val selectLanguageChapter = "div.tag-container:contains(Languages:) a"
-    override val idImg = ".gallery-reader-img-wrapper img"
-
-    override val filterCapabilities: MangaListFilterCapabilities
-        get() = super.filterCapabilities.copy(
-            isMultipleTagsSupported = true,
-        )
-
-    override val availableSortOrders: Set<SortOrder> = EnumSet.of(SortOrder.UPDATED, SortOrder.POPULARITY)
-
-    override suspend fun getFilterOptions(): MangaListFilterOptions {
-        return super.getFilterOptions().copy(
+    GalleryAdultsParser(
+        context = context,
+        source = MangaParserSource.HENTAIFORCE,
+        siteConfig = GalleryAdultsSiteConfig(
+            domain = "hentaiforce.net",
+            pageSize = 30,
+            popularTagsPath = "/tags/popular/",
+            selectors = GalleryAdultsSelectors(
+                gallery = ".gallery",
+                galleryLink = "a.gallery-thumb",
+                tagsRoot = ".tag-listing",
+                detailsTags = "div.tag-container:contains(Tags:)",
+                detailsAuthor = "div.tag-container:contains(Artists:) a",
+                detailsLanguage = "div.tag-container:contains(Languages:) a",
+                detailsChapterUrl = "#gallery-main-cover a",
+                pageImage = ".gallery-reader-img-wrapper img",
+            ),
             availableLocales = setOf(
                 Locale.ENGLISH,
                 Locale.FRENCH,
@@ -45,13 +44,10 @@ internal class HentaiForce(context: MangaLoaderContext) :
                 Locale("th"),
                 Locale("vi"),
             ),
-        )
-    }
-
-    override suspend fun getPageUrl(page: MangaPage): String {
-        val doc = webClient.httpGet(page.url.toAbsoluteUrl(domain)).parseHtml()
-        return doc.selectFirstOrThrow(idImg).requireSrc()
-    }
+            availableSortOrders = setOf(SortOrder.UPDATED, SortOrder.POPULARITY),
+            supportsMultipleTags = true,
+        ),
+    ) {
 
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
         val url = buildString {

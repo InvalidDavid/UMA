@@ -19,5 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "plugins"
+rootProject.name = providers.gradleProperty("plugin.id").get()
 include("plugins-ksp")

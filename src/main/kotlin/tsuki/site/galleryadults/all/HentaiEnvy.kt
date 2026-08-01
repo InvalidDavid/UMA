@@ -5,6 +5,8 @@ import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
 import tsuki.model.*
 import tsuki.site.galleryadults.GalleryAdultsParser
+import tsuki.site.galleryadults.GalleryAdultsSelectors
+import tsuki.site.galleryadults.GalleryAdultsSiteConfig
 import tsuki.util.oneOrThrowIfMany
 import tsuki.util.parseHtml
 import tsuki.util.urlEncoded
@@ -12,30 +14,35 @@ import java.util.*
 
 @MangaSourceParser("HENTAIENVY", "HentaiEnvy", type = ContentType.HENTAI)
 internal class HentaiEnvy(context: MangaLoaderContext) :
-    GalleryAdultsParser(context, MangaParserSource.HENTAIENVY, "hentaienvy.com", pageSize = 24) {
-    override val selectGalleryLink = "a"
-    override val selectGalleryTitle = "div.title"
-    override val selectTags = ".tags_items"
-    override val selectTag = ".gt_right_tags ul:contains(Tags:)"
-    override val selectAuthor = ".gt_right_tags ul:contains(Artists:) a"
-    override val selectLanguageChapter = ".gt_right_tags ul:contains(Languages:) a"
-    override val idImg = "fimg"
-
-    override val availableSortOrders: Set<SortOrder> = EnumSet.of(SortOrder.UPDATED, SortOrder.POPULARITY)
-
-    override suspend fun getFilterOptions() = super.getFilterOptions().copy(
-        availableLocales = setOf(
-            Locale.ENGLISH,
-            Locale.FRENCH,
-            Locale.JAPANESE,
-            Locale.CHINESE,
-            Locale("es"),
-            Locale("ru"),
-            Locale("ko"),
-            Locale.GERMAN,
-            Locale("pt"),
+    GalleryAdultsParser(
+        context = context,
+        source = MangaParserSource.HENTAIENVY,
+        siteConfig = GalleryAdultsSiteConfig(
+            domain = "hentaienvy.com",
+            pageSize = 24,
+            selectors = GalleryAdultsSelectors(
+                galleryLink = "a",
+                galleryTitle = "div.title",
+                tagsRoot = ".tags_items",
+                detailsTags = ".gt_right_tags ul:contains(Tags:)",
+                detailsAuthor = ".gt_right_tags ul:contains(Artists:) a",
+                detailsLanguage = ".gt_right_tags ul:contains(Languages:) a",
+                pageImage = "#fimg",
+            ),
+            availableLocales = setOf(
+                Locale.ENGLISH,
+                Locale.FRENCH,
+                Locale.JAPANESE,
+                Locale.CHINESE,
+                Locale("es"),
+                Locale("ru"),
+                Locale("ko"),
+                Locale.GERMAN,
+                Locale("pt"),
+            ),
+            availableSortOrders = setOf(SortOrder.UPDATED, SortOrder.POPULARITY),
         ),
-    )
+    ) {
 
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
         val url = buildString {

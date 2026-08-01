@@ -1,1 +1,7 @@
-total: 57
+bundle: en-ru
+total: 90
+locales:
+  all: 11
+  en: 51
+  ru: 27
+  zh: 1

@@ -8,4 +8,12 @@ kotlin {
 
 dependencies {
     implementation(libs.ksp.symbol.processing.api)
+
+    testImplementation(libs.junit.api)
+    testRuntimeOnly(libs.junit.engine)
+    testRuntimeOnly(libs.junit.launcher)
+}
+
+tasks.test {
+    useJUnitPlatform()
 }

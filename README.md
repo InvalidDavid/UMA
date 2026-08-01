@@ -1,12 +1,12 @@
-# plugins
+# en-ru manga sources plugin
 
-This template project provides a collection of utilities and some parsers for convenient access to any content available on the web.
+This repository builds the `en-ru` Tsuki manga sources plugin. It contains reusable parser families and source adapters intended for English, Russian, and locale-neutral catalogs.
 
 ## Requirements
 
 - Android Studio or IntelliJ IDEA (Community Edition is enough)
 - Android SDK 35 or later (if not using IDE)
-- Java 11 or later is required
+- Java 17 is required to run the build; a Java 11 compiler toolchain is also required
 
 ## Usage
 
@@ -23,6 +23,26 @@ This template project provides a collection of utilities and some parsers for co
     ```
 
 **More simply, just run `buildJar` task in Android Studio / IntelliJ IDEA and dex it after building.**
+
+The installable artifact is written to `build/libs/en-ru.jar`. The generated catalog contains 90 sources: 51 English, 27 Russian, 11 locale-neutral, and 1 retained Chinese source.
+
+## Plugin identity
+
+`plugin.id` in `gradle.properties` is the single plugin identity. It must use lowercase kebab-case. The Gradle project name, raw and installable JAR filenames, generated catalog summary, and GitHub release upload path are derived from this value.
+
+## Adding a source
+
+1. Add a `@MangaSourceParser` adapter under `src/main/kotlin/tsuki/site/` with an explicit `en` or `ru` locale, or an empty locale only when the source genuinely serves multiple languages.
+2. Reuse a source-family parser when the target site shares its engine. Keep site variation in cohesive configuration instead of copying the reading flow.
+3. Add deterministic fixtures for list, details, chapters, and pages under `src/test/resources/fixtures/`.
+4. Add a source contract test that exercises the public `MangaParser` interface through `FixtureMangaLoaderContext`.
+5. Run `gradlew test` and `gradlew buildJar` with Java 17 plus a Java 11 compiler toolchain.
+
+Tests never contact live source websites. Every unregistered fixture request fails explicitly.
+
+## Manual consumer verification
+
+Automated checks do not install the plugin into a consumer application. Before publishing, replace the previous `vn.jar` with `build/libs/en-ru.jar` through the consumer's normal plugin installation flow, reload the plugin catalog, confirm that all 90 entries are listed without Vietnamese sources, and open representative English and Russian sources through list, details, chapter, and page-image loading. `ACOMICS`, `BEST_MANGA`, `HENTAILIB`, and `ZENMANGA` intentionally remain marked broken until viable endpoints and reading contracts are available.
 
 ## Credits
 

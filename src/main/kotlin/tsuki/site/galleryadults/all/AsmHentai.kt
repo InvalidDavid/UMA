@@ -7,30 +7,36 @@ import tsuki.model.ContentType
 import tsuki.model.MangaParserSource
 import tsuki.model.MangaTag
 import tsuki.site.galleryadults.GalleryAdultsParser
+import tsuki.site.galleryadults.GalleryAdultsSelectors
+import tsuki.site.galleryadults.GalleryAdultsSiteConfig
 import tsuki.util.mapToSet
 import tsuki.util.removeSuffix
-import java.util.*
+import java.util.Locale
 
 @MangaSourceParser("ASMHENTAI", "AsmHentai", type = ContentType.HENTAI)
 internal class AsmHentai(context: MangaLoaderContext) :
-    GalleryAdultsParser(context, MangaParserSource.ASMHENTAI, "asmhentai.com") {
-
-    override val selectGallery = ".preview_item"
-    override val selectGalleryLink = ".image a"
-    override val selectGalleryImg = ".image img"
-    override val pathTagUrl = "/tags/?page="
-    override val selectTags = ".tags_page ul.tags"
-    override val selectAuthor = "div.tags:contains(Artists:) .tag_list a span.tag"
-    override val idImg = "fimg"
-
-    override suspend fun getFilterOptions() = super.getFilterOptions().copy(
-        availableLocales = setOf(
-            Locale.ENGLISH,
-            Locale.JAPANESE,
-            Locale.CHINESE,
-            Locale("tr"),
+    GalleryAdultsParser(
+        context = context,
+        source = MangaParserSource.ASMHENTAI,
+        siteConfig = GalleryAdultsSiteConfig(
+            domain = "asmhentai.com",
+            popularTagsPath = "/tags/?page=",
+            selectors = GalleryAdultsSelectors(
+                gallery = ".preview_item",
+                galleryLink = ".image a",
+                galleryImage = ".image img",
+                tagsRoot = ".tags_page ul.tags",
+                detailsAuthor = "div.tags:contains(Artists:) .tag_list a span.tag",
+                pageImage = "#fimg",
+            ),
+            availableLocales = setOf(
+                Locale.ENGLISH,
+                Locale.JAPANESE,
+                Locale.CHINESE,
+                Locale("tr"),
+            ),
         ),
-    )
+    ) {
 
     override fun Element.parseTags() = select("a").mapToSet {
         val key = it.attr("href").removeSuffix('/').substringAfterLast('/')

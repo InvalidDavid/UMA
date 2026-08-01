@@ -18,6 +18,8 @@ import tsuki.model.MangaTag
 import tsuki.model.RATING_UNKNOWN
 import tsuki.model.SortOrder
 import tsuki.site.galleryadults.GalleryAdultsParser
+import tsuki.site.galleryadults.GalleryAdultsSelectors
+import tsuki.site.galleryadults.GalleryAdultsSiteConfig
 import tsuki.util.attrAsRelativeUrl
 import tsuki.util.generateUid
 import tsuki.util.mapToSet
@@ -33,16 +35,27 @@ import java.util.Base64
 
 @MangaSourceParser("HENTAINEXUS", "HentaiNexus", "en", type = ContentType.HENTAI)
 internal class HentaiNexus(context: MangaLoaderContext) :
-    GalleryAdultsParser(context, MangaParserSource.HENTAINEXUS, "hentainexus.com", 30) {
-    override val selectGallery = "div.container div.columns div.column"
-    override val selectGalleryLink = "a"
-    override val selectGalleryTitle = ".card-header"
-    override val selectTitle = ".title"
-    override val selectTag = "tr:contains(Tags) td:nth-child(2) span.tag a"
-    override val selectAuthor = "tr:contains(Artist) td:nth-child(2) a"
-    override val selectLanguageChapter = ""
-    override val selectUrlChapter = ""
-    override val selectTotalPage = ".section div.container:nth-child(2) > div.box > div.columns div.column"
+    GalleryAdultsParser(
+        context = context,
+        source = MangaParserSource.HENTAINEXUS,
+        siteConfig = GalleryAdultsSiteConfig(
+            domain = "hentainexus.com",
+            pageSize = 30,
+            selectors = GalleryAdultsSelectors(
+                gallery = "div.container div.columns div.column",
+                galleryLink = "a",
+                galleryTitle = ".card-header",
+                detailsTitle = ".title",
+                detailsTags = "tr:contains(Tags) td:nth-child(2) span.tag a",
+                detailsAuthor = "tr:contains(Artist) td:nth-child(2) a",
+                detailsLanguage = "",
+                detailsChapterUrl = "",
+                totalPages = ".section div.container:nth-child(2) > div.box > div.columns div.column",
+            ),
+            supportsMultipleTags = true,
+            supportsAuthorSearch = true,
+        ),
+    ) {
 
     val selectReadUrl = "a:contains(Read Online)"
     val selectPublisher = "tr:contains(Publisher) td:nth-child(2)"
@@ -54,12 +67,6 @@ internal class HentaiNexus(context: MangaLoaderContext) :
 
     var mangaPagesInternalId: String = ""               /* use as a flag for reloading data */
     var decryptedPagesData: List<String> = listOf()
-
-    override val filterCapabilities: MangaListFilterCapabilities
-        get() = super.filterCapabilities.copy(
-            isMultipleTagsSupported = true,
-            isAuthorSearchSupported = true,
-        )
 
     override suspend fun getFilterOptions(): MangaListFilterOptions {
         val document = webClient.httpGet("https://$domain/explore/categories/tag").parseHtml()

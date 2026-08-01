@@ -12,16 +12,22 @@ plugins {
 group = "org.usagi"
 version = "1.0.0"
 
+val pluginId = providers.gradleProperty("plugin.id").get()
+require(Regex("[a-z][a-z0-9]*(?:-[a-z0-9]+)*").matches(pluginId)) {
+    "Invalid plugin.id: $pluginId"
+}
+
 tasks.test {
     useJUnitPlatform()
 }
 
 ksp {
     arg("summaryOutputDir", "${projectDir}/.github")
+    arg("pluginId", pluginId)
 }
 
 tasks.jar {
-	archiveFileName.set("raw.jar")
+	archiveFileName.set("$pluginId-raw.jar")
 	exclude("android/**")
 	exclude("androidx/annotation/**")
 	exclude("androidx/preference/**")
@@ -81,7 +87,7 @@ tasks.register<DexPluginTask>("dexJar") {
     description = "Dex classes after build"
     dependsOn(tasks.jar)
     inputJar.set(tasks.jar.flatMap { it.archiveFile })
-    outputJar.set(layout.projectDirectory.file("build/libs/vn.jar"))
+    outputJar.set(layout.projectDirectory.file("build/libs/$pluginId.jar"))
     classpath.from(configurations.runtimeClasspath)
 }
 

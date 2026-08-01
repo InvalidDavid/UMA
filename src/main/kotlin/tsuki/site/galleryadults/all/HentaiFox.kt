@@ -6,24 +6,29 @@ import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
 import tsuki.model.*
 import tsuki.site.galleryadults.GalleryAdultsParser
+import tsuki.site.galleryadults.GalleryAdultsSelectors
+import tsuki.site.galleryadults.GalleryAdultsSiteConfig
 import tsuki.util.*
 import java.util.*
 
 @MangaSourceParser("HENTAIFOX", "HentaiFox", type = ContentType.HENTAI)
 internal class HentaiFox(context: MangaLoaderContext) :
-    GalleryAdultsParser(context, MangaParserSource.HENTAIFOX, "hentaifox.com") {
-    override val selectGallery = ".lc_galleries .thumb, .related_galleries .thumb"
-    override val pathTagUrl = "/tags/popular/pag/"
-    override val selectTags = ".list_tags"
-    override val selectTag = "ul.tags"
-    override val selectLanguageChapter = "ul.languages a.tag_btn"
-
-    override val filterCapabilities: MangaListFilterCapabilities
-        get() = super.filterCapabilities.copy(
-            isMultipleTagsSupported = true,
-        )
-
-    override val availableSortOrders: Set<SortOrder> = EnumSet.of(SortOrder.UPDATED, SortOrder.POPULARITY)
+    GalleryAdultsParser(
+        context = context,
+        source = MangaParserSource.HENTAIFOX,
+        siteConfig = GalleryAdultsSiteConfig(
+            domain = "hentaifox.com",
+            popularTagsPath = "/tags/popular/pag/",
+            selectors = GalleryAdultsSelectors(
+                gallery = ".lc_galleries .thumb, .related_galleries .thumb",
+                tagsRoot = ".list_tags",
+                detailsTags = "ul.tags",
+                detailsLanguage = "ul.languages a.tag_btn",
+            ),
+            availableSortOrders = setOf(SortOrder.UPDATED, SortOrder.POPULARITY),
+            supportsMultipleTags = true,
+        ),
+    ) {
 
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
         val url = buildString {

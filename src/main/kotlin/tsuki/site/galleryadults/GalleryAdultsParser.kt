@@ -14,45 +14,81 @@ import tsuki.model.*
 import tsuki.util.*
 import java.util.*
 
+internal data class GalleryAdultsSiteConfig(
+    val domain: String,
+    val pageSize: Int = 20,
+    val popularTagsPath: String = "/tags/popular/?page=",
+    val selectors: GalleryAdultsSelectors = GalleryAdultsSelectors(),
+    val availableLocales: Set<Locale> = DEFAULT_AVAILABLE_LOCALES,
+    val availableSortOrders: Set<SortOrder> = setOf(SortOrder.UPDATED),
+    val supportsMultipleTags: Boolean = false,
+    val supportsAuthorSearch: Boolean = false,
+) {
+    init {
+        require(domain.isNotBlank()) { "Gallery site domain must not be blank" }
+        require(pageSize > 0) { "Gallery page size must be positive" }
+        require(popularTagsPath.startsWith('/')) { "Popular tags path must be relative to the site domain" }
+        require(availableSortOrders.isNotEmpty()) { "At least one sort order is required" }
+    }
+}
+
+internal data class GalleryAdultsSelectors(
+    val gallery: String = ".thumb",
+    val galleryLink: String = ".inner_thumb a",
+    val galleryImage: String = "img",
+    val galleryTitle: String = "h2",
+    val tagsRoot: String = ".tags_page ul.tags li",
+    val detailsTitle: String = "h1.title",
+    val detailsTags: String = "div.tags:contains(Tags:) .tag_list",
+    val detailsAuthor: String = "ul.artists a.tag_btn",
+    val detailsLanguage: String = "div.tags:contains(Languages:) .tag_list a span.tag",
+    val detailsChapterUrl: String = "#cover a, .cover a, .left_cover a, .g_thumb a, .gallery_left a, .gt_left a",
+    val totalPages: String = ".total_pages, .num-pages, .tp",
+    val pageImage: String = "#gimg",
+)
+
+private val DEFAULT_AVAILABLE_LOCALES = setOf(
+    Locale.ENGLISH,
+    Locale.FRENCH,
+    Locale.JAPANESE,
+    Locale.CHINESE,
+    Locale("es"),
+    Locale("ru"),
+    Locale("ko"),
+    Locale.GERMAN,
+    Locale("id"),
+    Locale.ITALIAN,
+    Locale("pt"),
+    Locale("tr"),
+    Locale("th"),
+    Locale("vi"),
+)
+
 internal abstract class GalleryAdultsParser(
     context: MangaLoaderContext,
     source: MangaParserSource,
-    domain: String,
-    pageSize: Int = 20,
-) : PagedMangaParser(context, source, pageSize) {
+    private val siteConfig: GalleryAdultsSiteConfig,
+) : PagedMangaParser(context, source, siteConfig.pageSize) {
 
-    override val configKeyDomain = ConfigKey.Domain(domain)
+    override val configKeyDomain = ConfigKey.Domain(siteConfig.domain)
 
     override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
         super.onCreateConfig(keys)
         keys.add(userAgentKey)
     }
 
-    override val availableSortOrders: Set<SortOrder> = EnumSet.of(SortOrder.UPDATED)
+    override val availableSortOrders: Set<SortOrder> = siteConfig.availableSortOrders
 
     override val filterCapabilities: MangaListFilterCapabilities
         get() = MangaListFilterCapabilities(
             isSearchSupported = true,
+            isMultipleTagsSupported = siteConfig.supportsMultipleTags,
+            isAuthorSearchSupported = siteConfig.supportsAuthorSearch,
         )
 
     override suspend fun getFilterOptions() = MangaListFilterOptions(
         availableTags = fetchAvailableTags(),
-        availableLocales = setOf(
-            Locale.ENGLISH,
-            Locale.FRENCH,
-            Locale.JAPANESE,
-            Locale.CHINESE,
-            Locale("es"),
-            Locale("ru"),
-            Locale("ko"),
-            Locale.GERMAN,
-            Locale("id"),
-            Locale.ITALIAN,
-            Locale("pt"),
-            Locale("tr"),
-            Locale("th"),
-            Locale("vi"),
-        ),
+        availableLocales = siteConfig.availableLocales,
     )
 
     override suspend fun getListPage(
@@ -97,10 +133,23 @@ internal abstract class GalleryAdultsParser(
         return parseMangaList(webClient.httpGet(url).parseHtml())
     }
 
-    protected open val selectGallery = ".thumb"
-    protected open val selectGalleryLink = ".inner_thumb a"
-    protected open val selectGalleryImg = "img"
-    protected open val selectGalleryTitle = "h2"
+    protected val selectGallery: String
+        get() = siteConfig.selectors.gallery
+    protected val selectGalleryLink: String
+        get() = siteConfig.selectors.galleryLink
+    protected val selectGalleryImg: String
+        get() = siteConfig.selectors.galleryImage
+    protected val selectGalleryTitle: String
+        get() = siteConfig.selectors.galleryTitle
+    protected val selectTitle: String
+        get() = siteConfig.selectors.detailsTitle
+    protected val selectTag: String
+        get() = siteConfig.selectors.detailsTags
+    protected val selectAuthor: String
+        get() = siteConfig.selectors.detailsAuthor
+    protected val selectTotalPage: String
+        get() = siteConfig.selectors.totalPages
+
     private val regexBrackets = Regex("\\[[^]]+]|\\([^)]+\\)")
     private val regexSpaces = Regex("\\s+")
 
@@ -134,12 +183,9 @@ internal abstract class GalleryAdultsParser(
         }.awaitAll().flattenTo(ArraySet(360))
     }
 
-    protected open val pathTagUrl = "/tags/popular/?page="
-    protected open val selectTags = ".tags_page ul.tags li"
-
     private suspend fun getTags(page: Int): Set<MangaTag> {
-        val url = "https://$domain$pathTagUrl$page"
-        val root = webClient.httpGet(url).parseHtml().selectFirstOrThrow(selectTags)
+        val url = "https://$domain${siteConfig.popularTagsPath}$page"
+        val root = webClient.httpGet(url).parseHtml().selectFirstOrThrow(siteConfig.selectors.tagsRoot)
         return root.parseTags()
     }
 
@@ -153,23 +199,17 @@ internal abstract class GalleryAdultsParser(
         )
     }
 
-    protected open val selectTitle = "h1.title"
-    protected open val selectTag = "div.tags:contains(Tags:) .tag_list"
-    protected open val selectAuthor = "ul.artists a.tag_btn"
-    protected open val selectLanguageChapter = "div.tags:contains(Languages:) .tag_list a span.tag"
-    protected open val selectUrlChapter = "#cover a, .cover a, .left_cover a, .g_thumb a, .gallery_left a, .gt_left a"
-
     override suspend fun getDetails(manga: Manga): Manga {
         val doc = webClient.httpGet(manga.url.toAbsoluteUrl(domain)).parseHtml()
-        val urlChapters = doc.selectFirstOrThrow(selectUrlChapter).attr("href")
-        val tag = doc.selectFirst(selectTag)?.parseTags()
-        val branch = doc.select(selectLanguageChapter).joinToString(separator = " / ") {
+        val urlChapters = doc.selectFirstOrThrow(siteConfig.selectors.detailsChapterUrl).attr("href")
+        val tag = doc.selectFirst(siteConfig.selectors.detailsTags)?.parseTags()
+        val branch = doc.select(siteConfig.selectors.detailsLanguage).joinToString(separator = " / ") {
             it.html().substringBefore("<")
         }
-        val author = doc.selectFirst(selectAuthor)?.html()?.substringBefore("<span")
+        val author = doc.selectFirst(siteConfig.selectors.detailsAuthor)?.html()?.substringBefore("<span")
         return manga.copy(
             tags = tag.orEmpty(),
-            title = doc.selectFirst(selectTitle)?.textOrNull()?.cleanupTitle() ?: manga.title,
+            title = doc.selectFirst(siteConfig.selectors.detailsTitle)?.textOrNull()?.cleanupTitle() ?: manga.title,
             authors = setOfNotNull(author),
             chapters = listOf(
                 MangaChapter(
@@ -191,11 +231,9 @@ internal abstract class GalleryAdultsParser(
         return parseMangaList(webClient.httpGet(seed.url.toAbsoluteUrl(domain)).parseHtml())
     }
 
-    protected open val selectTotalPage = ".total_pages, .num-pages, .tp"
-
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
         val doc = webClient.httpGet(chapter.url.toAbsoluteUrl(domain)).parseHtml()
-        val totalPages = doc.selectFirstOrThrow(selectTotalPage).text().toInt()
+        val totalPages = doc.selectFirstOrThrow(siteConfig.selectors.totalPages).text().toInt()
         val rawUrl = chapter.url.removeSuffix("/").substringBeforeLast("/") + "/"
         return (1..totalPages).map {
             val url = "$rawUrl$it/"
@@ -208,11 +246,9 @@ internal abstract class GalleryAdultsParser(
         }
     }
 
-    protected open val idImg = "gimg"
-
     override suspend fun getPageUrl(page: MangaPage): String {
         val doc = webClient.httpGet(page.url.toAbsoluteUrl(domain)).parseHtml()
-        return doc.requireElementById(idImg).requireSrc()
+        return doc.selectFirstOrThrow(siteConfig.selectors.pageImage).requireSrc()
     }
 
     protected fun String.cleanupTitle() = replace(regexBrackets, "")
