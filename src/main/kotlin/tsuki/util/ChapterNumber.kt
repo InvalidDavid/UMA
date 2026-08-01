@@ -5,9 +5,8 @@ import tsuki.model.MangaChapter
 private val CHAPTER_REGEX = Regex("""(?i)\b(?:chapter|ch\.?|chapitre|capítulo|cap\.?|episode|ep\.?)\s*(\d+(?:\.\d+)?)""")
 private val FALLBACK_REGEX = Regex("""(\d+(?:\.\d+)?)""")
 
-/**
- * Extracts the most likely chapter number from a string.
- * Fast – no object allocations beyond the regex result.
+/*
+ * Extract from string
  * Returns [Float] or 0f if no number found.
  */
 fun String.extractChapterNumber(): Float {
@@ -16,10 +15,9 @@ fun String.extractChapterNumber(): Float {
 }
 
 /**
- * Sorts a list of [MangaChapter] by their chapter number (ascending).
+ * Sorts a list of [MangaChapter] by their chapter number.
  * The number is extracted from the chapter title using [extractChapterNumber].
- * Chapters without a recognisable number appear first (treated as 0).
- *
+ * draft code
  * Usage: `.sortChapters()`
  */
 fun List<MangaChapter>.sortChapters(): List<MangaChapter> {
