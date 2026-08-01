@@ -75,7 +75,6 @@ dependencies {
     testImplementation(libs.junit.params)
     testRuntimeOnly(libs.junit.launcher)
     testImplementation(libs.kotlinx.coroutines.test)
-    testImplementation(libs.quickjs)
 }
 
 tasks.register("buildJar") {

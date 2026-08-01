@@ -1,7 +1,6 @@
 package tsuki.site.galleryadults.en
 
 import org.json.JSONArray
-import org.json.JSONObject
 import org.jsoup.nodes.Document
 import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
@@ -10,7 +9,6 @@ import tsuki.model.ContentType
 import tsuki.model.Manga
 import tsuki.model.MangaChapter
 import tsuki.model.MangaListFilter
-import tsuki.model.MangaListFilterCapabilities
 import tsuki.model.MangaListFilterOptions
 import tsuki.model.MangaPage
 import tsuki.model.MangaParserSource
@@ -32,6 +30,10 @@ import tsuki.util.urlDecode
 import tsuki.util.urlEncoded
 import java.text.SimpleDateFormat
 import java.util.Base64
+import tsuki.config.ConfigKey
+
+private const val SERVER_PNG = "png" // old method uses now image_fallback
+private const val SERVER_WEBP = "webp" // new decryption method for .webp/.avif format
 
 @MangaSourceParser("HENTAINEXUS", "HentaiNexus", "en", type = ContentType.HENTAI)
 internal class HentaiNexus(context: MangaLoaderContext) :
@@ -50,7 +52,7 @@ internal class HentaiNexus(context: MangaLoaderContext) :
                 detailsAuthor = "tr:contains(Artist) td:nth-child(2) a",
                 detailsLanguage = "",
                 detailsChapterUrl = "",
-                totalPages = ".section div.container:nth-child(2) > div.box > div.columns div.column",
+                totalPages = "div.column.is-2-fullhd",
             ),
             supportsMultipleTags = true,
             supportsAuthorSearch = true,
@@ -65,8 +67,26 @@ internal class HentaiNexus(context: MangaLoaderContext) :
     var mangaInternalId: String = ""                    /* use as a flag for reloading data */
     var mangaPages: List<MangaPage> = listOf()
 
-    var mangaPagesInternalId: String = ""               /* use as a flag for reloading data */
-    var decryptedPagesData: List<String> = listOf()
+    private val pageCache = object : LinkedHashMap<String, List<String>>(10, 0.75f, true) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<String, List<String>>
+        ): Boolean {
+            return size > 5
+        }
+    }
+
+    private val preferredImageModeKey = ConfigKey.PreferredImageServer(
+        presetValues = mapOf(
+            SERVER_PNG to "Old method (png)",
+            SERVER_WEBP to "New method (webp/avif)",
+        ),
+        defaultValue = SERVER_PNG,
+    )
+
+    override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
+        super.onCreateConfig(keys)
+        keys.add(preferredImageModeKey)
+    }
 
     override suspend fun getFilterOptions(): MangaListFilterOptions {
         val document = webClient.httpGet("https://$domain/explore/categories/tag").parseHtml()
@@ -96,8 +116,9 @@ internal class HentaiNexus(context: MangaLoaderContext) :
             append("https://$domain/page/$page")
             when {
                 !filter.query.isNullOrEmpty() -> {
+                    val query = filter.query
                     append("?q=")
-                    append(filter.query.urlEncoded())
+                    append(query?.urlEncoded())
                 }
 
                 else -> {
@@ -194,28 +215,30 @@ internal class HentaiNexus(context: MangaLoaderContext) :
     }
 
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
-        if (mangaPages.isEmpty() or !chapter.url.contains(mangaInternalId)) {
+        if (mangaPages.isEmpty() || !chapter.url.contains(mangaInternalId)) {
             mangaPages = getPagesInternal(chapter.url)
             mangaInternalId = chapter.url.split("/").last()
+            val reader = mangaPages.firstOrNull()?.url?.substringBefore("#")
+            if (reader != null && !pageCache.containsKey(reader)) {
+                pageCache[reader] = getPageUrlInternal(reader)
+            }
         }
-
         return mangaPages
     }
 
     override suspend fun getPageUrl(page: MangaPage): String {
-        if (decryptedPagesData.isEmpty() or !page.url.contains(mangaPagesInternalId)) {
-            decryptedPagesData = getPageUrlInternal(page.url)
-            mangaPagesInternalId = page.url.split("/").last().split("#")[0]
-        }
-
-        val pageNumber = page.url.split("#").last().toInt()
-        return decryptedPagesData[pageNumber - 1]
+        val readerUrl = page.url.substringBefore("#")
+        val pages = pageCache[readerUrl]
+            ?: getPageUrlInternal(readerUrl).also {
+                pageCache[readerUrl] = it
+            }
+        val index = page.url.substringAfter("#").toInt() - 1
+        return pages[index]
     }
 
     private suspend fun getPagesInternal(chapterUrl: String, document: Document? = null): List<MangaPage> {
         val document = document ?: webClient.httpGet(chapterUrl.toAbsoluteUrl(domain)).parseHtml()
         val readUrl = document.selectFirstOrThrow(selectReadUrl).attr("href")
-
         return document.select(selectTotalPage).mapIndexed { index, element ->
             val url = "$readUrl#${index + 1}"
             MangaPage(
@@ -227,22 +250,71 @@ internal class HentaiNexus(context: MangaLoaderContext) :
         }
     }
 
-    private suspend fun getPageUrlInternal(pageUrl: String) : List<String> {
-        val doc = webClient.httpGet(pageUrl.toAbsoluteUrl(domain)).parseHtml()
-        val encryptedPagesData = doc.selectFirstOrThrow("script:not([src])").toString()
+    private suspend fun getPageUrlInternal(pageUrl: String): List<String> {
+        val doc = webClient
+            .httpGet(pageUrl.toAbsoluteUrl(domain))
+            .parseHtml()
+        val script = doc.select("script")
+            .firstOrNull { it.data().contains("initReader") }
+            ?: throw Exception("Reader script not found")
+        val encryptedPagesData = script.data()
             .substringAfter("initReader(\"")
             .substringBefore("\",")
-        val decryptedString = decrypt(encryptedPagesData).replace("\\/", "/")
-
-        val jsonArrayData = JSONArray(decryptedString)
-        val pagesData : MutableList<String> = mutableListOf()
-
-        for (i in 0 until jsonArrayData.length()) {
-            val item = jsonArrayData.get(i) as JSONObject
-            pagesData.add(item.get("image") as String)
+            .replace("\\n", "")
+            .replace("\\r", "")
+            .trim()
+        val decryptedString = decrypt(encryptedPagesData)
+            .replace("\\/", "/")
+        val jsonArray = JSONArray(decryptedString)
+        val mode = config[preferredImageModeKey] ?: SERVER_WEBP
+        return buildList {
+            for (i in 0 until jsonArray.length()) {
+                val item = jsonArray.getJSONObject(i)
+                val url = when (mode) {
+                    SERVER_PNG -> {
+                        val image = item.optString("image")
+                            .takeIf { it.isNotBlank() }
+                        val fallback = item.optString("image_fallback")
+                            .takeIf { it.isNotBlank() }
+                        fallback ?: image
+                    }
+                    SERVER_WEBP -> {
+                        var found: String? = null
+                        val keys = item.keys()
+                        while (keys.hasNext()) {
+                            val value = item.optString(keys.next())
+                            if (
+                                value.startsWith("http") &&
+                                (
+                                        value.contains(".webp") ||
+                                        value.contains(".avif") ||
+                                        value.contains(".jpg") ||
+                                        value.contains(".jpeg") ||
+                                        value.contains(".png")
+                                )
+                            ) {
+                                found = value
+                                break
+                            }
+                        }
+                        found
+                    }
+                    else -> null
+                }
+                if (!url.isNullOrBlank()) {
+                    add(normalizeImageUrl(url))
+                }
+            }
         }
+    }
 
-        return pagesData
+    private fun normalizeImageUrl(url: String): String {
+        return when {
+            url.startsWith("http") -> url
+            url.startsWith("//") -> "https:$url"
+            url.startsWith("/") -> "https://$domain$url"
+            else -> "https://$domain/$url"
+        }
     }
 
     private fun decrypt(encodedData: String): String {

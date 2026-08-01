@@ -6,7 +6,7 @@ on:
     branches:
       - master
     paths:
-      - 'src/main/kotlin/tsuki/site/**'
+      - 'src/main/kotlin/tsuki/**'
       - 'src/main/resources/**'
       - 'plugins-ksp/**'
       - 'buildSrc/**'
