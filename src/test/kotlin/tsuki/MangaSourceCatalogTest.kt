@@ -203,7 +203,14 @@ class MangaSourceCatalogTest {
 
     @Test
     fun `catalog preserves upstream broken status for unavailable Russian sources`() {
-        val expected = setOf("ACOMICS", "BEST_MANGA", "HENTAILIB", "ZENMANGA")
+        val expected = setOf(
+            "ACOMICS",
+            "ALLHENTAI",
+            "BEST_MANGA",
+            "HENTAILIB",
+            "MINTMANGA",
+            "ZENMANGA",
+        )
         val actual = MangaParserSource.entries
             .filter { it.name in expected && it.isBroken }
             .mapTo(mutableSetOf()) { it.name }

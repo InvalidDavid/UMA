@@ -5,9 +5,9 @@ import tsuki.MangaSourceParser
 import tsuki.model.MangaParserSource
 import tsuki.site.madara.MadaraParser
 
-@MangaSourceParser("MANGAMAMMY", "MangaMammy", "ru")
+@MangaSourceParser("MANGAMAMMY", "Nimanga", "ru")
 internal class MangaMammy(context: MangaLoaderContext) :
-	MadaraParser(context, MangaParserSource.MANGAMAMMY, "mangamammy.ru") {
+	MadaraParser(context, MangaParserSource.MANGAMAMMY, "p.nimanga.com") {
 	override val datePattern = "dd.MM.yyyy"
 	override val postReq = true
 }

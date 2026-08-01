@@ -6,6 +6,7 @@ import kotlinx.coroutines.sync.withLock
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
 import okhttp3.Response
+import tsuki.Broken
 import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
@@ -266,6 +267,7 @@ internal abstract class NineMangaParser(
 		return 0L
 	}
 
+	@Broken
 	@MangaSourceParser("NINEMANGA_RU", "NineManga Русский", "ru")
 	class Russian(context: MangaLoaderContext) : NineMangaParser(
 		context,

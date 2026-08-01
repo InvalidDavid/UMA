@@ -11,15 +11,15 @@ class MangaMammyContractTest {
     fun `source supports reading from list through pages`() = runTest {
         val context = FixtureMangaLoaderContext.builder()
             .post(
-                "https://mangamammy.ru/wp-admin/admin-ajax.php",
+                "https://p.nimanga.com/wp-admin/admin-ajax.php",
                 "/fixtures/mangamammy/list.html",
             )
             .get(
-                "https://mangamammy.ru/manga/example-title",
+                "https://p.nimanga.com/manga/example-title",
                 "/fixtures/mangamammy/details.html",
             )
             .get(
-                "https://mangamammy.ru/chapter/example-title-1?style=list",
+                "https://p.nimanga.com/chapter/example-title-1?style=list",
                 "/fixtures/mangamammy/pages.html",
             )
             .build()

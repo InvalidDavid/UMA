@@ -19,6 +19,25 @@ require(Regex("[a-z][a-z0-9]*(?:-[a-z0-9]+)*").matches(pluginId)) {
 
 tasks.test {
     useJUnitPlatform()
+    listOf(
+        "LIVE_SOURCE",
+        "LIVE_STAGE",
+        "LIVE_SORT",
+        "LIVE_QUERY",
+        "LIVE_EXPECT_TITLE",
+        "LIVE_AUDIT",
+        "LIVE_AUDIT_STAGE",
+        "LIVE_AUDIT_LOCALES",
+        "LIVE_AUDIT_INCLUDE_BROKEN",
+        "LIVE_AUDIT_CONCURRENCY",
+        "LIVE_AUDIT_TIMEOUT_SECONDS",
+        "LIVE_AUDIT_FAIL_ON_ERROR",
+    ).forEach { variable ->
+        inputs.property(
+            "liveSource.$variable",
+            providers.environmentVariable(variable).orElse(""),
+        )
+    }
 }
 
 ksp {

@@ -1,10 +1,12 @@
 package tsuki.site.ru.grouple
 
+import tsuki.Broken
 import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
 import tsuki.model.MangaParserSource
 
+@Broken
 @MangaSourceParser("MINTMANGA", "MintManga", "ru")
 internal class MintMangaParser(
 	context: MangaLoaderContext,

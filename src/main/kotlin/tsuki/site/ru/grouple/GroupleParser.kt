@@ -115,11 +115,9 @@ internal abstract class GroupleParser(
     override suspend fun getDetails(manga: Manga): Manga {
         val response = webClient.httpGet(manga.url.toAbsoluteUrl(domain))
         val doc = response.parseHtml()
-        val root = doc.body().requireElementById("mangaBox").run {
-            selectFirst("div.leftContent") ?: this
-        }
+        val root = doc.body().requireElementById("mangaBox")
         val dateFormat = SimpleDateFormat("dd.MM.yy", Locale.US)
-        val coverImg = root.selectFirst("div.subject-cover")?.selectFirst("img")
+        val coverImg = root.selectFirst("img.cr-hero-poster__img")
         val translations = if (config[splitTranslationsKey]) {
             root.selectFirst("div.translator-selection")
                 ?.select(".translator-selection-item")
@@ -145,15 +143,17 @@ internal abstract class GroupleParser(
         return manga.copy(
             source = newSource,
             title = doc.metaValue("name") ?: manga.title,
-            altTitles = root.selectFirst(".all-names-popover")?.select(".name")?.mapNotNullToSet {
-                it.textOrNull()
-            } ?: manga.altTitles,
+            altTitles = root.select(".cr-hero-names__alt > span > span")
+                .filterNot { it.hasClass("cr-hero-names__alt-separator") }
+                .flatMapTo(linkedSetOf()) { element ->
+                    element.text().split('/').mapNotNull { it.trim().nullIfEmpty() }
+                } + manga.altTitles,
             publicUrl = response.request.url.toString(),
-            description = root.selectFirst("div.manga-description")?.html(),
-            largeCoverUrl = coverImg?.attrAsAbsoluteUrlOrNull("data-full"),
+            description = root.selectFirst("div.cr-description__content")?.html(),
+            largeCoverUrl = coverImg?.attrAsAbsoluteUrlOrNull("src"),
             coverUrl = manga.coverUrl
-                ?: coverImg?.attrAsAbsoluteUrlOrNull("data-thumb")?.replace("_p.", "."),
-            tags = root.selectFirstOrThrow("div.subject-meta")
+                ?: coverImg?.attrAsAbsoluteUrlOrNull("src"),
+            tags = root.selectFirstOrThrow("div.creation-element-tags")
                 .getElementsByAttributeValueContaining("href", "/list/genre/").mapTo(manga.tags.toMutableSet()) { a ->
                     MangaTag(
                         title = a.text().toTitleCase(),
@@ -166,9 +166,7 @@ internal abstract class GroupleParser(
             } else {
                 manga.state
             },
-            authors = root.select(".elem_author,.elem_illustrator,.elem_screenwriter")
-                .select("a.person-link")
-                .mapNotNullToSet { it.textOrNull() } + manga.authors,
+            authors = manga.authors,
             contentRating = (if (hasNsfwAlert) ContentRating.SUGGESTIVE else ContentRating.SAFE)
                 .coerceAtLeast(manga.contentRating ?: ContentRating.SAFE),
             chapters = chaptersList?.select("a.chapter-link")
@@ -350,18 +348,22 @@ internal abstract class GroupleParser(
     }
 
     private suspend fun advancedSearch(offset: Int, order: SortOrder, filter: MangaListFilter): Response {
-        val tagsMap = tagsIndex.get()
+        val tagsMap = if (filter.tags.isNotEmpty() || filter.tagsExclude.isNotEmpty()) {
+            tagsIndex.get()
+        } else {
+            null
+        }
         val url = urlBuilder()
             .addPathSegment("search")
             .addPathSegment("advancedResults")
         url.addQueryParameter("q", filter.query)
         url.addQueryParameter("offset", offset.toString())
         filter.tags.forEach { tag ->
-            val tagId = requireNotNull(tagsMap[tag.title.lowercase()]) { "Tag ${tag.title} not found" }
+            val tagId = requireNotNull(requireNotNull(tagsMap)[tag.title.lowercase()]) { "Tag ${tag.title} not found" }
             url.addQueryParameter(tagId, "in")
         }
         filter.tagsExclude.forEach { tag ->
-            val tagId = requireNotNull(tagsMap[tag.title.lowercase()]) { "Tag ${tag.title} not found" }
+            val tagId = requireNotNull(requireNotNull(tagsMap)[tag.title.lowercase()]) { "Tag ${tag.title} not found" }
             url.addQueryParameter(tagId, "ex")
         }
         url.addQueryParameter(

@@ -40,9 +40,30 @@ The installable artifact is written to `build/libs/en-ru.jar`. The generated cat
 
 Tests never contact live source websites. Every unregistered fixture request fails explicitly.
 
+### Opt-in live source smoke test
+
+Live diagnostics are disabled unless `LIVE_SOURCE` is set. The smoke test can run list, details, chapters, and pages against the current website without making the normal test suite network-dependent.
+
+```powershell
+$env:LIVE_SOURCE="MANGALIB"
+$env:LIVE_SORT="NEWEST"
+$env:LIVE_STAGE="PAGES"
+./gradlew.bat :test --tests tsuki.LiveSourceSmokeTest
+```
+
+Optional variables:
+
+- `LIVE_QUERY` sends a source search query.
+- `LIVE_EXPECT_TITLE` selects one exact title from the returned list.
+- `LIVE_STAGE` stops after `LIST`, `DETAILS`, `CHAPTERS`, or `PAGES`.
+
+The JVM smoke context cannot evaluate JavaScript, redraw images, or complete interactive browser challenges. `LiveCatalogAuditTest` can crawl every source for selected locales and write a TSV report under `build/reports/`; use an Android consumer and ADB logs for sources that require browser or Android runtime capabilities.
+
 ## Manual consumer verification
 
-Automated checks do not install the plugin into a consumer application. Before publishing, replace the previous `vn.jar` with `build/libs/en-ru.jar` through the consumer's normal plugin installation flow, reload the plugin catalog, confirm that all 90 entries are listed without Vietnamese sources, and open representative English and Russian sources through list, details, chapter, and page-image loading. `ACOMICS`, `BEST_MANGA`, `HENTAILIB`, and `ZENMANGA` intentionally remain marked broken until viable endpoints and reading contracts are available.
+Automated checks do not install the plugin into a consumer application. Before publishing, install `build/libs/en-ru.jar` through the consumer's normal plugin installation flow, reload the plugin catalog, confirm that all 90 entries are listed without Vietnamese sources, and open representative English and Russian sources through list, details, chapter, and page-image loading.
+
+The catalog currently marks `TWENTYFOURHNOVEL`, `ACOMICS`, `ALLHENTAI`, `BEST_MANGA`, `HENTAILIB`, `MANGAZAVR`, `MINTMANGA`, `NINEMANGA_RU`, and `ZENMANGA` as broken because their endpoints are retired, parked, or have no viable current reading contract. Sources blocked only in the JVM by Cloudflare, browser requirements, or the local Java trust store are not marked broken and must be checked in the Android consumer.
 
 ## Credits
 

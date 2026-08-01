@@ -59,3 +59,11 @@
 - [x] 10.2 Run all Gradle tests and `buildJar` with the explicit Java 11/17 toolchains.
 - [x] 10.3 Validate OpenSpec, inspect generated summary metadata, and record any live-site checks that remain manual.
 - [x] 10.4 Add factory-construction coverage for all generated entries and representative English and Russian reading contracts.
+
+## 11. Live Source Diagnostics
+
+- [x] 11.1 Add an opt-in JVM live smoke context that preserves default source configuration and cookies.
+- [x] 11.2 Add configurable list, details, chapters, and pages diagnostics with operation-specific failures.
+- [x] 11.3 Reproduce and repair the reported MangaLib and ReadManga failures.
+- [x] 11.4 Audit all 51 English and 27 Russian entries through list, details, chapters, and pages with bounded concurrency and a machine-readable report.
+- [x] 11.5 Repair viable current contracts, mark only confirmed retired sources broken, and record Android-only verification targets for protected sources.

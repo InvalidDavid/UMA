@@ -101,6 +101,27 @@ internal class AquaManga(context: MangaLoaderContext) :
         availableStates = EnumSet.of(MangaState.ONGOING, MangaState.FINISHED),
     )
 
+    override fun parseMangaList(doc: Document): List<Manga> {
+        return doc.select(".aqua-archive-card").map { card ->
+            val link = card.selectFirstOrThrow(".aqua-archive-card__title a")
+            val href = link.attrAsRelativeUrl("href")
+            Manga(
+                id = generateUid(href),
+                url = href,
+                publicUrl = href.toAbsoluteUrl(domain),
+                coverUrl = card.selectFirst(".aqua-archive-card__cover img")?.src(),
+                title = link.text(),
+                altTitles = emptySet(),
+                rating = RATING_UNKNOWN,
+                tags = emptySet(),
+                authors = emptySet(),
+                state = null,
+                source = source,
+                contentRating = null,
+            )
+        }
+    }
+
     override suspend fun getDetails(manga: Manga): Manga {
         val fullUrl = manga.url.toAbsoluteUrl(domain)
         val doc = webClient.httpGet(fullUrl).parseHtml()

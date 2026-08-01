@@ -591,6 +591,9 @@ internal class MangagoParser(context: MangaLoaderContext) :
     }
 
     private fun unscrambleImageList(imageList: String, js: String): String {
+        if (isPlainMangaGoImageList(imageList)) {
+            return imageList
+        }
         var imgList = imageList
 
         val keyLocations = KEY_LOCATION_REGEX.findAll(js)
@@ -607,7 +610,10 @@ internal class MangagoParser(context: MangaLoaderContext) :
             if (location >= imgList.length) {
                 throw NumberFormatException("Position $location is beyond string length")
             }
-            imgList[location].digitToInt()
+            imgList[location].digitToIntOrNull()
+                ?: throw NumberFormatException(
+                    "Image-list key at position $location is not decimal; locations=$keyLocations",
+                )
         }
 
         keyLocations.forEachIndexed { idx, loc ->
@@ -673,4 +679,9 @@ internal class MangagoParser(context: MangaLoaderContext) :
         private val KEY_LOCATION_REGEX = Regex("""str\.charAt\(\s*(\d+)\s*\)""")
         private val JS_FILTERS = listOf("jQuery", "document", "getContext", "toDataURL", "getImageData", "width", "height")
     }
+}
+
+internal fun isPlainMangaGoImageList(imageList: String): Boolean {
+    val entries = imageList.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+    return entries.isNotEmpty() && entries.all { it.startsWith("https://") || it.startsWith("http://") }
 }

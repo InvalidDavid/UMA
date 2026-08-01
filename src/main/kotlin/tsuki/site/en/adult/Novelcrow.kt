@@ -9,5 +9,7 @@ import tsuki.site.madara.MadaraParser
 @MangaSourceParser("NOVELCROW", "NovelCrow", "en", ContentType.HENTAI)
 internal class Novelcrow(context: MangaLoaderContext) :
     MadaraParser(context, MangaParserSource.NOVELCROW, "novelcrow.com", 24) {
+    override val withoutAjax = true
+    override val stylePage = ""
     override val tagPrefix = "comic-genre/"
 }

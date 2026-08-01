@@ -8,6 +8,7 @@ import okhttp3.HttpUrl
 import okhttp3.Interceptor
 import okhttp3.Response
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
 import tsuki.MangaLoaderContext
 import tsuki.MangaParserAuthProvider
@@ -202,7 +203,7 @@ internal abstract class LibSocialParser(
 				val id = it.getIntOrDefault("id", -1)
 				if (id >= 4) ContentRating.SUGGESTIVE else sourceContentRating
 			} ?: manga.contentRating,
-			description = json.getString("summary").nl2br(),
+			description = json.parseLibSocialSummary()?.nl2br(),
 			chapters = chapters,
 		)
 	}
@@ -434,4 +435,39 @@ internal abstract class LibSocialParser(
 		const val SERVER_DOWNLOAD = "download"
 		const val SERVER_CROP = "crop"
 	}
+}
+
+internal fun JSONObject.parseLibSocialSummary(): String? = when (val value = opt("summary")) {
+	null,
+	JSONObject.NULL,
+		-> null
+
+	is String -> value
+	is JSONObject -> value.parseLibSocialRichText()
+	else -> throw JSONException("Unsupported summary value: ${value.javaClass.name}")
+}
+
+private fun JSONObject.parseLibSocialRichText(): String {
+	val type = getString("type")
+	return when (type) {
+		"text" -> getString("text")
+		"hardBreak" -> "\n"
+		"paragraph",
+		"heading",
+			-> parseLibSocialChildren(separator = "")
+
+		"doc",
+		"blockquote",
+		"bulletList",
+		"orderedList",
+		"listItem",
+			-> parseLibSocialChildren(separator = "\n")
+
+		else -> throw JSONException("Unsupported summary node type: $type")
+	}
+}
+
+private fun JSONObject.parseLibSocialChildren(separator: String): String {
+	val children = optJSONArray("content") ?: return ""
+	return children.mapJSON { child -> child.parseLibSocialRichText() }.joinToString(separator)
 }

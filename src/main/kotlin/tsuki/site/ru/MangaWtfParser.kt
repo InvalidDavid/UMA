@@ -29,7 +29,7 @@ internal class MangaWtfParser(
 		)
 
 	@InternalParsersApi
-	override val configKeyDomain = ConfigKey.Domain("manga.wtf")
+	override val configKeyDomain = ConfigKey.Domain("inkstory.net")
 
 	override val filterCapabilities: MangaListFilterCapabilities
 		get() = MangaListFilterCapabilities(
@@ -78,7 +78,7 @@ internal class MangaWtfParser(
 					url.addQueryParameter("labelsInclude", filter.tags.joinToString(",") { it.key })
 				}
 				if (filter.tagsExclude.isNotEmpty()) {
-					url.addQueryParameter("labelsExclude", filter.tags.joinToString(",") { it.key })
+					url.addQueryParameter("labelsExclude", filter.tagsExclude.joinToString(",") { it.key })
 				}
 				if (filter.states.isNotEmpty()) {
 					url.addQueryParameter(
@@ -170,26 +170,18 @@ internal class MangaWtfParser(
 	}
 
 	private suspend fun fetchAvailableTags(): Set<MangaTag> {
-		val url = urlBuilder("api").addPathSegment("label")
-		val json = webClient.httpGet(url.build()).parseJson()
-		return json.getJSONArray("content").mapJSONToSet { jo ->
+		val url = urlBuilder("api").addPathSegment("v2").addPathSegment("labels")
+		val json = webClient.httpGet(url.build()).parseJsonArray()
+		return json.mapJSONToSet { jo ->
 			MangaTag(
-				title = jo.getJSONObject("name").getString("ru").toTitleCase(sourceLocale),
+				title = jo.getString("name").toTitleCase(sourceLocale),
 				key = jo.getString("slug"),
 				source = source,
 			)
 		}
 	}
 
-	override suspend fun getRelatedManga(seed: Manga): List<Manga> {
-		val url =
-			urlBuilder("api")
-				.addPathSegment("book")
-				.addPathSegment(seed.url)
-				.addPathSegment("related")
-		val ja = webClient.httpGet(url.build()).parseJsonArray()
-		return ja.mapJSON { jo -> jo.toManga() }
-	}
+	override suspend fun getRelatedManga(seed: Manga): List<Manga> = emptyList()
 
 	override suspend fun getPageUrl(page: MangaPage): String = page.url
 
@@ -224,7 +216,8 @@ internal class MangaWtfParser(
 	private suspend fun getBranchName(id: String): String? {
 		val url =
 			urlBuilder("api")
-				.addPathSegment("branch")
+				.addPathSegment("v2")
+				.addPathSegment("branches")
 				.addPathSegment(id)
 		val json = webClient.httpGet(url.build()).parseJson()
 		return json.getJSONArray("publishers").mapJSONToSet { it.getStringOrNull("name") }.firstOrNull()

@@ -2,6 +2,7 @@ package tsuki.site.en
 
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
 import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
@@ -343,7 +344,7 @@ internal class Mangadotnet(context: MangaLoaderContext) :
             val mapByNum = teamChapters.associateBy { it.optDouble("chapter_number", 0.0).toFloat() }
             for (num in allNumbers) {
                 val chapter = mapByNum[num] ?: continue
-                val chId = chapter.getString("id")
+                val chId = chapter.getScalarString("id")
                 val src = chapter.optString("source", "user")
                 val name = chapter.optString("chapter_title", "").nullIfEmpty()
                 val date = chapter.optString("date_added", "").nullIfEmpty()
@@ -460,4 +461,10 @@ internal class Mangadotnet(context: MangaLoaderContext) :
     @Suppress("UNCHECKED_CAST")
     private fun Map<String, Any?>.asMap(key: String): Map<String, Any?>? = this[key] as? Map<String, Any?>
     private fun String?.nullIfEmpty(): String? = if (this.isNullOrEmpty()) null else this
+}
+
+internal fun JSONObject.getScalarString(name: String): String = when (val value = get(name)) {
+    is String -> value
+    is Number -> value.toString()
+    else -> throw JSONException("JSONObject[\"$name\"] is not a string or number")
 }

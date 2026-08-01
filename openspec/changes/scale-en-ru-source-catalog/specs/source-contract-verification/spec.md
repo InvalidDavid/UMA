@@ -21,3 +21,23 @@ Every generated source entry SHALL construct through the public catalog factory,
 - **WHEN** the approved bulk source migration is tested
 - **THEN** every generated entry constructs a parser through `MangaParserSource.newParser`
 - **AND** representative new English and Russian adapters complete list, details, chapters, and pages fixture flows
+
+### Requirement: Live smoke diagnostics are opt-in
+The test suite SHALL provide an explicitly enabled live-source flow for diagnosing current website behavior without making the default test suite depend on external HTTP.
+
+#### Scenario: Developer selects a live source
+- **WHEN** `LIVE_SOURCE` is set for the live smoke test
+- **THEN** the selected parser runs through the configured list, details, chapters, and pages boundary
+- **AND** a failure identifies the source operation that failed
+
+#### Scenario: Default tests run
+- **WHEN** `LIVE_SOURCE` is not set
+- **THEN** the live smoke test is skipped without contacting external websites
+
+### Requirement: Catalog-wide live audits remain diagnostic
+The test suite SHALL provide an explicitly enabled catalog audit that records the furthest successful reading stage for every selected source without changing the deterministic default test suite.
+
+#### Scenario: Developer audits selected locales
+- **WHEN** the live catalog audit is enabled for English and Russian sources
+- **THEN** every selected source records a bounded list, details, chapters, and pages outcome in a machine-readable report
+- **AND** browser challenges, Android runtime dependencies, TLS trust failures, and confirmed broken markers remain distinguishable outcomes
