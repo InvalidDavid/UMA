@@ -74,9 +74,59 @@ internal abstract class MadaraParser(
         keys.add(userAgentKey)
     }
 
-    // Change these values only if the site does not support manga listings via ajax
+    /**
+     * AJAX listing mode.
+     *  false (default) – uses POST requests to wp-admin/admin-ajax.php
+     *  true            – builds normal GET URLs (?s=, ?page=, /manga-genre/…) and parses the HTML directly.
+     */
     protected open val withoutAjax = false
     protected open val authorSearchSupported = false
+
+    /** Date format pattern used to parse chapter release dates (SimpleDateFormat). */
+    protected open val datePattern = "MMMM d, yyyy"
+
+    /**
+     * Genre fetching:
+     *  listUrl   – the page path (relative to domain) that contains the genre list.
+     *              The parser fetches https://domain/<listUrl> to scrape available genres.
+     *
+     *  tagPrefix – the URL segment that immediately precedes the genre identifier in filter links.
+     *              Used to extract the genre key from a link like /manga-genre/action/ -> "action".
+     */
+    protected open val listUrl = "manga/"
+    protected open val tagPrefix = "manga-genre/"
+
+    /**
+     * Chapter list handling:
+     *  stylePage – suffix appended to chapter URLs to force all images to be shown in one long list.
+     *  postReq   – whether to use the old AJAX endpoint for chapter loading.
+     *      true  -> POST admin-ajax.php with action=manga_get_chapters&manga=<id>
+     *      false -> POST /manga/<slug>/ajax/chapters/ with empty body
+     *  postDataReq – form data used when postReq = true.
+     */
+    protected open val stylePage = "?style=list"
+    protected open val postReq = false
+    protected open val postDataReq = "action=manga_get_chapters&manga="
+
+    /** Page extraction selectors */
+    protected open val selectBodyPage = "div.main-col-inner div.reading-content"
+    protected open val selectPage = "div.page-break, div.page-box"
+    protected open val selectRequiredLogin = ".content-blocked, .login-required"
+
+    /** Details page selectors */
+    protected open val selectDesc = "div.description-summary div.summary__content, div.summary_content div.post-content_item > h5 + div, div.summary_content div.manga-excerpt, div.post-content div.manga-summary, div.post-content div.desc, div.c-page__content div.summary__content"
+    protected open val selectGenre = "div.genres-content a"
+    protected open val selectTestAsync = "div.listing-chapters_wrap"
+    protected open val selectState =
+        "div.post-content_item:contains(Status), div.post-content_item:contains(Statut), " +
+                "div.post-content_item:contains(État), div.post-content_item:contains(حالة العمل), div.post-content_item:contains(Estado), div.post-content_item:contains(สถานะ)," +
+                "div.post-content_item:contains(Stato), div.post-content_item:contains(Durum), div.post-content_item:contains(Statüsü), div.post-content_item:contains(Статус)," +
+                "div.post-content_item:contains(状态), div.post-content_item:contains(الحالة), div.post-content_item:contains(Tình trạng)"
+    protected open val selectAlt = ".post-content_item:contains(Alt) .summary-content, .post-content_item:contains(Nomes alternativos: ) .summary-content"
+
+    /** Chapter list selectors */
+    protected open val selectDate = "span.chapter-release-date i"
+    protected open val selectChapter = "li.wp-manga-chapter"
 
     override val availableSortOrders: Set<SortOrder> = setupAvailableSortOrders()
 
@@ -149,11 +199,6 @@ internal abstract class MadaraParser(
                 }
             }
     }
-
-    protected open val tagPrefix = "manga-genre/"
-    protected open val datePattern = "MMMM d, yyyy"
-    protected open val stylePage = "?style=list"
-    protected open val postReq = false
 
     init {
         paginator.firstPage = 0
@@ -286,100 +331,95 @@ internal abstract class MadaraParser(
         "in arrivo",
     )
 
-    // can be changed to retrieve tags see getTags
-    protected open val listUrl = "manga/"
-
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
         if (withoutAjax) {
             val pages = page + 1
 
-            val url = buildString {
-                append("https://")
-                append(domain)
+            fun sortParam(): String = when (order) {
+                SortOrder.POPULARITY -> "views"
+                SortOrder.UPDATED -> "latest"
+                SortOrder.NEWEST -> "new-manga"
+                SortOrder.ALPHABETICAL -> "alphabet"
+                SortOrder.RATING -> "rating"
+                SortOrder.RELEVANCE -> ""
+                else -> ""
+            }
 
-                if (pages > 1) {
-                    append("/page/")
-                    append(pages.toString())
-                }
-                append("/?s=")
-                append(filter.query?.urlEncoded() ?: "")
-
-                append("&post_type=wp-manga")
-
-                // Known bug: in some cases, if there are no manga with the associated tags, the source returns the full list of manga
-                if (filter.tags.isNotEmpty()) {
-                    filter.tags.forEach {
-                        append("&genre[]=")
-                        append(it.key)
+            val url = if (filter.tags.isNotEmpty()) {
+                val genreSlug = filter.tags.first().key
+                buildString {
+                    append("https://")
+                    append(domain)
+                    append("/manga-genre/$genreSlug/")
+                    if (pages > 1) {
+                        append("page/")
+                        append(pages)
+                        append("/")
                     }
+                    append("?m_orderby=")
+                    append(sortParam())
                 }
+            } else {
+                buildString {
+                    append("https://")
+                    append(domain)
 
-                filter.states.forEach {
-                    append("&status[]=")
-                    when (it) {
-                        MangaState.ONGOING -> append("on-going")
-                        MangaState.FINISHED -> append("end")
-                        MangaState.ABANDONED -> append("canceled")
-                        MangaState.PAUSED -> append("on-hold")
-                        MangaState.UPCOMING -> append("upcoming")
-                        else -> throw IllegalArgumentException("$it not supported")
+                    if (pages > 1) {
+                        append("/page/")
+                        append(pages.toString())
                     }
-                }
+                    append("/?s=")
+                    append(filter.query?.urlEncoded() ?: "")
 
-                filter.contentRating.oneOrThrowIfMany()?.let {
-                    append("&adult=")
-                    append(
+                    append("&post_type=wp-manga")
+
+                    filter.states.forEach {
+                        append("&status[]=")
                         when (it) {
-                            ContentRating.SAFE -> "0"
-                            ContentRating.ADULT -> "1"
-                            else -> ""
-                        },
-                    )
-                }
+                            MangaState.ONGOING -> append("on-going")
+                            MangaState.FINISHED -> append("end")
+                            MangaState.ABANDONED -> append("canceled")
+                            MangaState.PAUSED -> append("on-hold")
+                            MangaState.UPCOMING -> append("upcoming")
+                            else -> throw IllegalArgumentException("$it not supported")
+                        }
+                    }
 
-                if (filter.year != 0) {
-                    append("&release=")
-                    append(filter.year.toString())
-                }
+                    filter.contentRating.oneOrThrowIfMany()?.let {
+                        append("&adult=")
+                        append(
+                            when (it) {
+                                ContentRating.SAFE -> "0"
+                                ContentRating.ADULT -> "1"
+                                else -> ""
+                            },
+                        )
+                    }
 
-                filter.author?.takeIf { it.isNotEmpty() }?.let {
-                    append("&author=")
-                    // should be like "minamida-usuke"
-                    append(it.lowercase().replace(" ", "-"))
-                }
+                    if (filter.year != 0) {
+                        append("&release=")
+                        append(filter.year.toString())
+                    }
 
-                // Support artist
-                //filter.artist?.let {
-                //	append("&artist=")
-                //	append(filter.artist)
-                //}
+                    filter.author?.takeIf { it.isNotEmpty() }?.let {
+                        append("&author=")
+                        append(it.lowercase().replace(" ", "-"))
+                    }
 
-
-                append("&m_orderby=")
-                when (order) {
-                    SortOrder.POPULARITY -> append("views")
-                    SortOrder.UPDATED -> append("latest")
-                    SortOrder.NEWEST -> append("new-manga")
-                    SortOrder.ALPHABETICAL -> append("alphabet")
-                    SortOrder.RATING -> append("rating")
-                    SortOrder.RELEVANCE -> {}
-                    else -> {}
+                    append("&m_orderby=")
+                    append(sortParam())
                 }
             }
+
             val html = try {
                 webClient.httpGet(url).parseHtml()
             } catch (e: HttpStatusException) {
-                if (e.statusCode == HttpURLConnection.HTTP_INTERNAL_ERROR) {
-                    return emptyList()
-                } else {
-                    throw ParseException("Can't fetch data from source!", url)
-                }
+                if (e.statusCode == HttpURLConnection.HTTP_INTERNAL_ERROR) return emptyList()
+                else throw ParseException("Can't fetch data from source!", url)
             }
             return parseMangaList(html)
         } else {
-
             val payload = createRequestTemplate()
-
             payload["page"] = page.toString()
 
             filter.query?.takeIf { it.isNotEmpty() }?.let {
@@ -417,14 +457,6 @@ internal abstract class MadaraParser(
                 payload["vars[tax_query][3][operator]"] = "IN"
             }
 
-            // Support artist
-            //  filter.artist.let {
-            //	payload["vars[tax_query][4][taxonomy]"] = "wp-manga-artist"
-            //	payload["vars[tax_query][4][field]"] = "name"
-            //	payload["vars[tax_query][4][terms][0]"] = filter.artist
-            //	payload["vars[tax_query][4][operator]"] = "IN"
-            //}
-
             if (filter.tags.isNotEmpty() || filter.tagsExclude.isNotEmpty() || filter.year != 0) {
                 payload["vars[tax_query][relation]"] = "AND"
             }
@@ -435,103 +467,80 @@ internal abstract class MadaraParser(
                     payload["vars[orderby]"] = "meta_value_num"
                     payload["vars[order]"] = "desc"
                 }
-
                 SortOrder.POPULARITY_ASC -> {
                     payload["vars[meta_key]"] = "_wp_manga_views"
                     payload["vars[orderby]"] = "meta_value_num"
                     payload["vars[order]"] = "asc"
                 }
-
                 SortOrder.UPDATED -> {
                     payload["vars[meta_key]"] = "_latest_update"
                     payload["vars[orderby]"] = "meta_value_num"
                     payload["vars[order]"] = "desc"
                 }
-
                 SortOrder.UPDATED_ASC -> {
                     payload["vars[meta_key]"] = "_latest_update"
                     payload["vars[orderby]"] = "meta_value_num"
                     payload["vars[order]"] = "asc"
                 }
-
                 SortOrder.NEWEST -> {
                     payload["vars[orderby]"] = "date"
                     payload["vars[order]"] = "desc"
                 }
-
                 SortOrder.NEWEST_ASC -> {
                     payload["vars[orderby]"] = "date"
                     payload["vars[order]"] = "asc"
                 }
-
                 SortOrder.ALPHABETICAL -> {
                     payload["vars[orderby]"] = "post_title"
                     payload["vars[order]"] = "asc"
                 }
-
                 SortOrder.ALPHABETICAL_DESC -> {
                     payload["vars[orderby]"] = "post_title"
                     payload["vars[order]"] = "desc"
                 }
-
                 SortOrder.RATING -> {
                     payload["vars[meta_query][0][query_avarage_reviews][key]"] = "_manga_avarage_reviews"
                     payload["vars[meta_query][0][query_total_reviews][key]"] = "_manga_total_votes"
-
                     payload["vars[orderby][query_avarage_reviews]"] = "DESC"
                     payload["vars[orderby][query_total_reviews]"] = "DESC"
                 }
-
                 SortOrder.RATING_ASC -> {
                     payload["vars[meta_query][0][query_avarage_reviews][key]"] = "_manga_avarage_reviews"
                     payload["vars[meta_query][0][query_total_reviews][key]"] = "_manga_total_votes"
-
                     payload["vars[orderby][query_avarage_reviews]"] = "ASC"
                     payload["vars[orderby][query_total_reviews]"] = "ASC"
                 }
-
-                SortOrder.RELEVANCE -> {
-                    payload["vars[orderby]"] = ""
-                }
-
+                SortOrder.RELEVANCE -> payload["vars[orderby]"] = ""
                 else -> payload["vars[orderby]"] = ""
             }
 
             filter.states.forEach {
                 payload["vars[meta_query][0][0][key]"] = "_wp_manga_status"
                 payload["vars[meta_query][0][0][compare]"] = "IN"
-                payload["vars[meta_query][0][0][value][]"] =
-                    when (it) {
-                        MangaState.ONGOING -> "on-going"
-                        MangaState.FINISHED -> "end"
-                        MangaState.ABANDONED -> "canceled"
-                        MangaState.PAUSED -> "on-hold"
-                        MangaState.UPCOMING -> "upcoming"
-                        else -> throw IllegalArgumentException("$it not supported")
-                    }
+                payload["vars[meta_query][0][0][value][]"] = when (it) {
+                    MangaState.ONGOING -> "on-going"
+                    MangaState.FINISHED -> "end"
+                    MangaState.ABANDONED -> "canceled"
+                    MangaState.PAUSED -> "on-hold"
+                    MangaState.UPCOMING -> "upcoming"
+                    else -> throw IllegalArgumentException("$it not supported")
+                }
             }
 
             filter.contentRating.oneOrThrowIfMany()?.let {
                 payload["vars[meta_query][0][1][key]"] = "manga_adult_content"
-                payload["vars[meta_query][0][1][value]"] =
-                    when (it) {
-                        ContentRating.SAFE -> ""
-                        ContentRating.ADULT -> "a%3A1%3A%7Bi%3A0%3Bs%3A3%3A%22yes%22%3B%7D"
-                        else -> ""
-                    }
+                payload["vars[meta_query][0][1][value]"] = when (it) {
+                    ContentRating.SAFE -> ""
+                    ContentRating.ADULT -> "a%3A1%3A%7Bi%3A0%3Bs%3A3%3A%22yes%22%3B%7D"
+                    else -> ""
+                }
             }
 
             val html = try {
-                webClient.httpPost(
-                    "https://$domain/wp-admin/admin-ajax.php",
-                    payload,
-                ).parseHtml()
+                webClient.httpPost("https://$domain/wp-admin/admin-ajax.php", payload).parseHtml()
             } catch (e: HttpStatusException) {
-                if (e.statusCode == HttpURLConnection.HTTP_INTERNAL_ERROR) {
-                    return emptyList()
-                } else {
-                    throw ParseException("Can't fetch data from source!", domain)
-                }
+                if (e.statusCode == HttpURLConnection.HTTP_INTERNAL_ERROR) return emptyList()
+                else throw ParseException("Can't fetch data from source!", domain)
             }
             return parseMangaList(html)
         }
@@ -614,18 +623,6 @@ internal abstract class MadaraParser(
         }
     }
 
-    protected open val selectDesc =
-        "div.description-summary div.summary__content, div.summary_content div.post-content_item > h5 + div, div.summary_content div.manga-excerpt, div.post-content div.manga-summary, div.post-content div.desc, div.c-page__content div.summary__content"
-    protected open val selectGenre = "div.genres-content a"
-    protected open val selectTestAsync = "div.listing-chapters_wrap"
-    protected open val selectState =
-        "div.post-content_item:contains(Status), div.post-content_item:contains(Statut), " +
-                "div.post-content_item:contains(État), div.post-content_item:contains(حالة العمل), div.post-content_item:contains(Estado), div.post-content_item:contains(สถานะ)," +
-                "div.post-content_item:contains(Stato), div.post-content_item:contains(Durum), div.post-content_item:contains(Statüsü), div.post-content_item:contains(Статус)," +
-                "div.post-content_item:contains(状态), div.post-content_item:contains(الحالة), div.post-content_item:contains(Tình trạng)"
-    protected open val selectAlt =
-        ".post-content_item:contains(Alt) .summary-content, .post-content_item:contains(Nomes alternativos: ) .summary-content"
-
     protected open suspend fun createMangaTag(a: Element): MangaTag? {
         return MangaTag(
             key = a.attr("href").removeSuffix("/").substringAfterLast('/'),
@@ -679,10 +676,6 @@ internal abstract class MadaraParser(
         )
     }
 
-
-    protected open val selectDate = "span.chapter-release-date i"
-    protected open val selectChapter = "li.wp-manga-chapter"
-
     protected open suspend fun getChapters(manga: Manga, doc: Document): List<MangaChapter> {
         val dateFormat = SimpleDateFormat(datePattern, sourceLocale)
         return doc.body().select(selectChapter).map { li ->
@@ -705,7 +698,6 @@ internal abstract class MadaraParser(
         }.sortedBy { it.number }
     }
 
-    protected open val postDataReq = "action=manga_get_chapters&manga="
 
     protected open suspend fun loadChapters(mangaUrl: String, document: Document): List<MangaChapter> {
         val doc = if (postReq) {
@@ -760,10 +752,6 @@ internal abstract class MadaraParser(
             )
         }
     }
-
-    protected open val selectBodyPage = "div.main-col-inner div.reading-content"
-    protected open val selectPage = "div.page-break, div.page-box"
-    protected open val selectRequiredLogin = ".content-blocked, .login-required"
 
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
         val fullUrl = chapter.url.toAbsoluteUrl(domain)
