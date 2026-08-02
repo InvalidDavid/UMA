@@ -31,7 +31,7 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import kotlin.time.Duration.Companion.hours
 
-@MangaSourceParser("LAVASCANS", "LavaScans", "ar")
+@MangaSourceParser("LAVASCANS", "Lava Scans", "ar")
 internal class LavaScans(context: MangaLoaderContext) :
     MangaThemesia(context, MangaParserSource.LAVASCANS, "lavascans.com") {
 
