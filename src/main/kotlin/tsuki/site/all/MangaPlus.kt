@@ -602,9 +602,26 @@ internal abstract class MangaPlusParser(
                     .orEmpty().filterByLang().map { it.toManga() }
             }
             SortOrder.UPDATED -> {
-                val resp = apiCall("/web/web_homeV4?lang=$internalLangName&clang=$internalLangName")
-                resp.success?.webHomeView?.groups?.flatMap { it.titles }?.mapNotNull { it.title }
-                    .orEmpty().filterByLang().map { it.toManga() }
+                val latestResult = apiCall("/web/web_homeV4?lang=$internalLangName&clang=$internalLangName")
+                val allTitlesResult = apiCall("/title_list/allV2")
+
+                val latestTitles = latestResult.success?.webHomeView?.groups
+                    ?.flatMap { it.titles }
+                    ?.mapNotNull { it.title }
+                    ?.filterByLang()
+                    .orEmpty()
+
+                val allTitlesGroups = allTitlesResult.success?.allTitlesView?.allTitlesGroup
+                    .orEmpty()
+
+                val titles = latestTitles.mapNotNull { latestTitle ->
+                    allTitlesGroups
+                        .firstOrNull { group -> group.titles.any { it.titleId == latestTitle.titleId } }
+                        ?.titles
+                        ?.firstOrNull { it.language == internalLangCode }
+                }.distinctBy { it.titleId }
+
+                titles.map { it.toManga() }
             }
             SortOrder.ALPHABETICAL -> {
                 val resp = apiCall("/title_list/allV2")
@@ -639,7 +656,7 @@ internal abstract class MangaPlusParser(
 
         val resp = apiCall("/title_detailV3?title_id=${manga.url}&clang=$internalLangName")
         val detail = resp.success?.titleDetailView ?: throw IOException("No detail")
-        val completed = detail.nonAppearanceInfo.contains(Regex("completado|complete|completo", RegexOption.IGNORE_CASE))
+        val completed = detail.nonAppearanceInfo.contains(CompletedRegex) || detail.viewingPeriodDescription.contains("latest 0 chapters")
         val hiatus = detail.nonAppearanceInfo.contains(Regex("on a hiatus", RegexOption.IGNORE_CASE))
         val result = manga.copy(
             title = detail.title.name,
@@ -750,6 +767,11 @@ internal abstract class MangaPlusParser(
         return response.newBuilder()
             .body(decrypted.toResponseBody(contentType.toMediaTypeOrNull()))
             .build()
+    }
+
+    companion object {
+        private val CompletedRegex = Regex("completado|completed?|completo", RegexOption.IGNORE_CASE)
+        private val HIATUS_REGEX = Regex("on a hiatus", RegexOption.IGNORE_CASE)
     }
 
     @MangaSourceParser("MANGAPLUSPARSER_EN", "MANGA Plus (English)", "en")

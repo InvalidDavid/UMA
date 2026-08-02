@@ -252,6 +252,7 @@ internal abstract class MangaFireParser(
             .addPathSegments("api/titles")
             .addQueryParameter("page", page.toString())
             .addQueryParameter("limit", "50")
+            .addQueryParameter("languages[]", siteLang)
 
         if (!filter.query.isNullOrBlank()) {
             urlBuilder.addQueryParameter("keyword", filter.query)

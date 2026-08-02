@@ -605,7 +605,7 @@ internal abstract class MangaBallParser(
 
     companion object {
 
-        private const val BASE_URL = "https://${_root_ide_package_.tsuki.site.all.DOMAIN}"
+        private const val BASE_URL = "https://${DOMAIN}"
         private val GROUP_ID_REGEX = Regex("[a-z0-9]{24}")
         private val CHAPTER_IMAGES_REGEX = Regex("""const\s+chapterImages\s*=\s*JSON\.parse\(`([^`]+)`\)""")
         private val ADULT_TAG_TITLES = setOf(

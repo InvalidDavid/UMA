@@ -8,7 +8,6 @@ import tsuki.parsers.GalleryAdultsParser
 import tsuki.model.*
 import tsuki.util.*
 
-import org.jsoup.internal.StringUtil
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.util.EnumSet
@@ -68,15 +67,9 @@ internal class NHentaiXXXParser(context: MangaLoaderContext) :
                 else -> {
                     append("/search/?key=")
 
-                    val joiner = StringUtil.StringJoiner("+")
-                    tags.forEach { tag ->
-                        joiner.add(tag.title)
-                    }
-
-                    if (!query.isNullOrEmpty()) {
-                        joiner.add(query.urlEncoded())
-                    }
-                    append(joiner.complete())
+                    val parts = tags.map { it.title }.toMutableList()
+                    if (!query.isNullOrEmpty()) parts.add(query.urlEncoded())
+                    append(parts.joinToString("+"))
                 }
             }
 
@@ -144,7 +137,7 @@ internal class NHentaiXXXParser(context: MangaLoaderContext) :
         return try {
             webClient.httpHead(url)
             false
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             true
         }
     }
@@ -158,7 +151,7 @@ internal class NHentaiXXXParser(context: MangaLoaderContext) :
             try {
                 webClient.httpHead(newUrl)
                 newUrl
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 null // Skip errors and continue checking other formats
             }
         }

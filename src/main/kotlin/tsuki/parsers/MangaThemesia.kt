@@ -58,7 +58,7 @@ abstract class MangaThemesia(
         .build()
 
     protected open val mangaDirectory = "manga"
-    protected open val dateFormat = SimpleDateFormat("MMMM dd, yyyy", Locale.US)
+    protected open val dateFormat = SimpleDateFormat("MMMM dd, yyyy", Locale("en"))
     protected open val withoutAjax = false
     protected open val searchSelector = ".utao .uta .imgu, .listupd .bs .bsx, .listo .bs .bsx"
     protected open val relatedSelector = ".related-posts .bsx, .bixbox .bsx, .related-manga .related-reading-wrap"
@@ -170,7 +170,7 @@ abstract class MangaThemesia(
             parseMangaElement(element)
         }
     }
-    
+
     override suspend fun getDetails(manga: Manga): Manga = coroutineScope {
         val fullUrl = manga.url.toAbsoluteUrl(domain)
         val doc = webClient.httpGet(fullUrl).parseHtml()

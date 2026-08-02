@@ -2,16 +2,37 @@ package tsuki.site.en.nsfw
 
 import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
-import tsuki.config.ConfigKey
 import tsuki.parsers.GalleryAdultsParser
+import tsuki.config.ConfigKey
 
-import tsuki.util.*
-import tsuki.model.*
+import tsuki.model.ContentRating
+import tsuki.model.ContentType
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
 
-import org.json.JSONArray
-import org.jsoup.nodes.Document
+import tsuki.util.attrAsRelativeUrl
+import tsuki.util.generateUid
+import tsuki.util.mapToSet
+import tsuki.util.parseHtml
+import tsuki.util.selectFirstOrThrow
+import tsuki.util.src
+import tsuki.util.toAbsoluteUrl
+import tsuki.util.parseSafe
+import tsuki.util.urlDecode
+import tsuki.util.urlEncoded
+
 import java.text.SimpleDateFormat
 import java.util.Base64
+import org.json.JSONArray
+import org.jsoup.nodes.Document
 
 private const val SERVER_PNG = "png" // old method uses now image_fallback
 private const val SERVER_WEBP = "webp" // new decryption method for .webp/.avif format
@@ -194,34 +215,27 @@ internal class HentaiNexus(context: MangaLoaderContext) :
         if (mangaPages.isEmpty() || !chapter.url.contains(mangaInternalId)) {
             mangaPages = getPagesInternal(chapter.url)
             mangaInternalId = chapter.url.split("/").last()
-
-            // preload image urls
             val reader = mangaPages.firstOrNull()?.url?.substringBefore("#")
             if (reader != null && !pageCache.containsKey(reader)) {
                 pageCache[reader] = getPageUrlInternal(reader)
             }
         }
-
         return mangaPages
     }
 
     override suspend fun getPageUrl(page: MangaPage): String {
         val readerUrl = page.url.substringBefore("#")
-
         val pages = pageCache[readerUrl]
             ?: getPageUrlInternal(readerUrl).also {
                 pageCache[readerUrl] = it
             }
-
         val index = page.url.substringAfter("#").toInt() - 1
-
         return pages[index]
     }
 
     private suspend fun getPagesInternal(chapterUrl: String, document: Document? = null): List<MangaPage> {
         val document = document ?: webClient.httpGet(chapterUrl.toAbsoluteUrl(domain)).parseHtml()
         val readUrl = document.selectFirstOrThrow(selectReadUrl).attr("href")
-
         return document.select(selectTotalPage).mapIndexed { index, element ->
             val url = "$readUrl#${index + 1}"
             MangaPage(
@@ -294,15 +308,9 @@ internal class HentaiNexus(context: MangaLoaderContext) :
     private fun normalizeImageUrl(url: String): String {
         return when {
             url.startsWith("http") -> url
-
-            url.startsWith("//") ->
-                "https:$url"
-
-            url.startsWith("/") ->
-                "https://$domain$url"
-
-            else ->
-                "https://$domain/$url"
+            url.startsWith("//") -> "https:$url"
+            url.startsWith("/") -> "https://$domain$url"
+            else -> "https://$domain/$url"
         }
     }
 

@@ -10,7 +10,7 @@ plugins {
 }
 
 group = "org.usagi"
-version = "1.0.3"
+version = "1.0.0"
 
 tasks.test {
     useJUnitPlatform()
@@ -54,7 +54,6 @@ publishing {
 
 dependencies {
     implementation(libs.kotlinx.coroutines.core)
-    implementation(libs.kotlinx.serialization.json)
     implementation(libs.okhttp)
     implementation(libs.okio)
     implementation(libs.json)
@@ -70,7 +69,6 @@ dependencies {
     testImplementation(libs.junit.params)
     testRuntimeOnly(libs.junit.launcher)
     testImplementation(libs.kotlinx.coroutines.test)
-    testImplementation(libs.quickjs)
 }
 
 tasks.register("buildJar") {
