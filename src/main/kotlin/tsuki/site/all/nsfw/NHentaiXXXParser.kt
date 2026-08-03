@@ -1,12 +1,34 @@
 package tsuki.site.all.nsfw
 
+import tsuki.ErrorMessages
 import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
-import tsuki.ErrorMessages
 import tsuki.parsers.GalleryAdultsParser
 
-import tsuki.model.*
-import tsuki.util.*
+import tsuki.model.ContentRating
+import tsuki.model.ContentType
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
+
+import tsuki.util.attrAsRelativeUrl
+import tsuki.util.generateUid
+import tsuki.util.mapToSet
+import tsuki.util.parseHtml
+import tsuki.util.removeSuffix
+import tsuki.util.requireElementById
+import tsuki.util.requireSrc
+import tsuki.util.selectFirstOrThrow
+import tsuki.util.src
+import tsuki.util.toAbsoluteUrl
+import tsuki.util.toTitleCase
+import tsuki.util.urlEncoded
 
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
