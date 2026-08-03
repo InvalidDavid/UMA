@@ -5,8 +5,34 @@ import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
 
-import tsuki.model.*
-import tsuki.util.*
+import tsuki.model.ContentRating
+import tsuki.model.ContentType
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
+
+import tsuki.util.attrAsRelativeUrl
+import tsuki.util.flattenTo
+import tsuki.util.generateUid
+import tsuki.util.mapNotNullToSet
+import tsuki.util.mapToSet
+import tsuki.util.ownTextOrNull
+import tsuki.util.parseHtml
+import tsuki.util.requireElementById
+import tsuki.util.requireSrc
+import tsuki.util.selectFirstOrThrow
+import tsuki.util.selectFirstParentOrThrow
+import tsuki.util.src
+import tsuki.util.toAbsoluteUrl
+import tsuki.util.toTitleCase
+import tsuki.util.urlEncoded
 
 import androidx.collection.ArraySet
 import kotlinx.coroutines.async
@@ -138,8 +164,9 @@ internal class ImHentai(context: MangaLoaderContext) :
         }
     }
 
-    //Tags are deliberately reduced because there are too many and this slows down the application.
-    //only the most popular ones are taken.
+    /**
+     * Reduced tags way too many
+    */
     private suspend fun fetchAvailableTags(): Set<MangaTag> {
         return coroutineScope {
             (1..3).map { page ->
