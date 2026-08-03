@@ -4,8 +4,22 @@ import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
 import tsuki.core.SinglePageMangaParser
-import tsuki.model.*
-import tsuki.util.*
+
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaState
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
+
+import tsuki.util.generateUid
+import tsuki.util.toAbsoluteUrl
+import tsuki.util.toTitleCase
+
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
@@ -771,7 +785,6 @@ internal abstract class MangaPlusParser(
 
     companion object {
         private val CompletedRegex = Regex("completado|completed?|completo", RegexOption.IGNORE_CASE)
-        private val HIATUS_REGEX = Regex("on a hiatus", RegexOption.IGNORE_CASE)
     }
 
     @MangaSourceParser("MANGAPLUSPARSER_EN", "MANGA Plus (English)", "en")
