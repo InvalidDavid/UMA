@@ -45,9 +45,6 @@ internal abstract class DoujinDesuParser(
     source: MangaParserSource
 ): PagedMangaParser(context, source, pageSize = 18) {
 
-    protected abstract val defaultTypes: String
-    protected abstract val availableContentTypes: Set<ContentType>
-
     override val configKeyDomain = ConfigKey.Domain("doujin.desu.xxx")
 
     override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
@@ -65,10 +62,12 @@ internal abstract class DoujinDesuParser(
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Manga>?): Boolean = size > 10
     }
 
-    override val defaultSortOrder: SortOrder = SortOrder.UPDATED
-
     override val availableSortOrders: Set<SortOrder> = EnumSet.of(
-        SortOrder.UPDATED, SortOrder.NEWEST, SortOrder.ALPHABETICAL, SortOrder.POPULARITY
+        SortOrder.UPDATED,
+        SortOrder.NEWEST,
+        SortOrder.ALPHABETICAL,
+        SortOrder.POPULARITY,
+        SortOrder.NEWEST_ASC
     )
 
     override val filterCapabilities = MangaListFilterCapabilities(
@@ -80,8 +79,15 @@ internal abstract class DoujinDesuParser(
 
     override suspend fun getFilterOptions() = MangaListFilterOptions(
         availableTags = getOrFetchGenres(),
-        availableStates = EnumSet.of(MangaState.ONGOING, MangaState.FINISHED),
-        availableContentTypes = availableContentTypes,
+        availableStates = EnumSet.of(
+            MangaState.ONGOING,
+            MangaState.FINISHED
+        ),
+        availableContentTypes = EnumSet.of(
+            ContentType.MANGA,
+            ContentType.DOUJINSHI,
+            ContentType.MANHWA
+        ),
     )
 
     private suspend fun getOrFetchGenres(): Set<MangaTag> {
@@ -149,6 +155,7 @@ internal abstract class DoujinDesuParser(
                 SortOrder.POPULARITY -> "rating"
                 SortOrder.ALPHABETICAL -> "title_asc"
                 SortOrder.NEWEST -> "newest"
+                SortOrder.NEWEST_ASC -> "oldest"
                 SortOrder.UPDATED -> "latest_chapter"
                 else -> "latest_chapter"
             }
