@@ -23,6 +23,7 @@ import tsuki.util.generateUid
 import tsuki.util.json.extractNextJs
 import tsuki.util.parseSafe
 import tsuki.util.toAbsoluteUrl
+import tsuki.util.extractChapterNumber
 
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Response
@@ -107,7 +108,7 @@ internal class TempleScan(context: MangaLoaderContext) :
             SortOrder.UPDATED -> filtered.sortedByDescending { it.updated }
             SortOrder.NEWEST -> filtered.sortedByDescending { it.created }
             SortOrder.POPULARITY -> filtered.sortedByDescending { it.views }
-            SortOrder.ALPHABETICAL -> filtered.sortedByDescending { it.title }
+            SortOrder.ALPHABETICAL -> filtered.sortedBy { it.title }
             else -> filtered
         }
 
@@ -189,11 +190,8 @@ internal class TempleScan(context: MangaLoaderContext) :
             season.chapters.filter { it.price == 0 }.map { chapter ->
                 MangaChapter(
                     id = generateUid("$mangaSlug/${chapter.slug}"),
-                    title = buildString {
-                        append(chapter.name)
-                        if (!chapter.title.isNullOrBlank()) append(": ${chapter.title}")
-                    },
-                    number = chapter.name.toFloatOrNull() ?: 0f,
+                    title = chapter.name,
+                    number = chapter.name.extractChapterNumber(),
                     url = "/comic/$mangaSlug/${chapter.slug}",
                     uploadDate = chapter.created,
                     source = source,
@@ -202,7 +200,7 @@ internal class TempleScan(context: MangaLoaderContext) :
                     branch = null,
                 )
             }
-        }.sortedByDescending { it.number }
+        }.sortedBy { it.number }
     }
 
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
