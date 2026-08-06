@@ -5,8 +5,24 @@ import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
 
-import tsuki.model.*
-import tsuki.util.*
+import tsuki.model.ContentType
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaState
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
+
+import tsuki.util.generateUid
+import tsuki.util.oneOrThrowIfMany
+import tsuki.util.parseHtml
+import tsuki.util.toAbsoluteUrl
+import tsuki.util.urlEncoded
 
 import java.util.Base64
 import org.json.JSONArray
@@ -14,7 +30,8 @@ import org.json.JSONObject
 import org.jsoup.nodes.Document
 import java.nio.charset.StandardCharsets
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.EnumSet
+import java.util.Locale
 
 @MangaSourceParser("MANHWAREAD", "ManhwaRead", "en", ContentType.HENTAI)
 internal class ManhwaRead(context: MangaLoaderContext) :
