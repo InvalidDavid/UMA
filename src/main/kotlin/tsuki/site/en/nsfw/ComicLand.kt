@@ -5,8 +5,21 @@ import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
 
-import tsuki.util.*
-import tsuki.model.*
+import tsuki.model.ContentRating
+import tsuki.model.ContentType
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
+
+import tsuki.util.generateUid
+import tsuki.util.urlEncoded
 
 import okhttp3.Interceptor
 import okhttp3.Response
@@ -30,13 +43,13 @@ internal class ComicLand(context: MangaLoaderContext) : PagedMangaParser(
     override val availableSortOrders = setOf(SortOrder.UPDATED)
 
     override val filterCapabilities = MangaListFilterCapabilities(
-            isMultipleTagsSupported = false,
-            isTagsExclusionSupported = false,
-            isSearchSupported = true,
-            isSearchWithFiltersSupported = true,
-            isYearSupported = false,
-            isAuthorSearchSupported = false
-        )
+        isMultipleTagsSupported = false,
+        isTagsExclusionSupported = false,
+        isSearchSupported = true,
+        isSearchWithFiltersSupported = true,
+        isYearSupported = false,
+        isAuthorSearchSupported = false
+    )
 
     private val api = "https://api.comicland.org/api"
 
@@ -111,7 +124,7 @@ internal class ComicLand(context: MangaLoaderContext) : PagedMangaParser(
                         title = chapter.optString("title"),
                         number = index.toFloat(),
                         volume = 0,
-                        url ="/comic/${comic.optString("slug")}/chapter/${index.toString().removeSuffix(".0")}",
+                        url = "/comic/${comic.optString("slug")}/chapter/${index.toString().removeSuffix(".0")}",
                         scanlator = null,
                         uploadDate = 0,
                         branch = null,
