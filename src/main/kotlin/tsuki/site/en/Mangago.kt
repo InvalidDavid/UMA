@@ -7,8 +7,29 @@ import tsuki.core.PagedMangaParser
 import tsuki.bitmap.Bitmap
 import tsuki.bitmap.Rect
 
-import tsuki.model.*
-import tsuki.util.*
+import tsuki.model.ContentRating
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaState
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
+
+import tsuki.util.attrAsAbsoluteUrlOrNull
+import tsuki.util.attrAsRelativeUrlOrNull
+import tsuki.util.generateUid
+import tsuki.util.mapToSet
+import tsuki.util.parseHtml
+import tsuki.util.parseRaw
+import tsuki.util.requireElementById
+import tsuki.util.selectFirstOrThrow
+import tsuki.util.toAbsoluteUrl
+import tsuki.util.urlEncoded
 
 import okhttp3.Interceptor
 import okhttp3.Response
@@ -94,7 +115,7 @@ internal class MangagoParser(context: MangaLoaderContext) :
 
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
         val query = filter.query.orEmpty()
-        if (!query.isNullOrEmpty()) {
+        if (query.isNotEmpty()) {
             val url = buildString {
                 append("https://")
                 append(domain)
@@ -265,6 +286,7 @@ internal class MangagoParser(context: MangaLoaderContext) :
         return buildChapterList(rawChapters)
     }
 
+    @Suppress("ControlFlowWithEmptyBody")
     private fun buildChapterList(chapters: List<ChapterParseData>): List<MangaChapter> {
         val scanlatorCounts = mutableMapOf<String, Int>()
         for (chapter in chapters) {
@@ -352,7 +374,7 @@ internal class MangagoParser(context: MangaLoaderContext) :
             val regex = Regex("""(?:ch\.?|chapter|vol\.?\s*\d+\s+ch\.?)\s*(\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE)
             val match = regex.find(title)
             match?.groupValues?.get(1)?.toFloat()
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             null
         }
     }
@@ -399,7 +421,7 @@ internal class MangagoParser(context: MangaLoaderContext) :
             while (allImages.size < pagesCount) {
                 val batchUrl = buildBatchUrl(batchStart)
                 val batchDoc = if (batchStart == 1) doc else webClient.httpGet(batchUrl).parseHtml()
-                val batchImages = decryptImageList(batchDoc, batchUrl)
+                val batchImages = decryptImageList(batchDoc)
 
                 if (batchImages.isEmpty()) {
                     break
@@ -433,7 +455,7 @@ internal class MangagoParser(context: MangaLoaderContext) :
         val imgsrcsScript = doc.selectFirst("script:containsData(imgsrcs)")?.html()
 
         if (imgsrcsScript != null) {
-            val images = decryptImageList(doc, fullUrl)
+            val images = decryptImageList(doc)
             val cols = getColsFromDoc(doc) ?: ""
             val js = getDeobfuscatedJS(doc) ?: throw Exception("Could not get JS")
 
@@ -470,7 +492,7 @@ internal class MangagoParser(context: MangaLoaderContext) :
 
     override suspend fun getRelatedManga(seed: Manga): List<Manga> = emptyList()
 
-    private suspend fun decryptImageList(doc: Document, sourceUrl: String): List<String> {
+    private suspend fun decryptImageList(doc: Document): List<String> {
         val imgsrcsScript = doc.selectFirst("script:containsData(imgsrcs)")?.html()
             ?: throw Exception("Could not find imgsrcs")
 
@@ -618,7 +640,7 @@ internal class MangagoParser(context: MangaLoaderContext) :
                 }
                 imgList[loc].toString().toInt()
             }
-        } catch (e: NumberFormatException) {
+        } catch (_: NumberFormatException) {
             return imgList
         }
 
