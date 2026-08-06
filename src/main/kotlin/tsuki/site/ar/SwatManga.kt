@@ -1,12 +1,10 @@
 package tsuki.site.ar
 
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
-import org.json.JSONObject
 import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
+
 import tsuki.model.ContentRating
 import tsuki.model.ContentType
 import tsuki.model.Manga
@@ -20,13 +18,18 @@ import tsuki.model.MangaState
 import tsuki.model.MangaTag
 import tsuki.model.RATING_UNKNOWN
 import tsuki.model.SortOrder
+
 import tsuki.util.generateUid
 import tsuki.util.nullIfEmpty
 import tsuki.util.parseJson
 import tsuki.util.parseJsonArray
 import tsuki.util.urlEncoded
+
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import org.json.JSONObject
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Locale
 
 @MangaSourceParser("SWATMANGA", "Swat Manga", "ar", ContentType.MANGA)
 internal class SwatManga(context: MangaLoaderContext) :
