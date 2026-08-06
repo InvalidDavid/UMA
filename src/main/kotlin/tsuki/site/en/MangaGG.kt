@@ -4,15 +4,21 @@ import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
 import tsuki.parsers.MadaraParser
 
-import tsuki.model.*
-import tsuki.util.*
+import tsuki.model.MangaChapter
+import tsuki.model.MangaParserSource
+
+import tsuki.util.attrAsRelativeUrl
+import tsuki.util.generateUid
+import tsuki.util.parseHtml
+import tsuki.util.removeSuffix
+import tsuki.util.selectFirstOrThrow
+import tsuki.util.toAbsoluteUrl
 
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import org.jsoup.nodes.Document
 import java.text.SimpleDateFormat
 import kotlinx.coroutines.awaitAll
-
 
 @MangaSourceParser("MANGAGG", "MangaGG", "en")
 internal class MangaGG(context: MangaLoaderContext) :
