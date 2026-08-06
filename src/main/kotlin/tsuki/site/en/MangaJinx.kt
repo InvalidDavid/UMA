@@ -4,12 +4,35 @@ import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
 import tsuki.parsers.MadthemeParser
 
-import tsuki.model.*
-import tsuki.util.*
+import tsuki.model.ContentRating
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaState
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
+
+import tsuki.util.attrAsRelativeUrl
+import tsuki.util.generateUid
+import tsuki.util.mapChapters
+import tsuki.util.mapNotNullToSet
+import tsuki.util.mapToSet
+import tsuki.util.oneOrThrowIfMany
+import tsuki.util.parseHtml
+import tsuki.util.selectFirstOrThrow
+import tsuki.util.toAbsoluteUrl
+import tsuki.util.toTitleCase
+import tsuki.util.urlEncoded
+import tsuki.util.removeSuffix
 
 import org.jsoup.nodes.Document
 import java.text.SimpleDateFormat
 import java.util.EnumSet
+
 
 @MangaSourceParser("MANGAJINX", "MangaJinx", "en")
 internal class MangaJinx(context: MangaLoaderContext) :
