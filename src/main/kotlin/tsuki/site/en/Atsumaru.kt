@@ -5,14 +5,24 @@ import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
 
-import tsuki.model.*
-import tsuki.util.*
+import tsuki.model.ContentRating
+import tsuki.model.ContentType
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaState
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
 
-import okhttp3.Headers
-import okhttp3.HttpUrl.Companion.toHttpUrl
-import org.json.JSONArray
-import org.json.JSONObject
-import java.util.EnumSet
+import tsuki.util.generateUid
+import tsuki.util.nullIfEmpty
+import tsuki.util.parseJson
+
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -20,6 +30,11 @@ import kotlin.math.pow
 import kotlin.math.roundToLong
 import kotlin.random.Random
 import kotlin.time.Duration.Companion.milliseconds
+import okhttp3.Headers
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.EnumSet
 
 suspend fun <T> retryWithBackoff(
     maxRetries: Int = 3,
@@ -190,11 +205,21 @@ internal class Atsumaru(context: MangaLoaderContext) :
     override suspend fun getFilterOptions() = MangaListFilterOptions(
         availableTags = (allGenres.map { (name, id) -> MangaTag(name, "genre:$id", source) } +
                 allTags.map { (name, id) -> MangaTag(name, "tag:$id", source) }).toSet(),
-        availableStates = EnumSet.of(MangaState.ONGOING, MangaState.FINISHED, MangaState.PAUSED, MangaState.ABANDONED),
-        availableContentTypes = EnumSet.of(ContentType.MANGA, ContentType.MANHWA, ContentType.MANHUA, ContentType.OTHER),
+        availableStates = EnumSet.of(
+            MangaState.ONGOING, 
+            MangaState.FINISHED, 
+            MangaState.PAUSED, 
+            MangaState.ABANDONED
+        ),
+        availableContentTypes = EnumSet.of(
+            ContentType.MANGA,
+            ContentType.MANHWA,
+            ContentType.MANHUA,
+            ContentType.OTHER
+        ),
     )
 
-    override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter, ): List<Manga> = getSearchPage(page, order, filter)
+    override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> = getSearchPage(page, order, filter)
 
     private suspend fun getSearchPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
         val query = filter.query ?: "*"
