@@ -5,8 +5,27 @@ import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
 import tsuki.core.SinglePageMangaParser
 
-import tsuki.model.*
-import tsuki.util.*
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaState
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
+
+import tsuki.util.LinkResolver
+import tsuki.util.findGroupValue
+import tsuki.util.generateUid
+import tsuki.util.longOf
+import tsuki.util.mapToSet
+import tsuki.util.parseJson
+import tsuki.util.parseRaw
+import tsuki.util.toTitleCase
+import tsuki.util.urlBuilder
 import tsuki.util.json.asTypedList
 import tsuki.util.json.entries
 import tsuki.util.json.getFloatOrDefault
