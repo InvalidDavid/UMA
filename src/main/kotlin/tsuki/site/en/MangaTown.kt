@@ -5,13 +5,44 @@ import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
 
-import tsuki.model.*
-import tsuki.util.*
+import tsuki.model.ContentType
+import tsuki.model.Demographic
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaState
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
+
+import tsuki.util.attrAsAbsoluteUrl
+import tsuki.util.attrAsAbsoluteUrlOrNull
+import tsuki.util.attrAsRelativeUrl
+import tsuki.util.generateUid
+import tsuki.util.host
+import tsuki.util.mapChapters
+import tsuki.util.mapNotNullToSet
+import tsuki.util.mapToSet
+import tsuki.util.oneOrThrowIfMany
+import tsuki.util.parseFailed
+import tsuki.util.parseHtml
+import tsuki.util.parseSafe
+import tsuki.util.toAbsoluteUrl
+import tsuki.util.toTitleCase
+import tsuki.util.urlEncoded
 
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Calendar
+import java.util.EnumSet
+import java.util.Locale
+import kotlin.collections.toList
+import kotlin.collections.toSet
 
 @MangaSourceParser("MANGATOWN", "MangaTown", "en")
 internal class MangaTown(context: MangaLoaderContext) :
@@ -73,8 +104,7 @@ internal class MangaTown(context: MangaLoaderContext) :
             ContentType.MANHWA,
         ),
     )
-
-
+    
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
         val query = filter.query?.trim()
         val hasFilters = filter.types.isNotEmpty() || filter.demographics.isNotEmpty() ||
@@ -225,7 +255,6 @@ internal class MangaTown(context: MangaLoaderContext) :
         }
     }
 
-
     override suspend fun getDetails(manga: Manga): Manga {
         val doc = webClient.httpGet(manga.url.toAbsoluteUrl(domain), getRequestHeaders()).parseHtml()
         val root = doc.body().selectFirst("section.main")
@@ -279,8 +308,7 @@ internal class MangaTown(context: MangaLoaderContext) :
             } ?: emptyList(),
         )
     }
-
-
+    
     private suspend fun bypassLicensedChapters(manga: Manga): List<MangaChapter> {
         val subdomain = "m." + domain.removePrefix("www.")
         val doc = webClient.httpGet(manga.url.toAbsoluteUrl(subdomain), getRequestHeaders()).parseHtml()
@@ -306,8 +334,7 @@ internal class MangaTown(context: MangaLoaderContext) :
             )
         }
     }
-
-
+    
     private fun parseChapterDate(dateFormat: SimpleDateFormat, date: String?): Long {
         return when {
             date.isNullOrEmpty() -> 0L
@@ -316,7 +343,6 @@ internal class MangaTown(context: MangaLoaderContext) :
             else -> dateFormat.parseSafe(date)
         }
     }
-
 
     private suspend fun fetchAvailableTags(): Set<MangaTag> {
         val doc = webClient.httpGet("/directory/".toAbsoluteUrl(domain), getRequestHeaders()).parseHtml()
@@ -334,7 +360,6 @@ internal class MangaTown(context: MangaLoaderContext) :
             )
         }
     }
-
 
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
         val fullUrl = chapter.url.toAbsoluteUrl(domain)
@@ -364,14 +389,12 @@ internal class MangaTown(context: MangaLoaderContext) :
         }
     }
 
-
     override suspend fun getPageUrl(page: MangaPage): String {
         if (page.url.startsWith("http")) return page.url
         val doc = webClient.httpGet(page.url.toAbsoluteUrl(domain), getRequestHeaders()).parseHtml()
         return doc.selectFirst("div#viewer img")?.attrAsAbsoluteUrl("src")
             ?: throw Exception("Could not find image")
     }
-
-
+    
     private fun String.nullIfEmpty(): String? = ifEmpty { null }
 }
