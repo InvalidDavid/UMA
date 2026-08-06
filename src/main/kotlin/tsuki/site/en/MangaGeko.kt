@@ -5,8 +5,28 @@ import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
 
-import tsuki.model.*
-import tsuki.util.*
+import tsuki.model.ContentRating
+import tsuki.model.ContentType
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaState
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
+
+import tsuki.util.attrAsRelativeUrl
+import tsuki.util.generateUid
+import tsuki.util.mapToSet
+import tsuki.util.parseHtml
+import tsuki.util.selectFirstOrThrow
+import tsuki.util.textOrNull
+import tsuki.util.toAbsoluteUrl
+import tsuki.util.toRelativeUrl
 
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.json.JSONObject
@@ -62,7 +82,12 @@ internal class MangaGeko(context: MangaLoaderContext) :
         return MangaListFilterOptions(
             availableTags = tags,
             availableStates = EnumSet.of(MangaState.ONGOING, MangaState.FINISHED, MangaState.PAUSED),
-            availableContentTypes = EnumSet.of(ContentType.MANGA, ContentType.MANHWA, ContentType.MANHUA, ContentType.COMICS),
+            availableContentTypes = EnumSet.of(
+                ContentType.MANGA,
+                ContentType.MANHWA,
+                ContentType.MANHUA, 
+                ContentType.COMICS
+            ),
             availableContentRating = EnumSet.of(ContentRating.SAFE, ContentRating.ADULT),
         )
     }
@@ -244,6 +269,6 @@ internal class MangaGeko(context: MangaLoaderContext) :
             source = source,
         )
     }
-    
+
     private fun SimpleDateFormat.parseSafe(date: String): Long? = runCatching { parse(date)?.time }.getOrNull()
 }
