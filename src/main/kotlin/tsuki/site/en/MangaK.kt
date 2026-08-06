@@ -6,8 +6,29 @@ import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
 import tsuki.exception.ParseException
 
-import tsuki.model.*
-import tsuki.util.*
+import tsuki.model.ContentRating
+import tsuki.model.ContentType
+import tsuki.model.Demographic
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaState
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
+
+import tsuki.util.generateUid
+import tsuki.util.nullIfEmpty
+import tsuki.util.oneOrThrowIfMany
+import tsuki.util.parseHtml
+import tsuki.util.parseJson
+import tsuki.util.parseSafe
+import tsuki.util.toTitleCase
+import tsuki.util.urlEncoded
 import tsuki.util.json.mapJSON
 import tsuki.util.json.mapJSONNotNullToSet
 import tsuki.util.json.mapJSONToSet
