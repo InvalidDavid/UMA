@@ -42,20 +42,19 @@ internal class ReYume(context: MangaLoaderContext) :
 
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
         val startIndex = maxMangaResults * (page - 1) + 1
-        val query = filter.query
         val url = buildString {
             append("https://")
             append(domain)
             append("/feeds/posts/default/-/")
             when {
-                !query.isNullOrEmpty() -> {
+                !filter.query.isNullOrEmpty() -> {
                     append("Series")
                     append("?alt=json&orderby=published&max-results=")
                     append((maxMangaResults + 1).toString())
                     append("&start-index=")
                     append(startIndex.toString())
                     append("&q=label:Series+")
-                    append(query.urlEncoded())
+                    append(filter.query.urlEncoded())
                 }
                 else -> {
                     if (filter.tags.isNotEmpty()) {
