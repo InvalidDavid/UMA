@@ -79,7 +79,7 @@ internal class Mangataro(context: MangaLoaderContext) :
     override suspend fun getFilterOptions() = MangaListFilterOptions(
         availableTags = genreTags,
         availableStates = EnumSet.of(
-            MangaState.ONGOING, 
+            MangaState.ONGOING,
             MangaState.FINISHED
         ),
         availableContentTypes = EnumSet.of(
@@ -90,25 +90,17 @@ internal class Mangataro(context: MangaLoaderContext) :
         ),
     )
 
-
-    override suspend fun getListPage(
-        page: Int,
-        order: SortOrder,
-        filter: MangaListFilter,
-    ): List<Manga> {
+    override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
         val payload = JSONObject().apply {
             put("page", page)
             put("search", filter.query.orEmpty())
 
-            // Year
             val yearArray = JSONArray()
             if (filter.year > 0) yearArray.put(filter.year.toString())
             put("years", yearArray.toString())
 
-            // Genres (tags)
             put("genres", filter.tags.toGenrePayload())
 
-            // Types
             val typeArray = JSONArray()
             filter.types.forEach { ct ->
                 val apiType = when (ct) {
@@ -122,7 +114,6 @@ internal class Mangataro(context: MangaLoaderContext) :
             }
             put("types", typeArray.toString())
 
-            // Statuses
             val statusArray = JSONArray()
             filter.states.forEach { state ->
                 val apiStatus = when (state) {
@@ -211,13 +202,7 @@ internal class Mangataro(context: MangaLoaderContext) :
     }
 
     @Suppress("SameParameterValue")
-    private fun buildChapterUrl(
-        mangaId: String,
-        offset: Int,
-        limit: Int,
-        token: String,
-        timestamp: String,
-    ): String {
+    private fun buildChapterUrl(mangaId: String, offset: Int, limit: Int, token: String, timestamp: String): String {
         return HttpUrl.Builder()
             .scheme("https")
             .host(domain)
