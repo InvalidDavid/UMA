@@ -4,9 +4,29 @@ import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
-import tsuki.model.*
-import tsuki.util.*
-import tsuki.util.json.*
+
+import tsuki.model.ContentType
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaState
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
+
+import tsuki.util.generateUid
+import tsuki.util.json.getIntOrDefault
+import tsuki.util.json.getStringOrNull
+import tsuki.util.json.mapJSON
+import tsuki.util.json.mapJSONToSet
+import tsuki.util.oneOrThrowIfMany
+import tsuki.util.parseJson
+import tsuki.util.toTitleCase
+import tsuki.util.urlEncoded
 
 import okhttp3.Headers
 import java.text.SimpleDateFormat
