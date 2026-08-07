@@ -119,13 +119,8 @@ internal class MangaK(context: MangaLoaderContext) :
         }
     }
 
-    override suspend fun getListPage(
-        page: Int,
-        order: SortOrder,
-        filter: MangaListFilter,
-    ): List<Manga> {
+    override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
         val allExcludedTags = filter.tagsExclude.map { it.key }.toMutableSet()
-        val query = filter.query
         val url = buildString {
             append(apiUrl)
             append("/titles/search?page=")
@@ -144,11 +139,10 @@ internal class MangaK(context: MangaLoaderContext) :
                     else -> "latest"
                 },
             )
-
-            if (!query.isNullOrEmpty()) {
+            
+            filter.query?.trim()?.takeIf { it.isNotEmpty() }?.let { q ->
                 append("&q=")
-                // api does not like commans and character limits to 60-70
-                append(query.replace(",", "").urlEncoded())
+                append(q.replace(",", "").urlEncoded())
             }
 
             if (filter.tags.isNotEmpty()) {
@@ -233,16 +227,14 @@ internal class MangaK(context: MangaLoaderContext) :
             source = source,
         )
     }
-
-
+    
     private fun String?.toContentRating() = when (this) {
         "safe" -> ContentRating.SAFE
         "suggestive" -> ContentRating.SUGGESTIVE
         "erotica", "pornographic" -> ContentRating.ADULT
         else -> null
     }
-
-
+    
     private fun JSONObject.parseAltTitles(): Set<String> {
         val result = mutableSetOf<String>()
         optJSONArray("alt_names")?.let { arr ->
@@ -253,15 +245,13 @@ internal class MangaK(context: MangaLoaderContext) :
         optString("alt_name").nullIfEmpty()?.let { result.add(it) }
         return result
     }
-
-
+    
     private fun JSONObject.parseTags(): Set<MangaTag> =
         optJSONArray("genres")?.mapJSONNotNullToSet { genre ->
             val slug = genre.optString("slug").nullIfEmpty() ?: return@mapJSONNotNullToSet null
             MangaTag(genre.getString("name").toTitleCase(sourceLocale), slug, source)
         }.orEmpty()
-
-
+    
     override suspend fun getDetails(manga: Manga): Manga {
         val json = webClient.httpGet("$apiUrl/titles/${manga.url}").parseJson()
             .getJSONObject("data").getJSONObject("title")
@@ -283,8 +273,7 @@ internal class MangaK(context: MangaLoaderContext) :
             chapters = fetchChapters(manga.url, cv),
         )
     }
-
-
+    
     private suspend fun fetchChapters(id: String, cv: Long): List<MangaChapter> {
         val json = webClient.httpGet("$apiUrl/titles/$id/chapters?cv=$cv").parseJson()
         val chapters = json.getJSONObject("data").getJSONArray("chapters").mapJSON { it }
@@ -304,8 +293,7 @@ internal class MangaK(context: MangaLoaderContext) :
             )
         }.reversed()
     }
-
-
+    
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
         val doc = webClient.httpGet("https://$domain${chapter.url}").parseHtml()
         val raw = doc.selectFirst("script#__NEXT_DATA__")?.data()
@@ -325,7 +313,6 @@ internal class MangaK(context: MangaLoaderContext) :
             )
         }
     }
-
 
     private fun Double.toRating() = if (this > 0.0) (this / 5.0).toFloat() else RATING_UNKNOWN
 
