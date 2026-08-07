@@ -139,10 +139,11 @@ internal class MangaK(context: MangaLoaderContext) :
                     else -> "latest"
                 },
             )
-            
+
             filter.query?.trim()?.takeIf { it.isNotEmpty() }?.let { q ->
                 append("&q=")
-                append(q.replace(",", "").urlEncoded())
+                // API rejects queries longer than ~50 chars
+                append(q.take(50).replace(",", "").urlEncoded())
             }
 
             if (filter.tags.isNotEmpty()) {
@@ -227,14 +228,14 @@ internal class MangaK(context: MangaLoaderContext) :
             source = source,
         )
     }
-    
+
     private fun String?.toContentRating() = when (this) {
         "safe" -> ContentRating.SAFE
         "suggestive" -> ContentRating.SUGGESTIVE
         "erotica", "pornographic" -> ContentRating.ADULT
         else -> null
     }
-    
+
     private fun JSONObject.parseAltTitles(): Set<String> {
         val result = mutableSetOf<String>()
         optJSONArray("alt_names")?.let { arr ->
@@ -245,13 +246,13 @@ internal class MangaK(context: MangaLoaderContext) :
         optString("alt_name").nullIfEmpty()?.let { result.add(it) }
         return result
     }
-    
+
     private fun JSONObject.parseTags(): Set<MangaTag> =
         optJSONArray("genres")?.mapJSONNotNullToSet { genre ->
             val slug = genre.optString("slug").nullIfEmpty() ?: return@mapJSONNotNullToSet null
             MangaTag(genre.getString("name").toTitleCase(sourceLocale), slug, source)
         }.orEmpty()
-    
+
     override suspend fun getDetails(manga: Manga): Manga {
         val json = webClient.httpGet("$apiUrl/titles/${manga.url}").parseJson()
             .getJSONObject("data").getJSONObject("title")
@@ -273,7 +274,7 @@ internal class MangaK(context: MangaLoaderContext) :
             chapters = fetchChapters(manga.url, cv),
         )
     }
-    
+
     private suspend fun fetchChapters(id: String, cv: Long): List<MangaChapter> {
         val json = webClient.httpGet("$apiUrl/titles/$id/chapters?cv=$cv").parseJson()
         val chapters = json.getJSONObject("data").getJSONArray("chapters").mapJSON { it }
@@ -293,7 +294,7 @@ internal class MangaK(context: MangaLoaderContext) :
             )
         }.reversed()
     }
-    
+
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
         val doc = webClient.httpGet("https://$domain${chapter.url}").parseHtml()
         val raw = doc.selectFirst("script#__NEXT_DATA__")?.data()
