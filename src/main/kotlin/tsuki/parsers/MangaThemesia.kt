@@ -120,13 +120,12 @@ abstract class MangaThemesia(
     }
 
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
-        val query = filter.query?.trim().orEmpty()
         val url = buildString {
             append("https://$domain/$mangaDirectory/")
-            if (query.isNotEmpty()) {
-                append("?s=${query.urlEncoded()}")
-            } else {
+            if (filter.query.isNullOrEmpty()) {
                 append("?page=$page")
+            } else {
+                append("?s=${filter.query.urlEncoded()}")
             }
             filter.states.firstOrNull()?.let {
                 append("&status=")
