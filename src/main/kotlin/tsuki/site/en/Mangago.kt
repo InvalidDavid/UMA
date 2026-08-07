@@ -114,13 +114,12 @@ internal class MangagoParser(context: MangaLoaderContext) :
     private val dateFormat = SimpleDateFormat("MMM d, yyyy", Locale.ENGLISH)
 
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
-        val query = filter.query.orEmpty()
-        if (query.isNotEmpty()) {
+        if (filter.query != null) {
             val url = buildString {
                 append("https://")
                 append(domain)
                 append("/r/l_search?name=")
-                append(query.urlEncoded())
+                append(filter.query.urlEncoded())
                 append("&page=")
                 append(page)
             }
