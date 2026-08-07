@@ -5,11 +5,24 @@ import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
-
-import tsuki.model.*
-import tsuki.util.*
-
 import tsuki.network.OkHttpWebClient
+
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaState
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
+
+import tsuki.util.generateUid
+import tsuki.util.parseHtml
+import tsuki.util.parseJson
+
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -64,7 +77,7 @@ internal class AnimeSama(context: MangaLoaderContext) :
     )
 
     override suspend fun getFilterOptions(): MangaListFilterOptions = MangaListFilterOptions(
-        availableTags = fetchGenres(), 
+        availableTags = fetchGenres(),
         availableStates = emptySet()
     )
 
