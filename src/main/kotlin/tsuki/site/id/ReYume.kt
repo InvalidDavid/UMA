@@ -4,14 +4,30 @@ import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
 import tsuki.parsers.ZeistMangaParser
 
-import tsuki.model.*
-import tsuki.util.*
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaTag
+import tsuki.model.SortOrder
+
+import tsuki.util.generateUid
+import tsuki.util.mapToSet
+import tsuki.util.parseHtml
+import tsuki.util.parseJson
+import tsuki.util.parseSafe
+import tsuki.util.requireSrc
+import tsuki.util.toAbsoluteUrl
+import tsuki.util.urlEncoded
 import tsuki.util.json.asTypedList
 
 import org.json.JSONArray
 import org.json.JSONObject
 import org.jsoup.nodes.Document
 import java.text.SimpleDateFormat
+import kotlin.collections.dropLast
 
 @MangaSourceParser("REYUME", "ReYume", "id")
 internal class ReYume(context: MangaLoaderContext) :
@@ -124,14 +140,14 @@ internal class ReYume(context: MangaLoaderContext) :
         val mangaTitle = doc.selectFirst("h1#post-title")?.text().orEmpty()
 
         return json.mapIndexedNotNull { i, j ->
-            val name = j.getJSONObject("title").getString("\$t")
+            val name = j.getJSONObject("title").getString($$"$t")
             val chapterName = if (mangaTitle.isNotEmpty() && name.contains(mangaTitle, ignoreCase = true)) {
                 name.replace(mangaTitle, "", ignoreCase = true).trim().trim('-').trim().takeIf { it.isNotEmpty() } ?: name
             } else {
                 name
             }
             val href = j.getJSONArray("link").asTypedList<JSONObject>().first { it.getString("rel") == "alternate" }.getString("href")
-            val dateText = j.getJSONObject("published").getString("\$t").substringBefore("T")
+            val dateText = j.getJSONObject("published").getString($$"$t").substringBefore("T")
             val slug = mangaUrl.substringAfterLast('/')
             val slugChapter = href.substringAfterLast('/')
             if (slug == slugChapter) return@mapIndexedNotNull null
