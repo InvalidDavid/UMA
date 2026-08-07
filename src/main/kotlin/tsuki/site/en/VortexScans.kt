@@ -6,8 +6,20 @@ import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
 import tsuki.network.OkHttpWebClient
 
-import tsuki.model.*
-import tsuki.util.*
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaState
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
+
+import tsuki.util.generateUid
+import tsuki.util.parseJson
 
 import org.json.JSONArray
 import org.json.JSONObject
@@ -17,6 +29,8 @@ import java.text.SimpleDateFormat
 import java.util.EnumSet
 import java.util.Locale
 import java.util.TimeZone
+
+// Todo dedup
 
 @MangaSourceParser("VORTEXSCANS", "Vortex Scans", "en")
 internal class VortexScans(context: MangaLoaderContext) :
