@@ -75,8 +75,7 @@ internal class FlameComics(context: MangaLoaderContext) :
     }
 
     override suspend fun getList(order: SortOrder, filter: MangaListFilter): List<Manga> {
-        val query = filter.query
-        val hasSearchQuery = !query.isNullOrEmpty()
+        val hasSearchQuery = !filter.query.isNullOrEmpty()
         val hasTagFilter = filter.tags.isNotEmpty() || filter.tagsExclude.isNotEmpty()
 
         val rawMangas = if (hasSearchQuery || hasTagFilter || order != SortOrder.UPDATED) {
@@ -118,7 +117,7 @@ internal class FlameComics(context: MangaLoaderContext) :
         val filteredByTags = rawMangas.filter { (manga, _, _) -> manga.tags.matches(filter) }
 
         val filteredManga = if (hasSearchQuery) {
-            val normalizedQuery = removeSpecialCharsRegex.replace(query.lowercase(), "")
+            val normalizedQuery = removeSpecialCharsRegex.replace(filter.query!!.lowercase(), "")
             filteredByTags.filter { (manga, _, _) ->
                 val titles = mutableListOf(manga.title)
                 titles.addAll(manga.altTitles)
