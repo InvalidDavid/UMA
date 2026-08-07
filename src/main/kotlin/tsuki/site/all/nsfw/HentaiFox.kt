@@ -45,9 +45,8 @@ internal class HentaiFox(context: MangaLoaderContext) :
             append(domain)
             when {
                 !filter.query.isNullOrEmpty() -> {
-                    val query = filter.query
                     append("/search/?q=")
-                    append(query?.urlEncoded())
+                    append(filter.query?.urlEncoded())
                     if (page > 1) {
                         append("&page=")
                         append(page.toString())
