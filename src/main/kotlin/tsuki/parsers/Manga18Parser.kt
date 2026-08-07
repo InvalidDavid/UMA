@@ -126,7 +126,6 @@ internal abstract class Manga18Parser(
     protected open val selectChapter = "div.chapter_box li"
 
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
-        val query = filter.query?.trim().orEmpty()
         val tag = filter.tags.firstOrNull()
 
         val url = buildString(120) {
@@ -135,7 +134,7 @@ internal abstract class Manga18Parser(
             append('/')
 
             when {
-                tag != null && query.isNotEmpty() -> {
+                tag != null && filter.query.isNotEmpty() -> {
                     throw IllegalArgumentException("Search is not supported with tags")
                 }
                 tag != null -> {
@@ -144,11 +143,11 @@ internal abstract class Manga18Parser(
                     append('/')
                     append(page)
                 }
-                query.isNotEmpty() -> {
+                filter.query.isNotEmpty() -> {
                     append(listUrl)
                     append(page)
                     append("?search=")
-                    append(query.urlEncoded())
+                    append(filter.query.urlEncoded())
                     append("&order_by=latest")
                 }
                 else -> {
@@ -156,7 +155,7 @@ internal abstract class Manga18Parser(
                     append(page)
                 }
             }
-            if (query.isEmpty()) {
+            if (filter.query!!.isEmpty()) {
                 append("?order_by=")
                 when (order) {
                     SortOrder.POPULARITY -> append("views")
