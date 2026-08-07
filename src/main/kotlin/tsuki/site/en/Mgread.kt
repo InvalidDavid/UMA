@@ -6,8 +6,24 @@ import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
 import tsuki.network.UserAgents
 
-import tsuki.model.*
-import tsuki.util.*
+import tsuki.model.ContentRating
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaState
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
+
+import tsuki.util.generateUid
+import tsuki.util.parseHtml
+import tsuki.util.parseJson
+import tsuki.util.parseRaw
+import tsuki.util.toAbsoluteUrl
 
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.json.JSONArray
@@ -19,9 +35,8 @@ import okhttp3.Interceptor
 import okhttp3.Response
 import java.util.Locale
 import java.util.TimeZone
-
-// TODO
-// add filter options
+import kotlin.collections.filterNot
+import kotlin.text.isNotEmpty
 
 @MangaSourceParser("MGREADIO", "Mgread.io", "en")
 internal class MgreadIo(context: MangaLoaderContext) :
@@ -46,18 +61,40 @@ internal class MgreadIo(context: MangaLoaderContext) :
     override val availableSortOrders: Set<SortOrder> = EnumSet.of(
         SortOrder.UPDATED,
         SortOrder.POPULARITY,
+        SortOrder.POPULARITY_TODAY,
+        SortOrder.POPULARITY_WEEK,
+        SortOrder.POPULARITY_MONTH,
+        SortOrder.RATING,
+        SortOrder.NEWEST,
+        SortOrder.NEWEST_ASC,
     )
 
     override val filterCapabilities = MangaListFilterCapabilities(
         isSearchSupported = true,
+        isTagsExclusionSupported = false,
+        isMultipleTagsSupported = true,
+        isOriginalLocaleSupported = false,
+    )
+
+    override suspend fun getFilterOptions() = MangaListFilterOptions(
+        availableTags = fetchTags(),
+        availableStates = EnumSet.of(
+            MangaState.ONGOING,
+            MangaState.FINISHED,
+            MangaState.PAUSED,
+            MangaState.ABANDONED,
+        ),
+        availableContentRating = EnumSet.of(
+            ContentRating.SAFE,
+            ContentRating.SUGGESTIVE,
+            ContentRating.ADULT,
+        ),
     )
 
     private val chapterDateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ", Locale.US)
     private val restChapterDateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).apply {
         timeZone = TimeZone.getTimeZone("GMT+7")
     }
-
-    override suspend fun getFilterOptions() = MangaListFilterOptions()
 
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
         val query = filter.query?.trim()?.takeIf { it.isNotEmpty() }
@@ -90,14 +127,60 @@ internal class MgreadIo(context: MangaLoaderContext) :
             }.filterNot { it.isAnime() }
         }
 
-        val slug = if (order == SortOrder.POPULARITY) "manga-ranking" else "recently-updated"
-        val url = if (page == 1) "https://$domain/$slug/" else "https://$domain/$slug/page/$page/"
+        val url = buildAdvancedFilterUrl(page, order, filter)
         val doc = webClient.httpGet(url).parseHtml()
         return parseMangaGrid(doc).filterNot { it.isAnime() }
     }
 
+    private fun buildAdvancedFilterUrl(page: Int, order: SortOrder, filter: MangaListFilter): String {
+        val builder = "https://$domain/advanced-filter".toHttpUrl().newBuilder()
+        if (page > 1) {
+            builder.addPathSegment("page")
+            builder.addPathSegment(page.toString())
+        }
+
+        val sortParam = when (order) {
+            SortOrder.UPDATED -> "updated"
+            SortOrder.POPULARITY -> "views"
+            SortOrder.POPULARITY_TODAY -> "views_day"
+            SortOrder.POPULARITY_WEEK -> "views_week"
+            SortOrder.POPULARITY_MONTH -> "view_month"
+            SortOrder.RATING -> "rating"
+            SortOrder.NEWEST -> "new"
+            SortOrder.NEWEST_ASC -> "old"
+            else -> "updated"
+        }
+        builder.addQueryParameter("sort", sortParam)
+
+        val statusParam = filter.states.firstOrNull()?.let { state ->
+            when (state) {
+                MangaState.ONGOING -> "ongoing"
+                MangaState.FINISHED -> "completed"
+                MangaState.PAUSED -> "season_end"
+                MangaState.ABANDONED -> "dropped"
+                else -> null
+            }
+        }
+        statusParam?.let { builder.addQueryParameter("status", it) }
+
+        val ageRatingParam = filter.contentRating.firstOrNull()?.let { cr ->
+            when (cr) {
+                ContentRating.SAFE -> "all"
+                ContentRating.SUGGESTIVE -> "16+"
+                ContentRating.ADULT -> "18+"
+            }
+        }
+        ageRatingParam?.let { builder.addQueryParameter("age_rating", it) }
+
+        filter.tags.forEach { tag ->
+            builder.addQueryParameter("genre[]", tag.key)
+        }
+
+        return builder.build().toString()
+    }
+
     private fun parseMangaGrid(doc: Document): List<Manga> {
-        return doc.select(".manga-item-grid").map { element ->
+        return doc.select(".manga-item-grid, .manga-item-details").map { element ->
             val titleElement = element.selectFirst("h2 a[href*='/manga/']")
                 ?: element.selectFirst("a[href*='/manga/']:not([href*='/chapter-'])")
                 ?: return@map null
@@ -179,7 +262,7 @@ internal class MgreadIo(context: MangaLoaderContext) :
         }.trim().takeIf(String::isNotEmpty)
 
         val tags = genre.split(",").mapNotNull { it.trim().takeIf(String::isNotEmpty) }.map { name ->
-            MangaTag(name, name.lowercase(), source)
+            MangaTag(name, name.lowercase().replace(" ", "-"), source)
         }.toSet()
 
         val mangaId = doc.selectFirst("#manga-title[data-id], #chapter-search-input[data-manga-id]")
@@ -296,4 +379,49 @@ internal class MgreadIo(context: MangaLoaderContext) :
 
     private fun SimpleDateFormat.parseSafe(date: String): Long =
         runCatching { parse(date)?.time ?: 0L }.getOrDefault(0L)
+
+    private fun fetchTags(): Set<MangaTag> {
+        return GENRES.map { (name, slug) ->
+            MangaTag(
+                title = name,
+                key = slug,
+                source = source,
+            )
+        }.toSet()
+    }
+
+    companion object {
+        private val GENRES = listOf(
+            "Action" to "action",
+            "Adaptation" to "adaptation",
+            "Adventure" to "adventure",
+            "Anime" to "anime",
+            "Comedy" to "comedy",
+            "Cooking" to "cooking",
+            "Crime" to "crime",
+            "Drama" to "drama",
+            "Ecchi" to "ecchi",
+            "Fantasy" to "fantasy",
+            "Harem" to "harem",
+            "Historical" to "historical",
+            "Horror" to "horror",
+            "Isekai" to "isekai",
+            "Josei" to "josei",
+            "Martial Arts" to "martial-arts",
+            "Mature" to "mature",
+            "Mecha" to "mecha",
+            "Medical" to "medical",
+            "Music" to "music",
+            "Mystery" to "mystery",
+            "Romance" to "romance",
+            "School Life" to "school-life",
+            "Shoujo" to "shoujo",
+            "Shounen" to "shounen",
+            "Slice of life" to "slice-of-life",
+            "Smut" to "smut",
+            "Sports" to "sports",
+            "Supernatural" to "supernatural",
+            "Webtoons" to "webtoons",
+        )
+    }
 }
