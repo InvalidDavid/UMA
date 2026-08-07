@@ -113,23 +113,18 @@ internal abstract class MangaReaderParser(
     protected val mutex = Mutex()
 
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
-        val query = filter.query
         val url = buildString {
             append("https://")
             append(domain)
-
             when {
-
-                !query.isNullOrEmpty() -> {
+                !filter.query.isNullOrEmpty() -> {
                     append("/page/")
                     append(page.toString())
                     append("/?s=")
-                    append(query.urlEncoded())
+                    append(filter.query.urlEncoded())
                 }
-
                 else -> {
                     append(listUrl)
-
                     append("/?order=")
                     append(
                         when (order) {
@@ -141,21 +136,18 @@ internal abstract class MangaReaderParser(
                             else -> ""
                         },
                     )
-
                     filter.tags.forEach {
                         append("&")
                         append("genre[]".urlEncoded())
                         append("=")
                         append(it.key)
                     }
-
                     filter.tagsExclude.forEach {
                         append("&")
                         append("genre[]".urlEncoded())
                         append("=-")
                         append(it.key)
                     }
-
                     if (filter.states.isNotEmpty()) {
                         filter.states.oneOrThrowIfMany()?.let {
                             append("&status=")
@@ -167,7 +159,6 @@ internal abstract class MangaReaderParser(
                             }
                         }
                     }
-
                     filter.types.oneOrThrowIfMany()?.let {
                         append("&type=")
                         append(
@@ -181,7 +172,6 @@ internal abstract class MangaReaderParser(
                             },
                         )
                     }
-
                     append("&page=")
                     append(page.toString())
                 }
