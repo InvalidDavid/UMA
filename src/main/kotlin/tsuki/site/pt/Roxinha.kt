@@ -5,8 +5,21 @@ import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
 
-import tsuki.model.*
-import tsuki.util.*
+import tsuki.model.ContentType
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaState
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
+
+import tsuki.util.generateUid
+import tsuki.util.parseJson
 
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -34,7 +47,7 @@ internal class Roxinha(context: MangaLoaderContext) :
         isSearchWithFiltersSupported = true,
         isMultipleTagsSupported = false,
 
-    )
+        )
 
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.ROOT).apply {
         timeZone = TimeZone.getTimeZone("UTC")

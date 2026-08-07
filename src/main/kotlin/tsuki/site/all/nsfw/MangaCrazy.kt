@@ -2,9 +2,10 @@ package tsuki.site.all.nsfw
 
 import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
+import tsuki.parsers.MadaraParser
+
 import tsuki.model.ContentType
 import tsuki.model.MangaParserSource
-import tsuki.parsers.MadaraParser
 
 import java.util.Locale
 

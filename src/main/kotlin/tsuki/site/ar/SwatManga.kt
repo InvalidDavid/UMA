@@ -5,8 +5,25 @@ import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
 
-import tsuki.model.*
-import tsuki.util.*
+import tsuki.model.ContentRating
+import tsuki.model.ContentType
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaState
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
+
+import tsuki.util.generateUid
+import tsuki.util.nullIfEmpty
+import tsuki.util.parseJson
+import tsuki.util.parseJsonArray
+import tsuki.util.urlEncoded
 
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -56,26 +73,18 @@ internal class SwatManga(context: MangaLoaderContext) :
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
         val url = buildString {
             append("https://appswat.com/v2/api/v2/series/?page_size=20")
-
-            // Add page offset
             if (page > 1) {
                 val offset = (page - 1) * 20
                 append("&offset=$offset")
             }
-
-            // Add search query
             if (!filter.query.isNullOrEmpty()) {
                 append("&search=${filter.query.urlEncoded()}")
             }
-
-            // Add sort order
             when (order) {
                 SortOrder.POPULARITY -> append("&order_by=followers_count")
                 SortOrder.RATING -> append("&order_by=-rating")
-                else -> {} // Default relevance
+                else -> {}
             }
-
-            // Add genre filters
             if (filter.tags.isNotEmpty()) {
                 filter.tags.forEach { tag ->
                     append("&genres=${tag.key}")
@@ -122,7 +131,6 @@ internal class SwatManga(context: MangaLoaderContext) :
             ))
         }
 
-        // Extract translator/editor info for authors
         val authors = mutableSetOf<String>()
         json.optJSONObject("translator")?.let { translator ->
             authors.add(translator.getString("name"))
@@ -151,12 +159,10 @@ internal class SwatManga(context: MangaLoaderContext) :
         val seriesId = manga.url.substringAfter("/series/")
         val chaptersDeferred = async { getChapters(seriesId) }
 
-        // Get detailed manga info from the same API endpoint
         val detailUrl = "https://appswat.com/v2/api/v2/series/?page_size=100"
         val response = webClient.httpGet(detailUrl).parseJson()
         val results = response.getJSONArray("results")
 
-        // Find the specific manga by ID
         var updatedManga = manga
         for (i in 0 until results.length()) {
             val item = results.getJSONObject(i)
@@ -196,7 +202,6 @@ internal class SwatManga(context: MangaLoaderContext) :
         val allChapters = mutableListOf<JSONObject>()
         var page = 1
 
-        // Fetch all chapters with pagination
         while (true) {
             val chaptersUrl = "https://appswat.com/v2/api/v2/chapters/?page=$page&serie=$seriesId&order_by=-order&page_size=20"
             val response = webClient.httpGet(chaptersUrl).parseJson()
@@ -208,7 +213,6 @@ internal class SwatManga(context: MangaLoaderContext) :
                 allChapters.add(results.getJSONObject(i))
             }
 
-            // Check if there's a next page - properly handle null case
             val hasNext = !response.isNull("next")
             if (!hasNext) break
             page++

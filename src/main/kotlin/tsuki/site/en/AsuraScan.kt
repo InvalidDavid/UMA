@@ -5,8 +5,33 @@ import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
 
-import tsuki.model.*
-import tsuki.util.*
+import tsuki.model.ContentRating
+import tsuki.model.ContentType
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaState
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
+import tsuki.model.WordSet
+
+import tsuki.util.attrAsRelativeUrl
+import tsuki.util.generateUid
+import tsuki.util.mapChapters
+import tsuki.util.mapNotNullToSet
+import tsuki.util.nullIfEmpty
+import tsuki.util.oneOrThrowIfMany
+import tsuki.util.parseHtml
+import tsuki.util.parseSafe
+import tsuki.util.selectOrThrow
+import tsuki.util.src
+import tsuki.util.substringBetween
+import tsuki.util.toAbsoluteUrl
 import tsuki.util.json.toJSONArrayOrNull
 import tsuki.util.json.toJSONObjectOrNull
 
@@ -18,7 +43,7 @@ import java.util.EnumSet
 import java.util.Locale
 import java.util.TreeMap
 
-@MangaSourceParser("ASURASCANS", "AsuraComic", "en")
+@MangaSourceParser("ASURASCANS", "Asura Scans", "en")
 internal class AsuraScansParser(context: MangaLoaderContext) :
     PagedMangaParser(context, MangaParserSource.ASURASCANS, pageSize = 20) {
 
@@ -204,7 +229,7 @@ internal class AsuraScansParser(context: MangaLoaderContext) :
                     ?.groupValues
                     ?.getOrNull(1)
                     ?.toFloatOrNull()
-                    ?: i + 1f
+                    ?: (i + 1f)
                 val dateText = a.selectFirst("span.text-sm.text-white\\/40")
                     ?.text()
                     ?.trim()

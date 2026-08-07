@@ -5,8 +5,22 @@ import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
 
-import tsuki.model.*
-import tsuki.util.*
+import tsuki.model.ContentType
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaState
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
+
+import tsuki.util.generateUid
+import tsuki.util.oneOrThrowIfMany
+import tsuki.util.parseJson
 import tsuki.util.json.getLongOrDefault
 import tsuki.util.json.getStringOrNull
 import tsuki.util.json.mapJSON
@@ -146,11 +160,13 @@ internal class WestmangaParser(context: MangaLoaderContext) :
             data.optJSONArray("genres")?.let { genres ->
                 for (i in 0 until genres.length()) {
                     val genre = genres.getJSONObject(i)
-                    add(MangaTag(
-                        title = genre.getString("name"),
-                        key = genre.getInt("id").toString(),
-                        source = source,
-                    ))
+                    add(
+                        MangaTag(
+                            title = genre.getString("name"),
+                            key = genre.getInt("id").toString(),
+                            source = source,
+                        )
+                    )
                 }
             }
         }

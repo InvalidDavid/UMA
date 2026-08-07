@@ -33,7 +33,6 @@ import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MultipartBody
-import okhttp3.OkHttpClient
 import org.json.JSONArray
 import org.jsoup.HttpStatusException
 import java.text.SimpleDateFormat
@@ -69,6 +68,7 @@ internal abstract class NatsuParser(
         SortOrder.POPULARITY,
         SortOrder.ALPHABETICAL,
         SortOrder.RATING,
+        SortOrder.RELEVANCE,
     )
 
     override val filterCapabilities = MangaListFilterCapabilities(
@@ -83,10 +83,18 @@ internal abstract class NatsuParser(
 
     override suspend fun getFilterOptions() = MangaListFilterOptions(
         availableTags = getOrFetchGenres(),
-        availableStates = EnumSet.of(MangaState.ONGOING, MangaState.FINISHED, MangaState.PAUSED),
+        availableStates = EnumSet.of(
+            MangaState.ONGOING,
+            MangaState.FINISHED,
+            MangaState.PAUSED,
+            MangaState.ABANDONED
+        ),
         availableContentTypes = EnumSet.of(
-            ContentType.MANGA, ContentType.MANHWA, ContentType.MANHUA,
-            ContentType.COMICS, ContentType.NOVEL,
+            ContentType.MANGA,
+            ContentType.MANHWA,
+            ContentType.MANHUA,
+            ContentType.COMICS,
+            ContentType.NOVEL,
         ),
     )
 
@@ -111,9 +119,6 @@ internal abstract class NatsuParser(
     }
 
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
-        val query = filter.query
-        val author = filter.author
-
         val formParts = mutableMapOf<String, String>()
         formParts["nonce"] = getNonce()
 
@@ -129,9 +134,11 @@ internal abstract class NatsuParser(
 
         formParts["page"] = page.toString()
 
-        formParts["author"] = if (!author.isNullOrEmpty())
-            JSONArray(author).toString()
-        else "[]"
+        formParts["author"] = if (!filter.author.isNullOrEmpty()) {
+            JSONArray(filter.author!!).toString()
+        } else {
+            "[]"
+        }
 
         formParts["artist"] = "[]"
         formParts["project"] = "0"
@@ -154,6 +161,7 @@ internal abstract class NatsuParser(
                 when (state) {
                     MangaState.ONGOING -> "ongoing"
                     MangaState.FINISHED -> "completed"
+                    MangaState.ABANDONED -> "cancelled"
                     MangaState.PAUSED -> "on-hiatus"
                     else -> null
                 }
@@ -166,10 +174,13 @@ internal abstract class NatsuParser(
             SortOrder.POPULARITY -> "popular"
             SortOrder.ALPHABETICAL -> "title"
             SortOrder.RATING -> "rating"
+            SortOrder.RELEVANCE -> "bookmarked"
             else -> "popular"
         }
 
-        if (!query.isNullOrEmpty()) formParts["query"] = query
+        if (!filter.query.isNullOrEmpty()) {
+            formParts["query"] = filter.query!!
+        }
 
         val doc = httpPost("https://${domain}/wp-admin/admin-ajax.php?action=advanced_search", formParts)
         return parseMangaList(doc)
@@ -383,7 +394,6 @@ internal abstract class NatsuParser(
         return tags
     }
 
-    private val multipartHttpClient by lazy { OkHttpClient.Builder().build() }
     protected open suspend fun httpPost(url: String, form: Map<String, String>): Document {
         val body = MultipartBody.Builder().setType(MultipartBody.FORM)
         form.forEach { (k, v) -> body.addFormDataPart(k, v) }
@@ -392,7 +402,7 @@ internal abstract class NatsuParser(
             .header("Referer", "https://${domain}/advanced-search/")
             .header("Origin", "https://${domain}")
             .build()
-        val response = multipartHttpClient.newCall(request).await()
+        val response = context.httpClient.newCall(request).await()
         return response.parseHtml()
     }
 }

@@ -5,13 +5,36 @@ import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
 
-import tsuki.model.*
-import tsuki.util.*
+import okhttp3.Headers
+import org.jsoup.nodes.Document
+import tsuki.model.ContentType
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaState
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
+
+import tsuki.util.attrAsRelativeUrl
+import tsuki.util.generateUid
+import tsuki.util.mapChapters
+import tsuki.util.mapNotNullToSet
+import tsuki.util.mapToSet
+import tsuki.util.parseHtml
+import tsuki.util.parseJsonArray
+import tsuki.util.requireSrc
+import tsuki.util.selectFirstOrThrow
+import tsuki.util.toAbsoluteUrl
+import tsuki.util.toRelativeUrl
+import tsuki.util.urlEncoded
 import tsuki.util.json.getStringOrNull
 import tsuki.util.json.mapJSON
 
-import okhttp3.Headers
-import org.jsoup.nodes.Document
 import java.util.Calendar
 import java.util.EnumSet
 
@@ -266,7 +289,7 @@ internal class HeyToon(context: MangaLoaderContext) :
                 set(Calendar.SECOND, 0)
                 set(Calendar.MILLISECOND, 0)
             }.timeInMillis
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             0
         }
     }

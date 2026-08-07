@@ -58,10 +58,9 @@ internal abstract class GalleryParser(
     override suspend fun getFilterOptions(): MangaListFilterOptions = MangaListFilterOptions()
 
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
-        val query = filter.query
         val url = urlBuilder().apply {
             when {
-                !query.isNullOrEmpty() -> addQueryParameter("search", query)
+                !filter.query.isNullOrEmpty() -> addQueryParameter("search", filter.query)
                 filter.tags.isNotEmpty() -> addPathSegments(filter.tags.first().key)
                 order == SortOrder.POPULARITY -> addPathSegment("hot")
             }

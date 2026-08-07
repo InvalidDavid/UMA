@@ -3,12 +3,28 @@ package tsuki.site.all.nsfw
 import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
-import tsuki.model.ContentType
-import tsuki.model.MangaParserSource
 import tsuki.core.PagedMangaParser
 
-import tsuki.model.*
-import tsuki.util.*
+import tsuki.model.ContentRating
+import tsuki.model.ContentType
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
+
+import tsuki.util.attrAsRelativeUrl
+import tsuki.util.generateUid
+import tsuki.util.mapToSet
+import tsuki.util.parseFailed
+import tsuki.util.parseHtml
+import tsuki.util.toAbsoluteUrl
+import tsuki.util.urlEncoded
 
 import java.util.EnumSet
 
@@ -114,7 +130,7 @@ internal class Misskon(context: MangaLoaderContext) : PagedMangaParser(context, 
             // Single page gallery
             return doc.select("div.post-inner > div.entry > p > img")
                 .mapNotNull { img -> img.absUrl("data-src") }
-                .mapIndexed { i, url ->
+                .mapIndexed { _, url ->
                     MangaPage(
                         id = generateUid(url),
                         url = url,

@@ -136,7 +136,6 @@ internal abstract class MadthemeParser(
     }
 
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
-        val query = filter.query
         val url = buildString {
             append("https://")
             append(domain)
@@ -146,9 +145,9 @@ internal abstract class MadthemeParser(
             append("?page=")
             append(page.toString())
 
-            query?.let {
+            filter.query?.let {
                 append("&q=")
-                append(query.urlEncoded())
+                append(filter.query.urlEncoded())
             }
 
             append("&sort=")

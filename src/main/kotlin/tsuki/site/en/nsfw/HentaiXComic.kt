@@ -11,9 +11,6 @@ import tsuki.model.MangaTag
 import tsuki.util.parseHtml
 import tsuki.util.toTitleCase
 
-
-
-
 @MangaSourceParser("HENTAIXCOMIC", "HentaiXComic", "en", ContentType.HENTAI)
 internal class HentaixComic(context: MangaLoaderContext) :
     MadaraParser(context, MangaParserSource.HENTAIXCOMIC, "hentaixcomic.com", 16) {

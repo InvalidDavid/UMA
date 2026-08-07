@@ -1,7 +1,5 @@
 package tsuki.parsers
 
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import tsuki.MangaLoaderContext
 import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
@@ -28,6 +26,8 @@ import tsuki.util.parseHtml
 import tsuki.util.urlEncoded
 import tsuki.util.extractChapterNumber
 
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
@@ -120,13 +120,12 @@ abstract class MangaThemesia(
     }
 
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
-        val query = filter.query?.trim().orEmpty()
         val url = buildString {
             append("https://$domain/$mangaDirectory/")
-            if (query.isNotEmpty()) {
-                append("?s=${query.urlEncoded()}")
-            } else {
+            if (filter.query.isNullOrEmpty()) {
                 append("?page=$page")
+            } else {
+                append("?s=${filter.query.urlEncoded()}")
             }
             filter.states.firstOrNull()?.let {
                 append("&status=")
@@ -220,13 +219,26 @@ abstract class MangaThemesia(
                     doc.selectFirst("div.post-content_item:contains(Status) div.summary-content")?.text()
                 }
         }
-        val altnames = if (hasTable) {
+        val altnamesFromTable = if (hasTable) {
             table.selectFirst("tr:has(td:contains(Alternative)) td:last-child")
                 ?.text()
                 ?.trim()
                 ?.takeIf { it.isNotBlank() && it != "n/a" && it != "N/A" }
                 ?.let { setOf(it) }
         } else emptySet()
+
+        val altnamesFromAlternative = doc.select(".alternative")
+            .firstOrNull()
+            ?.text()
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?.split(",")
+            ?.map { it.trim() }
+            ?.filter { it.isNotBlank() }
+            ?.toSet() ?: emptySet()
+
+        val altnames = altnamesFromTable?.plus(altnamesFromAlternative)
+
         val state = parseStatus(statusText)
 
         val rating = doc.selectFirst(".num[itemprop=ratingValue]")?.attr("content")?.toFloatOrNull()

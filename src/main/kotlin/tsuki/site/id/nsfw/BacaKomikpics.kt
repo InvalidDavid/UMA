@@ -5,8 +5,25 @@ import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
 
-import tsuki.model.*
-import tsuki.util.*
+import tsuki.model.ContentRating
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaState
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
+import tsuki.model.ContentType
+
+import tsuki.util.attrAsAbsoluteUrl
+import tsuki.util.generateUid
+import tsuki.util.parseHtml
+import tsuki.util.toAbsoluteUrl
+import tsuki.util.toRelativeUrl
 
 import okhttp3.Headers
 import org.json.JSONArray
@@ -15,7 +32,7 @@ import java.util.EnumSet
 
 @MangaSourceParser("BACAKOMIKPICS", "BacaKomik.pics", "id", ContentType.HENTAI)
 internal class BacaKomikpics(context: MangaLoaderContext) :
-    PagedMangaParser(context, MangaParserSource.BACAKOMIKPICS, 24) {   // increased page size slightly for performance
+    PagedMangaParser(context, MangaParserSource.BACAKOMIKPICS, 24) {
 
     override val configKeyDomain = ConfigKey.Domain("bacakomik.pics")
 
@@ -35,7 +52,7 @@ internal class BacaKomikpics(context: MangaLoaderContext) :
     override val availableSortOrders: Set<SortOrder> = EnumSet.of(SortOrder.POPULARITY, SortOrder.UPDATED)
 
     override val filterCapabilities = MangaListFilterCapabilities(
-        isSearchSupported = false, // weird handling of website
+        isSearchSupported = false,
         isMultipleTagsSupported = false,
     )
 

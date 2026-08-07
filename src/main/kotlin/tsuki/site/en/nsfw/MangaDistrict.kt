@@ -4,8 +4,19 @@ import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
 import tsuki.parsers.MadaraParser
 
-import tsuki.model.*
-import tsuki.util.*
+import tsuki.model.ContentType
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaTag
+import tsuki.model.SortOrder
+
+import tsuki.util.attrAsRelativeUrl
+import tsuki.util.generateUid
+import tsuki.util.mapNotNullToSet
+import tsuki.util.parseHtml
+import tsuki.util.selectFirstOrThrow
+import tsuki.util.toTitleCase
 
 import org.jsoup.nodes.Document
 import java.text.SimpleDateFormat

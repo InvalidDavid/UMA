@@ -5,13 +5,28 @@ import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
 
-import tsuki.model.*
-import tsuki.util.*
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaState
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
 
-import org.jsoup.nodes.Document
+import tsuki.util.generateUid
+import tsuki.util.parseHtml
+import tsuki.util.toAbsoluteUrl
+import tsuki.util.urlEncoded
 import java.text.SimpleDateFormat
+
 import java.util.EnumSet
 import java.util.Locale
+import kotlin.collections.isNotEmpty
+import org.jsoup.nodes.Document
 
 private const val two = "?sv=mk"
 private const val three = "?sv=3"
@@ -69,28 +84,18 @@ internal class MangaKatana(context: MangaLoaderContext):
 
     private val dateFormat = SimpleDateFormat("MMM-dd-yyyy", Locale.US)
 
-    override suspend fun getListPage(
-        page: Int,
-        order: SortOrder,
-        filter: MangaListFilter,
-    ): List<Manga> {
-
+    override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter, ): List<Manga> {
         val url = buildUrl(page, order, filter)
         val doc = webClient.httpGet(url).parseHtml()
-
         return doc.select("div#book_list > div.item").map { element ->
-
             val link = element.selectFirst("div.text > h3 > a")!!
             val thumb = element.selectFirst("img")!!
-
             Manga(
                 id = generateUid(link.absUrl("href")),
                 title = link.ownText().ifEmpty { link.text() },
                 url = link.absUrl("href"),
                 publicUrl = link.absUrl("href"),
-
                 coverUrl = thumb.absUrl("src"),
-
                 rating = RATING_UNKNOWN,
                 contentRating = null,
                 tags = emptySet(),
@@ -99,21 +104,15 @@ internal class MangaKatana(context: MangaLoaderContext):
                 altTitles = emptySet(),
                 largeCoverUrl = null,
                 description = null,
-
                 source = source
             )
         }
     }
 
-    private fun buildUrl(
-        page: Int,
-        order: SortOrder,
-        filter: MangaListFilter,
-    ): String {
+    private fun buildUrl(page: Int, order: SortOrder, filter: MangaListFilter, ): String {
         val query = filter.query?.trim().orEmpty()
         val tags = filter.tags.map { it.key }.filter { it.isNotBlank() }
         val status = filter.states.firstOrNull()
-
         return when {
             query.isNotEmpty() -> {
                 if (page == 1) {
@@ -122,7 +121,6 @@ internal class MangaKatana(context: MangaLoaderContext):
                     "$baseUrl/page/$page?search=${query.urlEncoded()}&search_by=m_name"
                 }
             }
-
             status != null -> {
                 "$baseUrl/genres/?" +
                         "filter=1" +
@@ -133,10 +131,7 @@ internal class MangaKatana(context: MangaLoaderContext):
                         "&status=${status.toMKStatus()}" +
                         "&page=$page"
             }
-
-            tags.isNotEmpty() ->
-                "$baseUrl/manga/page/$page?filter=1&include=${tags.joinToString("_")}"
-
+            tags.isNotEmpty() -> "$baseUrl/manga/page/$page?filter=1&include=${tags.joinToString("_")}"
             else -> when (order) {
                 SortOrder.NEWEST -> "$baseUrl/new-manga?page=$page"
                 SortOrder.UPDATED -> "$baseUrl/latest/page/$page"
@@ -146,16 +141,12 @@ internal class MangaKatana(context: MangaLoaderContext):
     }
 
     override suspend fun getDetails(manga: Manga): Manga {
-
         val doc = webClient.httpGet(manga.url.toAbsoluteUrl(baseUrl)).parseHtml()
-
         val chapters = doc.select("tr:has(.chapter)")
             .mapNotNull { tr ->
                 val a = tr.selectFirst("a") ?: return@mapNotNull null
                 val href = a.absUrl("href")
-
                 if (href.isBlank() || href == "#" || !href.startsWith("http")) return@mapNotNull null
-
                 MangaChapter(
                     id = generateUid(href),
                     title = a.text(),
@@ -174,9 +165,7 @@ internal class MangaKatana(context: MangaLoaderContext):
             title = doc.selectFirst("h1")?.text()
                 ?: doc.selectFirst("h1.heading")?.text()
                 ?: manga.title,
-
             authors = doc.select(".author").eachText().toSet(),
-
             tags = doc.select(".genres a").map {
                 MangaTag(
                     key = it.text().lowercase(),
@@ -184,7 +173,6 @@ internal class MangaKatana(context: MangaLoaderContext):
                     source = source
                 )
             }.toSet(),
-
             description = buildString {
                 append(doc.select(".summary > p").text())
                 val alt = doc.select(".alt_name").text()
@@ -192,9 +180,7 @@ internal class MangaKatana(context: MangaLoaderContext):
                     append("\n\nAlt name(s): $alt")
                 }
             }.trim(),
-
             state = parseStatus(doc.select(".value.status").text()),
-
             coverUrl = doc.select("div.media div.cover img").attr("abs:src"),
             chapters = chapters
         )
@@ -223,8 +209,7 @@ internal class MangaKatana(context: MangaLoaderContext):
             dateFormat.parse(text)?.time ?: 0L
         }.getOrDefault(0L)
     }
-
-
+    
     private fun availableTags() = setOf(
         MangaTag("4 koma", "4-koma", source),
         MangaTag("Action", "action", source),
@@ -283,10 +268,8 @@ internal class MangaKatana(context: MangaLoaderContext):
     override suspend fun getRelatedManga(seed: Manga): List<Manga> = emptyList()
 
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
-
         val url = applyServer(chapter.url)
         val doc = webClient.httpGet(url).parseHtml()
-
         parseThzq(doc)?.let {
             if (it.isNotEmpty()) return it
         }
@@ -297,7 +280,6 @@ internal class MangaKatana(context: MangaLoaderContext):
         parseThzq(fallbackDoc)?.let {
             if (it.isNotEmpty()) return it
         }
-
         return emptyList()
     }
 
@@ -307,22 +289,17 @@ internal class MangaKatana(context: MangaLoaderContext):
     }
 
     private fun parseThzq(doc: Document): List<MangaPage>? {
-
         val script = doc.select("script")
             .asSequence()
             .map { it.data() }
             .firstOrNull { it.contains("thzq") }
             ?: return null
-
         val start = script.indexOf("var thzq")
         if (start == -1) return null
-
         val arrStart = script.indexOf('[', start)
         if (arrStart == -1) return null
-
         var depth = 0
         var end = -1
-
         for (i in arrStart until script.length) {
             when (script[i]) {
                 '[' -> depth++
@@ -334,23 +311,17 @@ internal class MangaKatana(context: MangaLoaderContext):
                 }
             }
         }
-
         if (end == -1) return null
-
         val raw = script.substring(arrStart, end)
-
         val urls = ArrayList<String>(32)
-
         var i = 0
         while (i < raw.length) {
             if (raw[i] == '\'' || raw[i] == '"') {
                 val quote = raw[i]
                 val startIdx = ++i
-
                 while (i < raw.length && raw[i] != quote) {
                     i++
                 }
-
                 if (i > startIdx) {
                     val url = raw.substring(startIdx, i)
                     if (url.startsWith("http")) {
@@ -360,9 +331,7 @@ internal class MangaKatana(context: MangaLoaderContext):
             }
             i++
         }
-
         if (urls.isEmpty()) return null
-
         return urls.map { url ->
             MangaPage(
                 id = generateUid(url),
@@ -374,16 +343,12 @@ internal class MangaKatana(context: MangaLoaderContext):
     }
 
     private fun parseHtmlImages(doc: Document): List<MangaPage>? {
-
         val pages = doc.select("div.wrap_img img")
             .asSequence()
             .mapNotNull { img ->
-
                 val url = img.attr("data-src")
                     .ifEmpty { img.attr("src") }
-
                 if (url.isEmpty() || !url.startsWith("http")) return@mapNotNull null
-
                 MangaPage(
                     id = generateUid(url),
                     url = url,
@@ -392,7 +357,6 @@ internal class MangaKatana(context: MangaLoaderContext):
                 )
             }
             .toList()
-
         return pages.ifEmpty { null }
     }
 }

@@ -2,8 +2,9 @@ package tsuki.site.id
 
 import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
-import tsuki.model.MangaParserSource
 import tsuki.parsers.NatsuParser
+
+import tsuki.model.MangaParserSource
 
 @MangaSourceParser("KIRYUU", "Kiryuu", "id")
 internal class Kiryuu(context: MangaLoaderContext) :

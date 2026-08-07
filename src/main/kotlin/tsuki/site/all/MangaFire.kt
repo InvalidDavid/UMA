@@ -7,8 +7,23 @@ import tsuki.core.PagedMangaParser
 import tsuki.network.OkHttpWebClient
 import tsuki.MangaParserAuthProvider
 
-import tsuki.util.*
-import tsuki.model.*
+import tsuki.model.ContentRating
+import tsuki.model.ContentType
+import tsuki.model.Demographic
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaState
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
+
+import tsuki.util.generateUid
+import tsuki.util.parseJson
 
 import okhttp3.Interceptor
 import org.jsoup.Jsoup
@@ -236,8 +251,18 @@ internal abstract class MangaFireParser(
         availableStates = EnumSet.of(
             MangaState.ONGOING, MangaState.FINISHED, MangaState.ABANDONED, MangaState.PAUSED, MangaState.UPCOMING,
         ),
-        availableContentTypes = EnumSet.of(ContentType.MANGA, ContentType.MANHWA, ContentType.MANHUA, ContentType.OTHER),
-        availableDemographics = EnumSet.of(Demographic.SHOUNEN, Demographic.SHOUJO, Demographic.SEINEN, Demographic.JOSEI),
+        availableContentTypes = EnumSet.of(
+            ContentType.MANGA,
+            ContentType.MANHWA,
+            ContentType.MANHUA,
+            ContentType.OTHER
+        ),
+        availableDemographics = EnumSet.of(
+            Demographic.SHOUNEN,
+            Demographic.SHOUJO,
+            Demographic.SEINEN,
+            Demographic.JOSEI
+        ),
         availableContentRating = EnumSet.of(ContentRating.SAFE, ContentRating.SUGGESTIVE, ContentRating.ADULT)
     )
 
@@ -607,7 +632,7 @@ internal abstract class MangaFireParser(
     class SpanishLatim(context: MangaLoaderContext) : MangaFireParser(context, MangaParserSource.MANGAFIRE_ESLA, "es-la")
 
     @MangaSourceParser("MANGAFIRE_ES", "MangaFire (Spanish 2)", "es")
-    class Spanish(context: MangaLoaderContext) : MangaFireParser(context, MangaParserSource.MANGAFIRE_ES, "es-419")
+    class Spanish(context: MangaLoaderContext) : MangaFireParser(context, MangaParserSource.MANGAFIRE_ES, "es")
 
     @MangaSourceParser("MANGAFIRE_FR", "MangaFire (French)", "fr")
     class French(context: MangaLoaderContext) : MangaFireParser(context, MangaParserSource.MANGAFIRE_FR, "fr")

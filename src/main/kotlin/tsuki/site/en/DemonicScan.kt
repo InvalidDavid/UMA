@@ -5,8 +5,28 @@ import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
 
-import tsuki.model.*
-import tsuki.util.*
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaState
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
+
+import tsuki.util.attrAsAbsoluteUrlOrNull
+import tsuki.util.extractChapterNumber
+import tsuki.util.generateUid
+import tsuki.util.mapChapters
+import tsuki.util.mapToSet
+import tsuki.util.parseHtml
+import tsuki.util.parseSafe
+import tsuki.util.requireSrc
+import tsuki.util.textOrNull
+import tsuki.util.toTitleCase
 
 import androidx.collection.arraySetOf
 import org.jsoup.nodes.Element
@@ -163,16 +183,17 @@ internal class DemonicScans(context: MangaLoaderContext) :
             else -> null
         }
 
-        val chapters = doc.select("div#chapters-list a.chplinks").mapChapters(reversed = true) { i, el ->
+        val chapters = doc.select("div#chapters-list a.chplinks").mapChapters(reversed = true) { _, el ->
             val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH)
             val href = el.attr("href").let {
                 if (it.startsWith("http")) it else "https://$domain${if (it.startsWith("/")) it else "/$it"}"
             }
             val date = el.selectFirst("span")?.text()
+
             MangaChapter(
                 id = generateUid(href),
                 title = el.ownText(),
-                number = i + 1f,
+                number = el.ownText().extractChapterNumber(),
                 volume = 0,
                 url = href,
                 scanlator = null,

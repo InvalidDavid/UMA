@@ -4,8 +4,24 @@ import tsuki.MangaLoaderContext
 import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
 import tsuki.network.OkHttpWebClient
-import tsuki.model.*
-import tsuki.util.*
+
+import tsuki.model.ContentRating
+import tsuki.model.ContentType
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaState
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
+
+import tsuki.util.generateUid
+import tsuki.util.parseHtml
+import tsuki.util.urlEncoded
 
 import okhttp3.Headers
 import okhttp3.Request
@@ -314,11 +330,11 @@ abstract class HiperParser(
                     id = generateUid("/$mangaPath/$slug/$number"),
                     url = "/$mangaPath/$slug/$number",
                     title = displayTitle,
-                    number = number, 
-                    volume = 0, 
+                    number = number,
+                    volume = 0,
                     uploadDate = uploadDate,
                     scanlator = null,
-                    branch = null, 
+                    branch = null,
                     source = source
                 )
             }
@@ -353,9 +369,9 @@ abstract class HiperParser(
                             page.optString("avifUrl", "")
                         }.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
                         MangaPage(
-                            id = generateUid(url), 
-                            url = url, 
-                            preview = null, 
+                            id = generateUid(url),
+                            url = url,
+                            preview = null,
                             source = source
                         )
                     }
@@ -381,9 +397,9 @@ abstract class HiperParser(
                 page.optString("avifUrl", "")
             }.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
             MangaPage(
-                id = generateUid(url), 
-                url = url, 
-                preview = null, 
+                id = generateUid(url),
+                url = url,
+                preview = null,
                 source = source
             )
         }

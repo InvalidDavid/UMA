@@ -5,8 +5,21 @@ import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
 
-import tsuki.model.*
-import tsuki.util.*
+import tsuki.model.ContentRating
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaState
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
+
+import tsuki.util.generateUid
+import tsuki.util.parseJson
 
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -124,14 +137,12 @@ internal class ShadowManga(context: MangaLoaderContext) :
             else -> url = "$baseApi/novedades"
         }
 
-        // Fetch and manually parse as JSONArray
         val bodyString = webClient.httpGet(url, getRequestHeaders()).body?.string()
             ?: return emptyList()
         val rawJson = runCatching { JSONArray(bodyString) }.getOrNull()
             ?: return emptyList()
 
         val allSeries = if (!isSearch) {
-            // Auto‑detect format for popular/novedades
             val isGenreWrapped = rawJson.length() > 0 && rawJson.optJSONObject(0)?.has("genero") == true
             if (isGenreWrapped) {
                 val seen = HashSet<Int>()
@@ -151,7 +162,6 @@ internal class ShadowManga(context: MangaLoaderContext) :
                 (0 until rawJson.length()).mapNotNull { rawJson.optJSONObject(it) }
             }
         } else {
-            // Search always returns a flat array
             (0 until rawJson.length()).mapNotNull { rawJson.optJSONObject(it) }
         }
 

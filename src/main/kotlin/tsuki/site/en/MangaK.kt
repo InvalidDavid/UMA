@@ -6,8 +6,29 @@ import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
 import tsuki.exception.ParseException
 
-import tsuki.model.*
-import tsuki.util.*
+import tsuki.model.ContentRating
+import tsuki.model.ContentType
+import tsuki.model.Demographic
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaState
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
+
+import tsuki.util.generateUid
+import tsuki.util.nullIfEmpty
+import tsuki.util.oneOrThrowIfMany
+import tsuki.util.parseHtml
+import tsuki.util.parseJson
+import tsuki.util.parseSafe
+import tsuki.util.toTitleCase
+import tsuki.util.urlEncoded
 import tsuki.util.json.mapJSON
 import tsuki.util.json.mapJSONNotNullToSet
 import tsuki.util.json.mapJSONToSet
@@ -98,13 +119,8 @@ internal class MangaK(context: MangaLoaderContext) :
         }
     }
 
-    override suspend fun getListPage(
-        page: Int,
-        order: SortOrder,
-        filter: MangaListFilter,
-    ): List<Manga> {
+    override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
         val allExcludedTags = filter.tagsExclude.map { it.key }.toMutableSet()
-        val query = filter.query
         val url = buildString {
             append(apiUrl)
             append("/titles/search?page=")
@@ -124,10 +140,10 @@ internal class MangaK(context: MangaLoaderContext) :
                 },
             )
 
-            if (!query.isNullOrEmpty()) {
+            filter.query?.trim()?.takeIf { it.isNotEmpty() }?.let { q ->
                 append("&q=")
-                // api does not like commans and character limits to 60-70
-                append(query.replace(",", "").urlEncoded())
+                // API rejects queries longer than ~50 chars
+                append(q.take(50).replace(",", "").urlEncoded())
             }
 
             if (filter.tags.isNotEmpty()) {
@@ -213,14 +229,12 @@ internal class MangaK(context: MangaLoaderContext) :
         )
     }
 
-
     private fun String?.toContentRating() = when (this) {
         "safe" -> ContentRating.SAFE
         "suggestive" -> ContentRating.SUGGESTIVE
         "erotica", "pornographic" -> ContentRating.ADULT
         else -> null
     }
-
 
     private fun JSONObject.parseAltTitles(): Set<String> {
         val result = mutableSetOf<String>()
@@ -233,13 +247,11 @@ internal class MangaK(context: MangaLoaderContext) :
         return result
     }
 
-
     private fun JSONObject.parseTags(): Set<MangaTag> =
         optJSONArray("genres")?.mapJSONNotNullToSet { genre ->
             val slug = genre.optString("slug").nullIfEmpty() ?: return@mapJSONNotNullToSet null
             MangaTag(genre.getString("name").toTitleCase(sourceLocale), slug, source)
         }.orEmpty()
-
 
     override suspend fun getDetails(manga: Manga): Manga {
         val json = webClient.httpGet("$apiUrl/titles/${manga.url}").parseJson()
@@ -263,7 +275,6 @@ internal class MangaK(context: MangaLoaderContext) :
         )
     }
 
-
     private suspend fun fetchChapters(id: String, cv: Long): List<MangaChapter> {
         val json = webClient.httpGet("$apiUrl/titles/$id/chapters?cv=$cv").parseJson()
         val chapters = json.getJSONObject("data").getJSONArray("chapters").mapJSON { it }
@@ -284,7 +295,6 @@ internal class MangaK(context: MangaLoaderContext) :
         }.reversed()
     }
 
-
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
         val doc = webClient.httpGet("https://$domain${chapter.url}").parseHtml()
         val raw = doc.selectFirst("script#__NEXT_DATA__")?.data()
@@ -304,7 +314,6 @@ internal class MangaK(context: MangaLoaderContext) :
             )
         }
     }
-
 
     private fun Double.toRating() = if (this > 0.0) (this / 5.0).toFloat() else RATING_UNKNOWN
 

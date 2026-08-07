@@ -1,12 +1,34 @@
 package tsuki.site.all.nsfw
 
+import tsuki.ErrorMessages
 import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
-import tsuki.ErrorMessages
 import tsuki.parsers.GalleryAdultsParser
 
-import tsuki.model.*
-import tsuki.util.*
+import tsuki.model.ContentRating
+import tsuki.model.ContentType
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
+
+import tsuki.util.attrAsRelativeUrl
+import tsuki.util.generateUid
+import tsuki.util.mapToSet
+import tsuki.util.parseHtml
+import tsuki.util.removeSuffix
+import tsuki.util.requireElementById
+import tsuki.util.requireSrc
+import tsuki.util.selectFirstOrThrow
+import tsuki.util.src
+import tsuki.util.toAbsoluteUrl
+import tsuki.util.toTitleCase
+import tsuki.util.urlEncoded
 
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
@@ -46,7 +68,6 @@ internal class NHentaiXXXParser(context: MangaLoaderContext) :
     )
 
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
-        val query = filter.query
         val url = buildString {
             append("https://")
             append(domain)
@@ -68,7 +89,7 @@ internal class NHentaiXXXParser(context: MangaLoaderContext) :
                     append("/search/?key=")
 
                     val parts = tags.map { it.title }.toMutableList()
-                    if (!query.isNullOrEmpty()) parts.add(query.urlEncoded())
+                    if (!filter.query.isNullOrEmpty()) parts.add(filter.query.urlEncoded())
                     append(parts.joinToString("+"))
                 }
             }
@@ -152,7 +173,7 @@ internal class NHentaiXXXParser(context: MangaLoaderContext) :
                 webClient.httpHead(newUrl)
                 newUrl
             } catch (_: Exception) {
-                null // Skip errors and continue checking other formats
+                null
             }
         }
     }

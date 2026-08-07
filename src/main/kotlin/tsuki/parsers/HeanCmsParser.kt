@@ -83,14 +83,13 @@ internal abstract class HeanCmsParser(
     protected open val paramsUpdated = "latest"
 
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
-        val query = filter.query
         val url = buildString {
             append("https://")
             append(apiPath)
             append("/query?query_string=")
 
-            query?.let {
-                append(query.urlEncoded())
+            filter.query?.let {
+                append(filter.query.urlEncoded())
             }
 
             append("&series_type=Comic&perPage=$pageSize")

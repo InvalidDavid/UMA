@@ -4,8 +4,12 @@ import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
 import tsuki.parsers.MadaraParser
 
-import tsuki.model.*
-import tsuki.util.*
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaParserSource
+
+import tsuki.util.generateUid
+import tsuki.util.parseJson
 import tsuki.util.json.getFloatOrDefault
 import tsuki.util.json.getIntOrDefault
 import tsuki.util.json.getStringOrNull

@@ -6,8 +6,24 @@ import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
 import tsuki.network.OkHttpWebClient
 
-import tsuki.model.*
-import tsuki.util.*
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaState
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
+
+import tsuki.util.attrAsRelativeUrl
+import tsuki.util.generateUid
+import tsuki.util.mapToSet
+import tsuki.util.parseHtml
+import tsuki.util.toAbsoluteUrl
+import tsuki.util.urlEncoded
 
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -39,7 +55,10 @@ internal class MangaFox(context: MangaLoaderContext) :
         OkHttpWebClient(httpClient, source)
     }
 
-    override val availableSortOrders: Set<SortOrder> = EnumSet.of(SortOrder.POPULARITY, SortOrder.UPDATED)
+    override val availableSortOrders: Set<SortOrder> = EnumSet.of(
+        SortOrder.POPULARITY, 
+        SortOrder.UPDATED)
+    
 
     override val filterCapabilities = MangaListFilterCapabilities(
         isSearchSupported = true

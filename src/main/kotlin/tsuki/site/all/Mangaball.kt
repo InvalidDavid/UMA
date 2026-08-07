@@ -7,8 +7,32 @@ import tsuki.core.PagedMangaParser
 import tsuki.network.OkHttpWebClient
 import tsuki.network.WebClient
 
-import tsuki.model.*
-import tsuki.util.*
+import tsuki.model.ContentRating
+import tsuki.model.ContentType
+import tsuki.model.Demographic
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaState
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
+
+import tsuki.util.LinkResolver
+import tsuki.util.generateUid
+import tsuki.util.insertCookies
+import tsuki.util.nullIfEmpty
+import tsuki.util.oneOrThrowIfMany
+import tsuki.util.ownTextOrNull
+import tsuki.util.parseHtml
+import tsuki.util.parseJson
+import tsuki.util.parseSafe
+import tsuki.util.toAbsoluteUrl
+import tsuki.util.urlEncoded
 
 import okhttp3.Headers
 import okhttp3.HttpUrl

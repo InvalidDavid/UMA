@@ -5,13 +5,18 @@ import tsuki.MangaSourceParser
 import tsuki.MangaParserAuthProvider
 import tsuki.parsers.MadaraParser
 
-import tsuki.model.*
-import tsuki.util.*
+import tsuki.model.Manga
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaTag
+import tsuki.model.SortOrder
+
+import tsuki.util.parseHtml
 
 import okhttp3.Interceptor
 import androidx.collection.arraySetOf
 import okhttp3.Response
-
 
 @MangaSourceParser("MGKOMIK", "MGKomik", "id")
 internal class MGKomik(context: MangaLoaderContext) :
@@ -30,28 +35,23 @@ internal class MGKomik(context: MangaLoaderContext) :
                 path.contains("wp-json") ||
                 path.endsWith("/ajax/chapters")
 
-        return if (isAjax) {
-            chain.proceed(
-                request.newBuilder()
-                    .header("Sec-CH-UA-Model", "\"\"")
-                    .header("X-Requested-With", "XMLHttpRequest")
-                    .header("Sec-Fetch-Dest", "empty")
-                    .header("Sec-Fetch-Mode", "cors")
-                    .header("Sec-Fetch-Site", "same-origin")
-                    .header("Origin", "https://$domain")
-                    .header("Priority", "u=1, i")
-                    .removeHeader("Sec-Fetch-User")
-                    .removeHeader("Upgrade-Insecure-Requests")
-                    .build()
-            )
-        } else {
-            chain.proceed(
-                request.newBuilder()
-                    .header("Sec-CH-UA-Model", "\"\"")
-                    .build()
-            )
+        val builder = request.newBuilder()
+            .header("Sec-CH-UA-Model", "\"\"")
+
+        if (isAjax) {
+            builder.header("X-Requested-With", "XMLHttpRequest")
+                .header("Sec-Fetch-Dest", "empty")
+                .header("Sec-Fetch-Mode", "cors")
+                .header("Sec-Fetch-Site", "same-origin")
+                .header("Origin", "https://$domain")
+                .header("Priority", "u=1, i")
+                .removeHeader("Sec-Fetch-User")
+                .removeHeader("Upgrade-Insecure-Requests")
         }
+
+        return chain.proceed(builder.build())
     }
+
     override suspend fun getListPage(
         page: Int,
         order: SortOrder,

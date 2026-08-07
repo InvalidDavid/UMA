@@ -5,8 +5,26 @@ import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
 
-import tsuki.model.*
-import tsuki.util.*
+import tsuki.model.ContentRating
+import tsuki.model.ContentType
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaState
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
+
+import tsuki.util.attrAsRelativeUrl
+import tsuki.util.generateUid
+import tsuki.util.mapNotNullToSet
+import tsuki.util.nullIfEmpty
+import tsuki.util.parseHtml
+import tsuki.util.toAbsoluteUrl
 
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import java.util.EnumSet
@@ -36,7 +54,12 @@ internal class MangaPill(context: MangaLoaderContext):
 
     override suspend fun getFilterOptions() = MangaListFilterOptions(
         availableTags = fetchTags(),
-        availableStates = EnumSet.of(MangaState.ONGOING, MangaState.FINISHED, MangaState.ABANDONED, MangaState.UPCOMING),
+        availableStates = EnumSet.of(
+            MangaState.ONGOING,
+            MangaState.FINISHED,
+            MangaState.ABANDONED,
+            MangaState.UPCOMING
+        ),
         availableContentTypes = EnumSet.of(
             ContentType.MANGA,
             ContentType.MANHWA,
@@ -47,7 +70,7 @@ internal class MangaPill(context: MangaLoaderContext):
             ContentType.OTHER,
         ),
     )
-    
+
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
         if (!filter.query.isNullOrEmpty() || filter.tags.isNotEmpty() || filter.types.isNotEmpty() || filter.states.isNotEmpty()) {
             return fetchSearch(page, filter)
@@ -208,7 +231,7 @@ internal class MangaPill(context: MangaLoaderContext):
             chapters = chapters,
         )
     }
-    
+
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
         val doc = webClient.httpGet(chapter.url.toAbsoluteUrl(domain)).parseHtml()
         return doc.select("picture img").map { img ->
@@ -221,7 +244,7 @@ internal class MangaPill(context: MangaLoaderContext):
             )
         }
     }
-    
+
     private suspend fun fetchTags(): Set<MangaTag> {
         val doc = webClient.httpGet("https://$domain/search").parseHtml()
         return doc.select("div.m-1 label input").mapNotNull { input ->

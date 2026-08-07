@@ -52,9 +52,8 @@ internal class HentaiEnvy(context: MangaLoaderContext) :
             append(domain)
             when {
                 !filter.query.isNullOrEmpty() -> {
-                    val query = filter.query
                     append("/search/?s_key=")
-                    append(query?.urlEncoded())
+                    append(filter.query?.urlEncoded())
                     append("&")
                 }
 

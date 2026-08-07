@@ -5,30 +5,41 @@ import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
 
+import tsuki.model.ContentRating
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaState
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
 
-import tsuki.util.*
-import tsuki.model.*
+import tsuki.util.generateUid
+import tsuki.util.nullIfEmpty
+import tsuki.util.parseHtml
+import tsuki.util.parseJson
+import tsuki.util.toAbsoluteUrl
 
-import androidx.collection.LruCache
 import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.json.JSONObject
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import java.util.EnumSet
-import java.util.LinkedHashMap
-import java.util.LinkedHashSet
-import java.util.Locale
 import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.EnumSet
+import java.util.Locale
 
 @MangaSourceParser("PROJECTSUKI", "ProjectSuki")
 internal class ProjectSuki(context: MangaLoaderContext) :
     PagedMangaParser(context, MangaParserSource.PROJECTSUKI, pageSize = 30) {
 
     override val configKeyDomain = ConfigKey.Domain("projectsuki.com")
-    private val pagesCache = LruCache<String, List<MangaPage>>(50)
     override val defaultSortOrder: SortOrder = SortOrder.UPDATED
 
     override val availableSortOrders: Set<SortOrder> = EnumSet.of(
@@ -385,9 +396,6 @@ internal class ProjectSuki(context: MangaLoaderContext) :
     }
 
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
-        val cached = pagesCache.get(chapter.url)
-        if (cached != null) return cached
-
         val parts = chapter.url.toChapterParts() ?: return emptyList()
 
         val payload = JSONObject()
@@ -428,11 +436,7 @@ internal class ProjectSuki(context: MangaLoaderContext) :
                 )
             )
         }
-
-        val result = pages.toList()
-        pagesCache.put(chapter.url, result)
-
-        return result
+        return pages
     }
 
 

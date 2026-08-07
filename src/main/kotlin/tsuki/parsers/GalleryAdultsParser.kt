@@ -89,22 +89,16 @@ internal abstract class GalleryAdultsParser(
         ),
     )
 
-    override suspend fun getListPage(
-        page: Int,
-        order: SortOrder,
-        filter: MangaListFilter,
-    ): List<Manga> {
+    override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
         val url = buildString {
             append("https://")
             append(domain)
             when {
                 !filter.query.isNullOrEmpty() -> {
-                    val query = filter.query
                     append("/search/?q=")
-                    append(query?.urlEncoded())
+                    append(filter.query?.urlEncoded())
                     append("&")
                 }
-
                 else -> {
                     val tag = filter.tags.oneOrThrowIfMany()
                     val lang = filter.locale
@@ -158,9 +152,7 @@ internal abstract class GalleryAdultsParser(
             )
         }
     }
-
-    //Tags are deliberately reduced because there are too many and this slows down the application.
-    //only the most popular ones are taken.
+    
     private suspend fun fetchAvailableTags(): Set<MangaTag> {
         return coroutineScope {
             (1..3).map { page ->

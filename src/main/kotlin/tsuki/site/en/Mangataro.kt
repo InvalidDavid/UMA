@@ -6,8 +6,27 @@ import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
 import tsuki.exception.ParseException
 
-import tsuki.model.*
-import tsuki.util.*
+import tsuki.model.ContentType
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaState
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
+
+import tsuki.util.attrAsAbsoluteUrlOrNull
+import tsuki.util.generateUid
+import tsuki.util.mapNotNullToSet
+import tsuki.util.nullIfEmpty
+import tsuki.util.parseHtml
+import tsuki.util.parseRaw
+import tsuki.util.toAbsoluteUrl
+import tsuki.util.toRelativeUrl
 
 import okhttp3.Headers
 import org.json.JSONArray
@@ -25,6 +44,7 @@ import java.util.EnumSet
 import java.util.HashSet
 import java.util.LinkedHashSet
 import java.util.Locale
+import kotlin.collections.isNotEmpty
 
 @MangaSourceParser("MANGATAROORG", "Mangataro", "en", ContentType.MANGA)
 internal class Mangataro(context: MangaLoaderContext) :
@@ -58,29 +78,29 @@ internal class Mangataro(context: MangaLoaderContext) :
 
     override suspend fun getFilterOptions() = MangaListFilterOptions(
         availableTags = genreTags,
-        availableStates = EnumSet.of(MangaState.ONGOING, MangaState.FINISHED),
-        availableContentTypes = EnumSet.of(ContentType.MANGA, ContentType.MANHWA, ContentType.MANHUA, ContentType.OTHER),
+        availableStates = EnumSet.of(
+            MangaState.ONGOING,
+            MangaState.FINISHED
+        ),
+        availableContentTypes = EnumSet.of(
+            ContentType.MANGA,
+            ContentType.MANHWA,
+            ContentType.MANHUA,
+            ContentType.OTHER
+        ),
     )
 
-
-    override suspend fun getListPage(
-        page: Int,
-        order: SortOrder,
-        filter: MangaListFilter,
-    ): List<Manga> {
+    override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
         val payload = JSONObject().apply {
             put("page", page)
             put("search", filter.query.orEmpty())
 
-            // Year
             val yearArray = JSONArray()
             if (filter.year > 0) yearArray.put(filter.year.toString())
             put("years", yearArray.toString())
 
-            // Genres (tags)
             put("genres", filter.tags.toGenrePayload())
 
-            // Types
             val typeArray = JSONArray()
             filter.types.forEach { ct ->
                 val apiType = when (ct) {
@@ -94,7 +114,6 @@ internal class Mangataro(context: MangaLoaderContext) :
             }
             put("types", typeArray.toString())
 
-            // Statuses
             val statusArray = JSONArray()
             filter.states.forEach { state ->
                 val apiStatus = when (state) {
@@ -182,13 +201,8 @@ internal class Mangataro(context: MangaLoaderContext) :
         return result
     }
 
-    private fun buildChapterUrl(
-        mangaId: String,
-        offset: Int,
-        limit: Int,
-        token: String,
-        timestamp: String,
-    ): String {
+    @Suppress("SameParameterValue")
+    private fun buildChapterUrl(mangaId: String, offset: Int, limit: Int, token: String, timestamp: String): String {
         return HttpUrl.Builder()
             .scheme("https")
             .host(domain)
