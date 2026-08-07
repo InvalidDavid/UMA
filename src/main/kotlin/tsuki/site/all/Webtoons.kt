@@ -278,10 +278,11 @@ internal abstract class WebtoonsParser(
     }
 
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
+        val query = filter.query.orEmpty()
         val currentContent = config[contentKey] ?: webtoons
 
-        if (filter.query!!.startsWith("https://") || filter.query!!.startsWith(ID_SEARCH_PREFIX)) {
-            return handleDirectSearch(filter.query!!, currentContent)
+        if (query.startsWith("https://") || query.startsWith(ID_SEARCH_PREFIX)) {
+            return handleDirectSearch(query, currentContent)
         }
 
         val selectedGenre = filter.tags.firstOrNull()
@@ -290,12 +291,12 @@ internal abstract class WebtoonsParser(
             append("https://$domain/$languageCode")
 
             when {
-                filter.query!!.isNotBlank() -> {
+                query.isNotBlank() -> {
                     append("/search")
-                    var cleanQuery = filter.query
+                    var cleanQuery = query
                     var searchType: String? = null
                     when {
-                        cleanQuery!!.startsWith("type:originals ") -> {
+                        cleanQuery.startsWith("type:originals ") -> {
                             searchType = "originals"
                             cleanQuery = cleanQuery.removePrefix("type:originals ").trim()
                         }
