@@ -134,7 +134,7 @@ internal abstract class Manga18Parser(
             append('/')
 
             when {
-                tag != null && filter.query.isNotEmpty() -> {
+                tag != null && filter.query!!.isNotEmpty() -> {
                     throw IllegalArgumentException("Search is not supported with tags")
                 }
                 tag != null -> {
@@ -143,7 +143,7 @@ internal abstract class Manga18Parser(
                     append('/')
                     append(page)
                 }
-                filter.query.isNotEmpty() -> {
+                filter.query!!.isNotEmpty() -> {
                     append(listUrl)
                     append(page)
                     append("?search=")
