@@ -100,12 +100,11 @@ internal class Manhwa18Com(context: MangaLoaderContext) :
     }
 
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
-        val query = filter.query?.trim()?.takeIf { it.isNotEmpty() }
         val url = buildString {
             append("https://$domain/tim-kiem?page=$page")
-            if (query != null) {
+            if (filter.query != null) {
                 append("&q=")
-                append(query.urlEncoded())
+                append(filter.query.urlEncoded())
             }
             append("&accept_genres=")
             if (filter.tags.isNotEmpty()) {
