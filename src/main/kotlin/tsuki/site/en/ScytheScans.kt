@@ -3,13 +3,15 @@ package tsuki.site.en
 import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
 import tsuki.parsers.MangaThemesia
-import tsuki.model.Manga
+
 import tsuki.model.MangaChapter
 import tsuki.model.MangaPage
 import tsuki.model.MangaParserSource
+
 import tsuki.util.generateUid
 import tsuki.util.parseHtml
 import tsuki.util.toAbsoluteUrl
+
 import java.util.Base64
 
 @MangaSourceParser("SYCTHESCANS", "Scythe Scans", "en")
