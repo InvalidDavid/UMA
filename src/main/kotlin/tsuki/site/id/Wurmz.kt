@@ -55,27 +55,8 @@ class Wurmz(context: MangaLoaderContext) :
     )
 
     override suspend fun getFilterOptions(): MangaListFilterOptions {
-        val allGenres = listOf(
-            "Fantasy", "Romance", "Drama", "Action", "Comedy", "Shounen", "Adventure", "Shoujo",
-            "School", "Slice of Life", "Seinen", "Supernatural", "Historical", "Josei", "Isekai",
-            "Webtoons", "Martial Art", "Harem", "Ecchi", "Reincarnation", "Magic", "Mystery",
-            "Psychological", "Yaoi", "Mature", "Horror", "Tragedy", "Shounen Ai", "Sci-fi",
-            "Demons", "Adaptation", "Gender Bender", "Game", "Yuri", "Shoujo Ai", "Thriller",
-            "Sport", "Cooking", "Crime", "Gore", "Royal Family", "Super Power", "Regression",
-            "Military", "Royalty", "Vampire", "Office Workers", "Transmigration", "Medical",
-            "Time Travel", "Childhood Friends", "Music", "Monsters", "Revenge", "College Life",
-            "Villainess", "Kids", "Mecha", "One Shot", "Police", "Omegaverse", "Girls",
-            "Reverse Harem", "Animals", "Ghosts", "Project", "Age Gap", "Showbiz", "Violence",
-            "Boys", "Shotacon", "Survival", "Beasts", "Bloody", "Crossdressing", "Delinguents",
-            "Dungeons", "Gyaru", "Non-human", "Post-Apocalyptic", "Zombies", "Doujinshi",
-            "18+", "Bodyswap", "NTR", "Yakuzas", "BDSM", "Lolicon", "Philosophical", "System",
-            "Aliens", "Hentai", "Anthology", "Fetish", "Incest", "Virtual Reality", "Dementia",
-            "Nakadashi", "Samurai", "4-Koma", "Cheating", "Femdom", "Mafia", "Milf", "Ninja",
-            "Cunnilingus", "Guideverse", "Infidelity", "Parodi", "Reverse Isekai", "Villain"
-        )
-
         return MangaListFilterOptions(
-            availableTags = allGenres.map { genre ->
+            availableTags = GENRES.map { genre ->
                 MangaTag(key = genre, title = genre, source = source)
             }.toSet(),
             availableStates = EnumSet.of(
@@ -111,11 +92,8 @@ class Wurmz(context: MangaLoaderContext) :
 
             val params = mutableMapOf<String, String>()
 
-            filter.query?.takeIf { it.isNotEmpty() }?.let { rawQuery ->
-                val cleaned = cleanQuery(rawQuery)
-                if (cleaned.isNotEmpty()) {
-                    params["q"] = cleaned.urlEncoded()
-                }
+            filter.query?.takeIf { it.isNotEmpty() }?.let {
+                params["q"] = it.replace("Bahasa Indonesia", "").trim()
             }
 
             filter.types.firstOrNull()?.let { type ->
@@ -141,7 +119,16 @@ class Wurmz(context: MangaLoaderContext) :
                 params["genres[]"] = tag.key
             }
 
-            params["sort"] = sortParamForOrder(order)
+            params["sort"] = when (order) {
+                SortOrder.UPDATED -> "update"
+                SortOrder.ADDED -> "new"
+                SortOrder.ADDED_ASC -> "old"
+                SortOrder.POPULARITY_TODAY -> "popular_today"
+                SortOrder.POPULARITY_WEEK -> "popular_7d"
+                SortOrder.POPULARITY_MONTH -> "popular_30d"
+                SortOrder.POPULARITY -> "popular_all"
+                else -> "update"
+            }
 
             if (page > 1) {
                 params["page"] = page.toString()
@@ -154,26 +141,6 @@ class Wurmz(context: MangaLoaderContext) :
                     "$encodedKey=${value.urlEncoded()}"
                 })
             }
-        }
-    }
-
-    private fun cleanQuery(query: String): String {
-        return query
-            .replace(Regex("Bahasa Indonesia", RegexOption.IGNORE_CASE), "")
-            .trim()
-            .replace(Regex("\\s+"), " ")
-    }
-
-    private fun sortParamForOrder(order: SortOrder): String {
-        return when (order) {
-            SortOrder.UPDATED -> "update"
-            SortOrder.ADDED -> "new"
-            SortOrder.ADDED_ASC -> "old"
-            SortOrder.POPULARITY_TODAY -> "popular_today"
-            SortOrder.POPULARITY_WEEK -> "popular_7d"
-            SortOrder.POPULARITY_MONTH -> "popular_30d"
-            SortOrder.POPULARITY -> "popular_all"
-            else -> "update"
         }
     }
 
@@ -285,5 +252,26 @@ class Wurmz(context: MangaLoaderContext) :
             val url = img.attr("src").ifEmpty { img.attr("data-src") }.toRelativeUrl(domain)
             MangaPage(id = generateUid(url), url = url, preview = null, source = source)
         }
+    }
+
+    companion object {
+        val GENRES = listOf(
+            "Fantasy", "Romance", "Drama", "Action", "Comedy", "Shounen", "Adventure", "Shoujo",
+            "School", "Slice of Life", "Seinen", "Supernatural", "Historical", "Josei", "Isekai",
+            "Webtoons", "Martial Art", "Harem", "Ecchi", "Reincarnation", "Magic", "Mystery",
+            "Psychological", "Yaoi", "Mature", "Horror", "Tragedy", "Shounen Ai", "Sci-fi",
+            "Demons", "Adaptation", "Gender Bender", "Game", "Yuri", "Shoujo Ai", "Thriller",
+            "Sport", "Cooking", "Crime", "Gore", "Royal Family", "Super Power", "Regression",
+            "Military", "Royalty", "Vampire", "Office Workers", "Transmigration", "Medical",
+            "Time Travel", "Childhood Friends", "Music", "Monsters", "Revenge", "College Life",
+            "Villainess", "Kids", "Mecha", "One Shot", "Police", "Omegaverse", "Girls",
+            "Reverse Harem", "Animals", "Ghosts", "Project", "Age Gap", "Showbiz", "Violence",
+            "Boys", "Shotacon", "Survival", "Beasts", "Bloody", "Crossdressing", "Delinguents",
+            "Dungeons", "Gyaru", "Non-human", "Post-Apocalyptic", "Zombies", "Doujinshi",
+            "18+", "Bodyswap", "NTR", "Yakuzas", "BDSM", "Lolicon", "Philosophical", "System",
+            "Aliens", "Hentai", "Anthology", "Fetish", "Incest", "Virtual Reality", "Dementia",
+            "Nakadashi", "Samurai", "4-Koma", "Cheating", "Femdom", "Mafia", "Milf", "Ninja",
+            "Cunnilingus", "Guideverse", "Infidelity", "Parodi", "Reverse Isekai", "Villain"
+        )
     }
 }
