@@ -37,7 +37,7 @@ import org.jsoup.nodes.Document
 private const val SERVER_PNG = "png" // old method uses now image_fallback
 private const val SERVER_WEBP = "webp" // new decryption method for .webp/.avif format
 
-@MangaSourceParser("HENTAINEXUS", "HentaiNexus", "en", type = ContentType.HENTAI)
+@MangaSourceParser("HENTAINEXUS", "HentaiNexus", "en", ContentType.HENTAI)
 internal class HentaiNexus(context: MangaLoaderContext) :
     GalleryAdultsParser(context, MangaParserSource.HENTAINEXUS, "hentainexus.com", 30) {
     override val selectGallery = "div.container div.columns div.column"
