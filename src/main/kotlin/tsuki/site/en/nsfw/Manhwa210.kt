@@ -39,7 +39,7 @@ import java.text.SimpleDateFormat
 import java.util.EnumSet
 import java.util.Locale
 
-@MangaSourceParser("MANHWA210", "Manhwa210", "en", type = ContentType.HENTAI)
+@MangaSourceParser("MANHWA210", "Manhwa210", "en", ContentType.HENTAI)
 internal class Manhwa210(context: MangaLoaderContext) :
     PagedMangaParser(context, MangaParserSource.MANHWA210, 60) {
 

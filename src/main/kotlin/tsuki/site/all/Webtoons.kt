@@ -553,24 +553,24 @@ internal abstract class WebtoonsParser(
         it.title.lowercase() to it.key
     }
 
-    @MangaSourceParser("WEBTOONS_EN", "Webtoons (English)", "en", type = ContentType.MANGA)
+    @MangaSourceParser("WEBTOONS_EN", "Webtoons (English)", "en", ContentType.MANGA)
     class English(context: MangaLoaderContext) : WebtoonsParser(context, MangaParserSource.WEBTOONS_EN)
 
-    @MangaSourceParser("WEBTOONS_ID", "Webtoons (Indonesia)", "id", type = ContentType.MANGA)
+    @MangaSourceParser("WEBTOONS_ID", "Webtoons (Indonesia)", "id", ContentType.MANGA)
     class Indonesian(context: MangaLoaderContext) : WebtoonsParser(context, MangaParserSource.WEBTOONS_ID)
 
-    @MangaSourceParser("WEBTOONS_ES", "Webtoons (Spanish)", "es", type = ContentType.MANGA)
+    @MangaSourceParser("WEBTOONS_ES", "Webtoons (Spanish)", "es",ContentType.MANGA)
     class Spanish(context: MangaLoaderContext) : WebtoonsParser(context, MangaParserSource.WEBTOONS_ES)
 
-    @MangaSourceParser("WEBTOONS_FR", "Webtoons (French)", "fr", type = ContentType.MANGA)
+    @MangaSourceParser("WEBTOONS_FR", "Webtoons (French)", "fr", ContentType.MANGA)
     class French(context: MangaLoaderContext) : WebtoonsParser(context, MangaParserSource.WEBTOONS_FR)
 
-    @MangaSourceParser("WEBTOONS_TH", "Webtoons (Thai)", "th", type = ContentType.MANGA)
+    @MangaSourceParser("WEBTOONS_TH", "Webtoons (Thai)", "th", ContentType.MANGA)
     class Thai(context: MangaLoaderContext) : WebtoonsParser(context, MangaParserSource.WEBTOONS_TH)
 
-    @MangaSourceParser("WEBTOONS_ZH", "Webtoons (Chinese)", "zh", type = ContentType.MANGA)
+    @MangaSourceParser("WEBTOONS_ZH", "Webtoons (Chinese)", "zh", ContentType.MANGA)
     class Chinese(context: MangaLoaderContext) : WebtoonsParser(context, MangaParserSource.WEBTOONS_ZH)
 
-    @MangaSourceParser("WEBTOONS_DE", "Webtoons (German)", "de", type = ContentType.MANGA)
+    @MangaSourceParser("WEBTOONS_DE", "Webtoons (German)", "de", ContentType.MANGA)
     class German(context: MangaLoaderContext) : WebtoonsParser(context, MangaParserSource.WEBTOONS_DE)
 }
