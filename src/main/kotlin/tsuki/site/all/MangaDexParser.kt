@@ -7,7 +7,7 @@ import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
 import tsuki.core.FlexibleMangaParser
 import tsuki.exception.ParseException
-import tsuki.network.CommonHeaders
+import tsuki.network.UserAgents
 
 import tsuki.model.ContentRating
 import tsuki.model.Demographic
@@ -62,8 +62,6 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import okhttp3.HttpUrl
-import okhttp3.Interceptor
-import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -78,21 +76,12 @@ private const val CHAPTERS_MAX_COUNT = 10_000 // strange api behavior, looks lik
 private const val LOCALE_FALLBACK = "en"
 private const val SERVER_DATA = "data"
 private const val SERVER_DATA_SAVER = "data-saver"
-private const val USER_AGENT = "Usagi/1 (Android)"
 
 @MangaSourceParser("MANGADEXORG", "MangaDex")
 internal class MangaDexParser(context: MangaLoaderContext) : FlexibleMangaParser(context, MangaParserSource.MANGADEXORG) {
 
 	override val configKeyDomain = ConfigKey.Domain("mangadex.org")
-	override val userAgentKey = ConfigKey.UserAgent(USER_AGENT)
-
-	override fun intercept(chain: Interceptor.Chain): Response {
-		val request = chain.request()
-		val newRequest = request.newBuilder()
-			.header(CommonHeaders.USER_AGENT, USER_AGENT)
-			.build()
-		return chain.proceed(newRequest)
-	}
+	override val userAgentKey = ConfigKey.UserAgent(UserAgents.KOTATSU)
 
 	private val preferredServerKey = ConfigKey.PreferredImageServer(
 		presetValues = mapOf(
