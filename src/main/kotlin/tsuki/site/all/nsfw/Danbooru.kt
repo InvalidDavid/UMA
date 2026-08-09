@@ -17,6 +17,7 @@ import tsuki.model.MangaPage
 import tsuki.model.MangaParserSource
 import tsuki.model.RATING_UNKNOWN
 import tsuki.model.SortOrder
+import tsuki.model.ContentType
 
 import tsuki.util.generateUid
 import tsuki.util.parseHtml
@@ -31,7 +32,7 @@ import java.text.SimpleDateFormat
 import java.util.EnumSet
 import java.util.Locale
 
-@MangaSourceParser("DANBOORU", "Danbooru")
+@MangaSourceParser("DANBOORU", "Danbooru", type = ContentType.HENTAI)
 internal class Danbooru(context: MangaLoaderContext) :
     PagedMangaParser(context, MangaParserSource.DANBOORU, pageSize = 20), Interceptor {
 
