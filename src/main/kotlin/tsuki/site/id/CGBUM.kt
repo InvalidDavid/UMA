@@ -274,7 +274,7 @@ class CGBUM(context: MangaLoaderContext) :
     }
 
     companion object {
-        val GENRES = listOf(
+        private val GENRES = listOf(
             "adaptation", "adult", "adultmature", "age gap", "ahegao", "aliens", "anal",
             "animals", "anthology", "bdsm", "beasts", "big ass", "big breast", "big breasts",
             "big penis", "bisexual", "blackmail", "bloody", "blowjob", "body swap", "bodyswap",
