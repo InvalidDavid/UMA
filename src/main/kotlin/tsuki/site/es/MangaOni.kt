@@ -316,7 +316,7 @@ internal class MangaOni(context: MangaLoaderContext) :
     }
 
     companion object {
-        val GENRES = listOf(
+        private val GENRES = listOf(
             Triple("Todos", "Todos", "false"),
             Triple("Comedia", "Comedia", "1"),
             Triple("Drama", "Drama", "2"),
