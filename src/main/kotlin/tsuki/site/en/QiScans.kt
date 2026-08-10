@@ -105,7 +105,7 @@ internal class QiScans(context: MangaLoaderContext) :
     }
 
     companion object {
-        val GENRES = listOf(
+        private val GENRES = listOf(
             "" to "All",
             "acting" to "Acting",
             "action" to "Action",
