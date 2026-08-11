@@ -20,16 +20,16 @@ import tsuki.model.SortOrder
 
 import tsuki.util.generateUid
 import tsuki.util.mapToSet
+import tsuki.util.extractChapterNumber
+
 import java.text.SimpleDateFormat
 import java.util.Calendar
-
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.util.EnumSet
 import java.util.Locale
-import kotlin.collections.reversed
 
 @MangaSourceParser("MISTSCANS", "Mist Scans", "en")
 internal class MistScans(context: MangaLoaderContext) :
@@ -198,7 +198,7 @@ internal class MistScans(context: MangaLoaderContext) :
             authors = listOfNotNull(author, artist).toSet(),
             tags = (genres + listOfNotNull(type)).map { MangaTag(it.lowercase(), it, source) }.toSet(),
             state = status,
-            chapters = chapters.reversed(),
+            chapters = chapters.sortedBy { it.number },
         )
     }
 
@@ -228,7 +228,7 @@ internal class MistScans(context: MangaLoaderContext) :
             MangaChapter(
                 id = generateUid(url),
                 title = name,
-                number = 0f,
+                number = name.extractChapterNumber(),
                 volume = 0,
                 url = url,
                 uploadDate = uploadDate,
