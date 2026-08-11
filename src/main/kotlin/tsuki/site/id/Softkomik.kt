@@ -40,6 +40,8 @@ import java.net.URLDecoder
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
+import tsuki.Broken
+@Broken
 @MangaSourceParser("SOFTKOMIK", "Softkomik", "id")
 internal class Softkomik(context: MangaLoaderContext) :
     PagedMangaParser(context, MangaParserSource.SOFTKOMIK, pageSize = 24), MangaParserAuthProvider {
