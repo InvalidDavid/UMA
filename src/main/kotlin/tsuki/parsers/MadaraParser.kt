@@ -60,6 +60,10 @@ import java.util.Base64
 import java.util.Calendar
 import java.util.EnumSet
 
+/**
+ * Todo: make ContentType filter.
+ */
+
 internal abstract class MadaraParser(
     context: MangaLoaderContext,
     source: MangaParserSource,
