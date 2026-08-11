@@ -17,6 +17,8 @@ import tsuki.model.Manga
 import tsuki.model.MangaListFilter
 import tsuki.model.MangaListFilterCapabilities
 import tsuki.model.SortOrder
+import tsuki.model.Favicon
+import tsuki.model.Favicons
 
 import org.jsoup.internal.StringUtil
 import org.jsoup.nodes.Element
@@ -36,6 +38,15 @@ internal class HentaiFox(context: MangaLoaderContext) :
         get() = super.filterCapabilities.copy(
             isMultipleTagsSupported = true,
         )
+
+    override suspend fun getFavicons(): Favicons {
+        return Favicons(
+            listOf(
+                Favicon("https://$domain/images/favicon.ico", 16, null),
+            ),
+            domain,
+        )
+    }
 
     override val availableSortOrders: Set<SortOrder> = EnumSet.of(SortOrder.UPDATED, SortOrder.POPULARITY)
 
