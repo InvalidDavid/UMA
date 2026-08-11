@@ -1,4 +1,4 @@
-package tsuki.site.en
+package tsuki.site.all
 
 import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
@@ -25,6 +25,8 @@ import tsuki.util.parseJson
 import tsuki.util.parseJsonArray
 import tsuki.util.parseSafe
 
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.json.JSONArray
 import org.json.JSONObject
@@ -45,30 +47,6 @@ internal class Mangadotnet(context: MangaLoaderContext) :
     }
 
     private val showAdultKey = ConfigKey.ShowSuspiciousContent(false)
-
-    private val genreNames = setOf(
-        "Action", "Adventure", "Comedy", "Drama", "Fantasy",
-        "Historical", "Horror", "Mecha", "Mystery", "Psychological",
-        "Romance", "Sci-Fi", "Slice of Life", "Sports", "Supernatural", "Thriller", "Tragedy",
-        "Cooking", "Demons", "Ecchi", "Harem", "Isekai", "Magic", "Martial Arts",
-        "Medical", "Military", "Music", "School Life", "Webtoon",
-        "Academy", "Acting", "Adult", "Aliens", "Animals", "Anthology", "Apocalypse",
-        "Avant Garde", "Award Winning", "BDSM", "Boys Love", "Bully", "Business",
-        "Child Abuse", "Child Neglect", "Comic", "Crime", "crossdressing", "Crossdressing",
-        "Cultivation", "Delinquents", "Difficult Childhood", "dojinshi", "Doujinshi",
-        "Erotica", "Female Protagonist", "Femdom", "Fight", "futanari on male", "futunari",
-        "Gender Bender", "Genderswap", "Ghosts", "Girls Love", "Gore", "Gourmet",
-        "Gyaru", "Hentai", "Hunters", "Idol", "Incest", "Loli", "Lolicon", "Mafia",
-        "Magical Girls", "Mahou Shoujo", "Mature", "Medieval Area",
-        "Monster Girls", "Monsters", "Ninja", "Nobility",
-        "Office Romance", "Office Worker", "Office Workers", "One Shot", "Otome",
-        "Overpowered", "Philosophical", "playboy", "Police", "Post-Apocalyptic",
-        "Reincarnation", "Revenge", "Reverse Harem", "Royalty", "Samurai", "School",
-        "Seinin", "Shota", "Shotacon", "Shoujo Ai", "Shounen Ai", "Smut", "Superhero",
-        "Survival", "Suspense", "System", "Time Travel", "Traditional Games", "uncensored",
-        "Vampires", "Video Games", "Villainess", "Virtual Reality", "War", "Workplace",
-        "Wuxia", "Yaoi", "Yuri", "Zombies"
-    )
 
     override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
         super.onCreateConfig(keys)
@@ -116,6 +94,7 @@ internal class Mangadotnet(context: MangaLoaderContext) :
         isMultipleTagsSupported = true,
         isTagsExclusionSupported = true,
         isSearchWithFiltersSupported = true,
+        isOriginalLocaleSupported = true,
     )
 
     override val availableSortOrders: Set<SortOrder> = EnumSet.of(
@@ -127,7 +106,7 @@ internal class Mangadotnet(context: MangaLoaderContext) :
     )
 
     override suspend fun getFilterOptions(): MangaListFilterOptions {
-        val tags = genreNames.map { name -> MangaTag(name, name, source) }.toSet()
+        val tags = GENRES.map { name -> MangaTag(name, name, source) }.toSet()
         return MangaListFilterOptions(
             availableTags = tags,
             availableStates = EnumSet.of(MangaState.ONGOING, MangaState.FINISHED, MangaState.PAUSED),
@@ -143,10 +122,21 @@ internal class Mangadotnet(context: MangaLoaderContext) :
                 Demographic.SHOUJO,
                 Demographic.SHOUNEN
             ),
+            availableLocales = setOf(
+                Locale.ENGLISH,
+                Locale.FRENCH,
+                Locale.GERMAN,
+                Locale("id"),
+                Locale("pt", "BR"),
+                Locale("es"),
+                Locale("th"),
+                Locale("vi"),
+            ),
         )
     }
 
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
+        selectedLanguage = filter.locale?.let { localeToLang(it) } ?: "en"
         if (!filter.query.isNullOrBlank() || filter.tags.isNotEmpty() || filter.tagsExclude.isNotEmpty() ||
             filter.states.isNotEmpty() || filter.types.isNotEmpty() || filter.demographics.isNotEmpty()) {
             return getSearchPage(page, order, filter)
@@ -256,22 +246,17 @@ internal class Mangadotnet(context: MangaLoaderContext) :
         )
     }
 
-    private val detailsCacheLock = Any()
-
-    private val detailsCache = object : LinkedHashMap<String, Manga>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Manga>?): Boolean = size > 10
+    private var selectedLanguage: String? = null
+    private fun localeToLang(locale: Locale): String {
+        if (locale.language == "pt" && locale.country == "BR") return "pt-br"
+        return locale.language
     }
 
-    @Suppress("UNCHECKED_CAST")
-    override suspend fun getDetails(manga: Manga): Manga {
-        synchronized(detailsCacheLock) {
-            detailsCache[manga.url]?.let { return it }
-        }
-
+    override suspend fun getDetails(manga: Manga): Manga = coroutineScope {
         val url = "$baseUrl/manga/${manga.url}.data?_routes=pages/MangaDetailPage"
-        val mangaData = fetchRscData(url, "pages/MangaDetailPage") ?: return manga
+        val mangaData = fetchRscData(url, "pages/MangaDetailPage") ?: return@coroutineScope manga
 
-        val mangaInfo = mangaData.asMap("mangaData")?.asMap("manga") ?: return manga
+        val mangaInfo = mangaData.asMap("mangaData")?.asMap("manga") ?: return@coroutineScope manga
         val title = mangaInfo["title"] as? String ?: manga.title
         val description = mangaInfo["description"] as? String
         val photo = mangaInfo["photo"] as? String
@@ -321,18 +306,28 @@ internal class Mangadotnet(context: MangaLoaderContext) :
             "CN" -> tagSet.add(MangaTag("Manhua", "Manhua", source))
         }
 
-        val tagsArray = mangaInfo["tags"] as? List<Map<String, Any?>>
-        tagsArray?.flatMap { category ->
-            (category["tags"] as? List<Map<String, Any?>> ?: emptyList())
-                .mapNotNull { it["name"] as? String }
-        }?.distinct()?.take(20)?.forEach { tagSet.add(MangaTag(it, it, source)) }
+        val tagsArray = mangaInfo["tags"]
+        if (tagsArray is List<*>) {
+            for (category in tagsArray) {
+                if (category !is Map<*, *>) continue
+                val innerTags = category["tags"]
+                if (innerTags !is List<*>) continue
+                for (tag in innerTags) {
+                    if (tag !is Map<*, *>) continue
+                    val name = tag["name"] as? String ?: continue
+                    val key = name.lowercase().replace(" ", "-")
+                    tagSet.add(MangaTag(key, name, source))
+                }
+            }
+        }
 
         val rawRating = (mangaInfo["avg_rating"] as? Number)?.toDouble() ?: -1.0
         val rating = if (rawRating >= 0.0) (rawRating / 10.0).toFloat() else RATING_UNKNOWN
 
-        val chapters = fetchChapters(manga.url)
+        val chapterLang = selectedLanguage ?: "en"
+        val chaptersDeferred = async { fetchChaptersAndVolumes(manga.url, chapterLang) }
 
-        val result = manga.copy(
+        manga.copy(
             title = title,
             coverUrl = coverUrl,
             largeCoverUrl = largeCoverUrl,
@@ -342,12 +337,8 @@ internal class Mangadotnet(context: MangaLoaderContext) :
             tags = tagSet,
             state = state,
             authors = setOfNotNull(author).filterTo(mutableSetOf()) { it.isNotBlank() },
-            chapters = chapters,
+            chapters = chaptersDeferred.await(),
         )
-        synchronized(detailsCacheLock) {
-            detailsCache[manga.url] = result
-        }
-        return result
     }
 
     private fun parseJsonArrayString(raw: String?): List<String>? {
@@ -358,8 +349,20 @@ internal class Mangadotnet(context: MangaLoaderContext) :
         } catch (_: Exception) { null }
     }
 
-    private suspend fun fetchChapters(mangaId: String): List<MangaChapter> {
-        val response = webClient.httpGet("$apiBase/manga/$mangaId/chapters/list?lang=en").parseJsonArray()
+    private suspend fun fetchChaptersAndVolumes(mangaId: String, lang: String): List<MangaChapter> = coroutineScope {
+        val chaptersDeferred = async { fetchChaptersFromApi(mangaId, lang) }
+        val volumesDeferred = async { fetchVolumesFromApi(mangaId, lang) }
+
+        val chapters = chaptersDeferred.await()
+        val volumes = volumesDeferred.await()
+        val builder = ChaptersListBuilder(chapters.size + volumes.size)
+        builder.addAll(chapters)
+        builder.addAll(volumes)
+        builder.toList()
+    }
+
+    private suspend fun fetchChaptersFromApi(mangaId: String, lang: String): List<MangaChapter> {
+        val response = webClient.httpGet("$apiBase/manga/$mangaId/chapters/list?lang=$lang").parseJsonArray()
         val allChapters = (0 until response.length()).map { response.getJSONObject(it) }
 
         val chaptersByTeam = mutableMapOf<String, MutableList<JSONObject>>()
@@ -373,7 +376,7 @@ internal class Mangadotnet(context: MangaLoaderContext) :
         }
 
         val allNumbers = allChapters.map { it.optDouble("chapter_number", 0.0).toFloat() }.distinct().sorted()
-        val builder = ChaptersListBuilder(allChapters.size * chaptersByTeam.size)
+        val result = mutableListOf<MangaChapter>()
 
         for ((team, teamChapters) in chaptersByTeam) {
             val mapByNum = teamChapters.associateBy { it.optDouble("chapter_number", 0.0).toFloat() }
@@ -395,7 +398,7 @@ internal class Mangadotnet(context: MangaLoaderContext) :
                     put("id", chId)
                     put("source", src)
                 }.toString()
-                builder.add(
+                result.add(
                     MangaChapter(
                         id = generateUid("$team-$chId"),
                         title = title,
@@ -410,45 +413,42 @@ internal class Mangadotnet(context: MangaLoaderContext) :
                 )
             }
         }
+        return result
+    }
 
+    private suspend fun fetchVolumesFromApi(mangaId: String, lang: String): List<MangaChapter> {
         val volumesResponse = runCatching {
-            webClient.httpGet("$apiBase/manga/$mangaId/volumes?lang=en").parseJsonArray()
-        }.getOrNull()
+            webClient.httpGet("$apiBase/manga/$mangaId/volumes?lang=$lang").parseJsonArray()
+        }.getOrNull() ?: return emptyList()
 
-        if (volumesResponse != null) {
-            val volumes = (0 until volumesResponse.length()).map { volumesResponse.getJSONObject(it) }
-                .sortedBy { it.optDouble("volume_number", 0.0).toFloat() }
+        val volumes = (0 until volumesResponse.length()).map { volumesResponse.getJSONObject(it) }
+            .sortedBy { it.optDouble("volume_number", 0.0).toFloat() }
 
-            for (vol in volumes) {
-                if (vol.optString("language", "en") != "en") continue
-                val volId = vol.getInt("id")
-                val volNum = vol.optDouble("volume_number", 0.0).toFloat()
-                val volDate = vol.optString("date_added", "").nullIfEmpty()
-                val volSource = vol.optString("source", "user")
-                val volGroup = vol.optString("group_name", "").nullIfEmpty()
-                    ?: vol.optString("scanlator_name", "").nullIfEmpty()
-                    ?: "Unknown"
-                val volumeUrl = JSONObject().apply {
-                    put("id", volId)
-                    put("source", volSource)
-                }.toString()
-                builder.add(
-                    MangaChapter(
-                        id = generateUid("vol-$volId"),
-                        title = "Volume ${volNum.toString().removeSuffix(".0")}",
-                        number = volNum,
-                        volume = 0,
-                        url = volumeUrl,
-                        uploadDate = volDate?.let { dateFormat.parseSafe(it) } ?: 0L,
-                        source = source,
-                        scanlator = volGroup,
-                        branch = "Volume",
-                    )
-                )
-            }
+        return volumes.mapNotNull { vol ->
+            if (vol.optString("language", "en") != lang) return@mapNotNull null
+            val volId = vol.getInt("id")
+            val volNum = vol.optDouble("volume_number", 0.0).toFloat()
+            val volDate = vol.optString("date_added", "").nullIfEmpty()
+            val volSource = vol.optString("source", "user")
+            val volGroup = vol.optString("group_name", "").nullIfEmpty()
+                ?: vol.optString("scanlator_name", "").nullIfEmpty()
+                ?: "Unknown"
+            val volumeUrl = JSONObject().apply {
+                put("id", volId)
+                put("source", volSource)
+            }.toString()
+            MangaChapter(
+                id = generateUid("vol-$volId"),
+                title = "Volume ${volNum.toString().removeSuffix(".0")}",
+                number = volNum,
+                volume = 0,
+                url = volumeUrl,
+                uploadDate = volDate?.let { dateFormat.parseSafe(it) } ?: 0L,
+                source = source,
+                scanlator = volGroup,
+                branch = "Volume",
+            )
         }
-
-        return builder.toList()
     }
 
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
@@ -501,4 +501,31 @@ internal class Mangadotnet(context: MangaLoaderContext) :
     @Suppress("UNCHECKED_CAST")
     private fun Map<String, Any?>.asMap(key: String): Map<String, Any?>? = this[key] as? Map<String, Any?>
     private fun String?.nullIfEmpty(): String? = if (this.isNullOrEmpty()) null else this
+
+    companion object {
+        private val GENRES = setOf(
+            "Action", "Adventure", "Comedy", "Drama", "Fantasy",
+            "Historical", "Horror", "Mecha", "Mystery", "Psychological",
+            "Romance", "Sci-Fi", "Slice of Life", "Sports", "Supernatural", "Thriller", "Tragedy",
+            "Cooking", "Demons", "Ecchi", "Harem", "Isekai", "Magic", "Martial Arts",
+            "Medical", "Military", "Music", "School Life", "Webtoon",
+            "Academy", "Acting", "Adult", "Aliens", "Animals", "Anthology", "Apocalypse",
+            "Avant Garde", "Award Winning", "BDSM", "Boys Love", "Bully", "Business",
+            "Child Abuse", "Child Neglect", "Comic", "Crime", "crossdressing", "Crossdressing",
+            "Cultivation", "Delinquents", "Difficult Childhood", "dojinshi", "Doujinshi",
+            "Erotica", "Female Protagonist", "Femdom", "Fight", "futanari on male", "futunari",
+            "Gender Bender", "Genderswap", "Ghosts", "Girls Love", "Gore", "Gourmet",
+            "Gyaru", "Hentai", "Hunters", "Idol", "Incest", "Loli", "Lolicon", "Mafia",
+            "Magical Girls", "Mahou Shoujo", "Mature", "Medieval Area",
+            "Monster Girls", "Monsters", "Ninja", "Nobility",
+            "Office Romance", "Office Worker", "Office Workers", "One Shot", "Otome",
+            "Overpowered", "Philosophical", "playboy", "Police", "Post-Apocalyptic",
+            "Reincarnation", "Revenge", "Reverse Harem", "Royalty", "Samurai", "School",
+            "Seinin", "Shota", "Shotacon", "Shoujo Ai", "Shounen Ai", "Smut", "Superhero",
+            "Survival", "Suspense", "System", "Time Travel", "Traditional Games", "uncensored",
+            "Vampires", "Video Games", "Villainess", "Virtual Reality", "War", "Workplace",
+            "Wuxia", "Yaoi", "Yuri", "Zombies"
+        )
+
+    }
 }
