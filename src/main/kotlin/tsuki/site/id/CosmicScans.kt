@@ -179,7 +179,6 @@ internal class CosmicScans(context: MangaLoaderContext) :
         }
         val cover = obj.optString("cover", "")
         val status = obj.optString("status", "")
-        val type = obj.optString("type", "").takeIf { it.isNotBlank() && it != "null" }
         val genresArray = obj.optJSONArray("genres") ?: JSONArray()
         val genres = (0 until genresArray.length()).map { genresArray.getString(it) }
 
@@ -202,7 +201,6 @@ internal class CosmicScans(context: MangaLoaderContext) :
             tags = genres.map { MangaTag(it, it.lowercase(Locale.ROOT), source) }.toSet(),
             authors = emptySet(),
             state = state,
-            description = type?.let { "Type: $it" },
             source = source,
         )
     }
@@ -300,12 +298,11 @@ internal class CosmicScans(context: MangaLoaderContext) :
         val title = data.optString("title", manga.title).ifBlank { manga.title }
         val cover = data.optString("cover", manga.coverUrl)
         val sinopsis = data.optString("sinopsis", "").takeIf { it.isNotBlank() && it != "null" }
-        val type = data.optString("type", "").takeIf { it.isNotBlank() && it != "null" }
+        val status = data.optString("status", "")
         val author = data.optString("author", "").takeIf { it.isNotBlank() && it != "null" }
-        val artist = data.optString("artist", "").takeIf { it.isNotBlank() && it != "null" }
         val genresArray = data.optJSONArray("genre") ?: data.optJSONArray("genres") ?: JSONArray()
         val genres = (0 until genresArray.length()).map { genresArray.getString(it) }
-        val status = data.optString("status", "")
+
         val state = when (status.lowercase(Locale.ROOT)) {
             "ongoing" -> MangaState.ONGOING
             "completed", "complete" -> MangaState.FINISHED
@@ -316,20 +313,13 @@ internal class CosmicScans(context: MangaLoaderContext) :
         val rating = data.optString("rating", "").toFloatOrNull()
         val normalizedRating = if (rating != null && rating > 0f) rating / 2f else RATING_UNKNOWN
 
-        val description = buildString {
-            if (sinopsis != null) append(sinopsis).append("\n\n")
-            if (type != null) append("Type: $type").append("\n")
-            if (author != null) append("Author: $author").append("\n")
-            if (artist != null) append("Artist: $artist")
-        }.trim().ifBlank { null }
-
         val chaptersJson = data.optJSONArray("chapters") ?: JSONArray()
         val chapters = parseChapters(chaptersJson)
 
         return manga.copy(
             title = title,
             coverUrl = cover,
-            description = description,
+            description = sinopsis,
             authors = setOfNotNull(author),
             tags = genres.map { MangaTag(it, it.lowercase(Locale.ROOT), source) }.toSet(),
             state = state,
@@ -341,25 +331,22 @@ internal class CosmicScans(context: MangaLoaderContext) :
 
     private fun parseChapters(chaptersJson: JSONArray): List<MangaChapter> {
         if (chaptersJson.length() == 0) {
-            throw ParseException("No chapters found in manga detail response", "https://$domain")
+            return emptyList()
         }
 
         val chapters = mutableListOf<MangaChapter>()
         for (i in 0 until chaptersJson.length()) {
             val obj = chaptersJson.getJSONObject(i)
-            val slug = obj.optString("slug", "").ifBlank {
-                throw ParseException("Chapter entry $i missing slug", "https://$domain")
-            }
-            val chapterNumRaw = obj.optString("chapterNum", "").ifBlank {
-                throw ParseException("Chapter entry $i missing chapterNum", "https://$domain")
-            }
+            val slug = obj.optString("slug", "").ifBlank { continue }
+            val chapterNumRaw = obj.optString("chapterNum", "").ifBlank { continue }
             val time = obj.optString("time", "")
+
             val number = Regex("""^(\d+(?:\.\d+)?)""")
                 .find(chapterNumRaw)
                 ?.groupValues
                 ?.get(1)
                 ?.toFloatOrNull()
-                ?: throw ParseException("Invalid chapter number format: $chapterNumRaw", "https://$domain")
+                ?: continue
 
             val uploadDate = runCatching { dateFormat.parse(time)?.time }.getOrNull() ?: 0L
 
@@ -374,10 +361,6 @@ internal class CosmicScans(context: MangaLoaderContext) :
                 branch = null,
                 source = source,
             )
-        }
-
-        if (chapters.isEmpty()) {
-            throw ParseException("No valid chapters found", "https://$domain")
         }
 
         return chapters.sortedBy { it.number }
