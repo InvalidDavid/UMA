@@ -33,12 +33,7 @@ internal class MangasOriginesFr(context: MangaLoaderContext) :
     override val datePattern = "dd/MM/yyyy"
     override val tagPrefix = "manga-genres/"
     override val listUrl = "oeuvre/"
-
-    override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
-        super.onCreateConfig(keys)
-        keys.add(userAgentKey)
-    }
-
+    
     override val availableSortOrders: Set<SortOrder> = setOf(
         SortOrder.UPDATED,
         SortOrder.POPULARITY,
