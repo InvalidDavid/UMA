@@ -1,6 +1,5 @@
 package tsuki.site.fr
 
-import kotlinx.coroutines.Dispatchers
 import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
@@ -23,6 +22,7 @@ import tsuki.util.generateUid
 import tsuki.util.parseHtml
 import tsuki.util.parseJson
 
+import kotlinx.coroutines.Dispatchers
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -34,6 +34,11 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import java.net.URLEncoder
+
+/**
+ * I dont like this website.
+ * Todo: fix cover image
+ */
 
 @MangaSourceParser("ANIMESAMA", "AnimeSama", "fr")
 internal class AnimeSama(context: MangaLoaderContext) :
@@ -138,10 +143,18 @@ internal class AnimeSama(context: MangaLoaderContext) :
         val title = el.selectFirst("h2.card-title")?.text() ?: return null
         val cover = proxyImage(el.selectFirst("img")?.absUrl("src"))
         return Manga(
-            id = generateUid(url), url = url, publicUrl = url,
-            title = title, coverUrl = cover, altTitles = emptySet(),
-            rating = RATING_UNKNOWN, contentRating = null, tags = emptySet(),
-            state = null, authors = emptySet(), source = source
+            id = generateUid(url),
+            url = url,
+            publicUrl = url,
+            title = title,
+            coverUrl = cover,
+            altTitles = emptySet(),
+            rating = RATING_UNKNOWN,
+            contentRating = null,
+            tags = emptySet(),
+            state = null,
+            authors = emptySet(),
+            source = source
         )
     }
 
@@ -167,10 +180,18 @@ internal class AnimeSama(context: MangaLoaderContext) :
         val tags = genres.map { MangaTag(it.lowercase(), it, source) }.toSet()
 
         return Manga(
-            id = generateUid(url), url = url, publicUrl = url,
-            title = title, coverUrl = cover, altTitles = emptySet(),
-            rating = RATING_UNKNOWN, contentRating = null, tags = tags,
-            state = state, authors = setOfNotNull(author), description = description,
+            id = generateUid(url),
+            url = url,
+            publicUrl = url,
+            title = title,
+            coverUrl = cover,
+            altTitles = emptySet(),
+            rating = RATING_UNKNOWN,
+            contentRating = null,
+            tags = tags,
+            state = state,
+            authors = setOfNotNull(author),
+            description = description,
             source = source
         )
     }
@@ -266,9 +287,14 @@ internal class AnimeSama(context: MangaLoaderContext) :
             .build()
         return MangaChapter(
             id = generateUid(chapterUrl.toString()),
-            title = "Chapitre $chapterName", number = id.toFloat(), volume = 0,
-            url = chapterUrl.toString(), uploadDate = 0, scanlator = scanlator,
-            branch = null, source = source
+            title = "Chapitre $chapterName",
+            number = id.toFloat(),
+            volume = 0,
+            url = chapterUrl.toString(),
+            uploadDate = 0,
+            scanlator = scanlator,
+            branch = null,
+            source = source
         )
     }
 
@@ -280,7 +306,7 @@ internal class AnimeSama(context: MangaLoaderContext) :
         val rawTitle = url.queryParameter("title") ?: return emptyList()
         val encodedTitle = withContext(Dispatchers.IO) {
             URLEncoder.encode(rawTitle, "UTF-8")
-        }
+        }.replace("+", "%20")
         val apiUrl = "$baseUrl/s2/scans/get_nb_chap_et_img.php".toHttpUrl().newBuilder()
             .addQueryParameter("oeuvre", rawTitle)
             .build()
