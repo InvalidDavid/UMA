@@ -127,18 +127,22 @@ internal class MangaK(context: MangaLoaderContext) :
             append(page)
             append("&limit=")
             append(pageSize)
-            append("&sort=")
-            append(
-                when (order) {
-                    SortOrder.UPDATED -> "latest"
-                    SortOrder.NEWEST -> "newest"
-                    SortOrder.POPULARITY -> "popular"
-                    SortOrder.RATING -> "rating"
-                    SortOrder.POPULARITY_WEEK -> "views_7days"
-                    SortOrder.POPULARITY_MONTH -> "views_30days"
-                    else -> "latest"
-                },
-            )
+            
+            // To have "Best match" results
+            if (filter.query.isNullOrBlank()) {
+                append("&sort=")
+                append(
+                    when (order) {
+                        SortOrder.UPDATED -> "latest"
+                        SortOrder.NEWEST -> "newest"
+                        SortOrder.POPULARITY -> "popular"
+                        SortOrder.RATING -> "rating"
+                        SortOrder.POPULARITY_WEEK -> "views_7days"
+                        SortOrder.POPULARITY_MONTH -> "views_30days"
+                        else -> "latest"
+                    }
+                )
+            }
 
             filter.query?.trim()?.takeIf { it.isNotEmpty() }?.let { q ->
                 append("&q=")
