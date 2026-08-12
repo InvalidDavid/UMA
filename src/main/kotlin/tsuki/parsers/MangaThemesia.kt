@@ -302,7 +302,7 @@ abstract class MangaThemesia(
                 branch = null,
                 source = source,
             )
-        }.sortedBy { it.number }
+        }.reversed()
     }
 
     protected open fun parseChapterDate(date: String?): Long {
