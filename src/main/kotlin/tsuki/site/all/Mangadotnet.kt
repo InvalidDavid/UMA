@@ -127,7 +127,7 @@ internal class Mangadotnet(context: MangaLoaderContext) :
                 Locale.FRENCH,
                 Locale.GERMAN,
                 Locale("id"),
-                Locale("pt", "BR"),
+                Locale("pt", "br"),
                 Locale("es"),
                 Locale("th"),
                 Locale("vi"),
@@ -248,7 +248,7 @@ internal class Mangadotnet(context: MangaLoaderContext) :
 
     private var selectedLanguage: String? = null
     private fun localeToLang(locale: Locale): String {
-        if (locale.language == "pt" && locale.country == "BR") return "pt-br"
+        if (locale.language == "pt" && locale.country == "br") return "pt-br"
         return locale.language
     }
 
