@@ -1,4 +1,4 @@
-package tsuki.site.en
+package tsuki.site.all
 
 import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
