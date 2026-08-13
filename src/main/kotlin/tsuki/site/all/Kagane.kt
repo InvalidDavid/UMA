@@ -99,37 +99,78 @@ internal class Kagane(context: MangaLoaderContext) :
 
     private companion object {
         const val CLOUDFLARE_RETRY_DELAY_MS = 6_000L
-        val KAGANE_LANGS = arrayOf(
-            "en",
-            "ja",
-            "ko",
-            "zh-Hans",
-            "zh-Hant",
-            "es",
-            "es-419",
-            "fr",
-            "de",
-            "pt",
-            "pt-BR",
-            "ru",
-            "it",
-            "id",
-            "vi",
-            "th",
-            "pl",
-            "hi",
-            "ar",
+        private val KAGANE_LANGS: Set<Locale> = setOf(
+            Locale("af"),
+            Locale("ar"),
+            Locale("az"),
+            Locale("be"),
+            Locale("bg"),
+            Locale("bn"),
+            Locale("ca"),
+            Locale("cs"),
+            Locale("cv"),
+            Locale("da"),
+            Locale.GERMAN,
+            Locale("el"),
+            Locale.ENGLISH,
+            Locale("eo"),
+            Locale("es"),
+            Locale("es","419"),
+            Locale("et"),
+            Locale("eu"),
+            Locale("fa"),
+            Locale("fi"),
+            Locale("fil"),
+            Locale.FRENCH,
+            Locale("ga"),
+            Locale("he"),
+            Locale("hi"),
+            Locale("hr"),
+            Locale("hu"),
+            Locale("id"),
+            Locale.ITALIAN,
+            Locale.JAPANESE,
+            Locale("jv"),
+            Locale("ka"),
+            Locale("kk"),
+            Locale.KOREAN,
+            Locale("la"),
+            Locale("lt"),
+            Locale("mn"),
+            Locale("ms"),
+            Locale("my"),
+            Locale("ne"),
+            Locale("nl"),
+            Locale("no"),
+            Locale("pl"),
+            Locale("pt"),
+            Locale("pt", "br"),
+            Locale("ro"),
+            Locale("ru"),
+            Locale("sk"),
+            Locale("sl"),
+            Locale("sq"),
+            Locale("sr"),
+            Locale("sv"),
+            Locale("ta"),
+            Locale("te"),
+            Locale("th"),
+            Locale("tr"),
+            Locale("uk"),
+            Locale("ur"),
+            Locale("uz"),
+            Locale("vi"),
+            Locale.SIMPLIFIED_CHINESE,
+            Locale.TRADITIONAL_CHINESE,
         )
     }
 
     private fun Locale.toKaganeLangCode(): String {
-        return when (toLanguageTag()) {
-            "zh-Hans" -> "zh-Hans"
-            "zh-Hant" -> "zh-Hant"
-            "es-419" -> "es-419"
-            "pt-BR" -> "pt-BR"
-            else -> language
-        }
+        if (language == "pt" && country.equals("br", ignoreCase = true)) return "pt-BR"
+        if (language == "es" && country == "419") return "es-419"
+        if (language == "zh" && country.equals("CN", ignoreCase = true)) return "zh-Hans"
+        if (language == "zh" && country.equals("TW", ignoreCase = true)) return "zh-Hant"
+        return language
     }
 
     override suspend fun getFilterOptions(): MangaListFilterOptions {
@@ -154,9 +195,7 @@ internal class Kagane(context: MangaLoaderContext) :
                 ContentType.COMICS,
                 ContentType.OTHER,
             ),
-            availableLocales = KAGANE_LANGS.mapNotNull { lang ->
-                runCatching { Locale.forLanguageTag(lang) }.getOrNull()
-            }.toSet(),
+            availableLocales = KAGANE_LANGS,
         )
     }
 
@@ -641,7 +680,7 @@ internal class Kagane(context: MangaLoaderContext) :
         }
     }
 
-    private suspend fun <T> requestWithCloudflareRetry(url: String, block: suspend () -> T, ): T {
+    private suspend fun <T> requestWithCloudflareRetry(url: String, block: suspend () -> T): T {
         try {
             return block()
         } catch (e: Exception) {
