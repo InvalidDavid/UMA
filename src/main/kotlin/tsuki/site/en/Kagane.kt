@@ -41,7 +41,7 @@ import java.text.SimpleDateFormat
 import java.util.EnumSet
 import java.util.Locale
 
-@MangaSourceParser("KAGANE", "Kagane", "en")
+@MangaSourceParser("KAGANE", "Kagane")
 internal class Kagane(context: MangaLoaderContext) :
     PagedMangaParser(context, MangaParserSource.KAGANE, pageSize = 35) {
 
