@@ -94,7 +94,6 @@ internal class Mangadotnet(context: MangaLoaderContext) :
         isMultipleTagsSupported = true,
         isTagsExclusionSupported = true,
         isSearchWithFiltersSupported = true,
-        isOriginalLocaleSupported = true,
     )
 
     override val availableSortOrders: Set<SortOrder> = EnumSet.of(
