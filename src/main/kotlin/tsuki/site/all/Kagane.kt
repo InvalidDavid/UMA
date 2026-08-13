@@ -18,6 +18,7 @@ import tsuki.model.MangaState
 import tsuki.model.MangaTag
 import tsuki.model.RATING_UNKNOWN
 import tsuki.model.SortOrder
+import tsuki.model.ContentType
 
 import tsuki.util.generateUid
 import tsuki.util.parseJson
@@ -40,6 +41,12 @@ import java.net.URI
 import java.text.SimpleDateFormat
 import java.util.EnumSet
 import java.util.Locale
+import kotlin.time.Duration.Companion.milliseconds
+
+/**
+ * Created from: https://github.com/glitch-228
+ * Modified from: InvalidDavid
+ */
 
 @MangaSourceParser("KAGANE", "Kagane")
 internal class Kagane(context: MangaLoaderContext) :
@@ -48,11 +55,34 @@ internal class Kagane(context: MangaLoaderContext) :
     override val configKeyDomain = ConfigKey.Domain("kagane.to")
     private val apiUrl = "https://kagane.to"
 
+    private val dataSaverKey = ConfigKey.PreferredImageServer(
+        presetValues = mapOf(
+            "false" to "Normal",
+            "true" to "Data saving"
+        ),
+        defaultValue = "false",
+    )
+
+    private val isDataSaver: Boolean
+        get() = config[dataSaverKey] == "true"
+
+    override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
+        super.onCreateConfig(keys)
+        keys.add(dataSaverKey)
+    }
+
     override val availableSortOrders: Set<SortOrder> = EnumSet.of(
-        SortOrder.UPDATED,
+        SortOrder.RELEVANCE,
         SortOrder.POPULARITY,
+        SortOrder.POPULARITY_ASC,
+        SortOrder.RATING,
+        SortOrder.RATING_ASC,
+        SortOrder.UPDATED,
+        SortOrder.UPDATED_ASC,
         SortOrder.NEWEST,
+        SortOrder.NEWEST_ASC,
         SortOrder.ALPHABETICAL,
+        SortOrder.ALPHABETICAL_DESC,
     )
 
     override val filterCapabilities = MangaListFilterCapabilities(
@@ -91,6 +121,16 @@ internal class Kagane(context: MangaLoaderContext) :
         )
     }
 
+    private fun Locale.toKaganeLangCode(): String {
+        return when (toLanguageTag()) {
+            "zh-Hans" -> "zh-Hans"
+            "zh-Hant" -> "zh-Hant"
+            "es-419" -> "es-419"
+            "pt-BR" -> "pt-BR"
+            else -> language
+        }
+    }
+
     override suspend fun getFilterOptions(): MangaListFilterOptions {
         val genres = genresCache ?: fetchGenres().also { genresCache = it }
         return MangaListFilterOptions(
@@ -100,6 +140,22 @@ internal class Kagane(context: MangaLoaderContext) :
                 ContentRating.SUGGESTIVE,
                 ContentRating.ADULT,
             ),
+            availableStates = EnumSet.of(
+                MangaState.ONGOING,
+                MangaState.FINISHED,
+                MangaState.PAUSED,
+                MangaState.ABANDONED,
+            ),
+            availableContentTypes = EnumSet.of(
+                ContentType.MANGA,
+                ContentType.MANHWA,
+                ContentType.MANHUA,
+                ContentType.COMICS,
+                ContentType.OTHER,
+            ),
+            availableLocales = KAGANE_LANGS.mapNotNull { lang ->
+                runCatching { Locale.forLanguageTag(lang) }.getOrNull()
+            }.toSet(),
         )
     }
 
@@ -145,14 +201,28 @@ internal class Kagane(context: MangaLoaderContext) :
 
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
         val sortParam = when (order) {
-            SortOrder.UPDATED -> "updated_at,desc"
+            SortOrder.RELEVANCE -> ""
             SortOrder.POPULARITY -> "total_views,desc"
+            SortOrder.POPULARITY_ASC -> "total_views,asc"
+            SortOrder.RATING -> "avg_views,desc"
+            SortOrder.RATING_ASC -> "avg_views,asc"
+            SortOrder.UPDATED -> "updated_at,desc"
+            SortOrder.UPDATED_ASC -> "updated_at,asc"
             SortOrder.NEWEST -> "created_at,desc"
+            SortOrder.NEWEST_ASC -> "created_at,asc"
             SortOrder.ALPHABETICAL -> "series_name,asc"
+            SortOrder.ALPHABETICAL_DESC -> "series_name,desc"
             else -> "updated_at,desc"
         }
 
-        val url = "$apiUrl/api/v2/search/series?page=${page - 1}&size=$pageSize&sort=$sortParam"
+        val urlBuilder = "$apiUrl/api/v2/search/series".toHttpUrl().newBuilder()
+            .addQueryParameter("page", (page - 1).toString())
+            .addQueryParameter("size", pageSize.toString())
+            .addQueryParameter("sort", sortParam)
+        if (!filter.query.isNullOrEmpty()) {
+            urlBuilder.addQueryParameter("exact", "1")
+        }
+        val url = urlBuilder.build().toString()
         val jsonBody = JSONObject()
         if (!filter.query.isNullOrEmpty()) {
             jsonBody.put("title", filter.query)
@@ -163,7 +233,12 @@ internal class Kagane(context: MangaLoaderContext) :
             put("Mixed")
         })
         jsonBody.put("content_lang", JSONArray().apply {
-            KAGANE_LANGS.forEach(::put)
+            val selectedLocale = filter.locale
+            if (selectedLocale != null) {
+                put(selectedLocale.toKaganeLangCode())
+            } else {
+                KAGANE_LANGS.forEach(::put)
+            }
         })
 
         val genreIds = filter.tags.map { it.key }.filter { UUID_REGEX.matches(it) }
@@ -198,6 +273,39 @@ internal class Kagane(context: MangaLoaderContext) :
             }
         })
 
+        if (filter.states.isNotEmpty()) {
+            val statuses = JSONArray()
+            filter.states.forEach { state ->
+                when (state) {
+                    MangaState.ONGOING -> statuses.put("Ongoing")
+                    MangaState.FINISHED -> statuses.put("Completed")
+                    MangaState.PAUSED -> statuses.put("Hiatus")
+                    MangaState.ABANDONED -> statuses.put("Abandoned")
+                    else -> Unit
+                }
+            }
+            if (statuses.length() > 0) {
+                jsonBody.put("upload_status", statuses)
+            }
+        }
+
+        if (filter.types.isNotEmpty()) {
+            val formats = JSONArray()
+            filter.types.forEach { type ->
+                when (type) {
+                    ContentType.MANGA -> formats.put("Manga")
+                    ContentType.MANHWA -> formats.put("Manhwa")
+                    ContentType.MANHUA -> formats.put("Manhua")
+                    ContentType.COMICS -> formats.put("Comic")
+                    ContentType.OTHER -> formats.put("Other")
+                    else -> Unit
+                }
+            }
+            if (formats.length() > 0) {
+                jsonBody.put("format", formats)
+            }
+        }
+
         val headers = getRequestHeaders().newBuilder()
             .add("Origin", "https://$domain")
             .add("Referer", "https://$domain/")
@@ -208,16 +316,12 @@ internal class Kagane(context: MangaLoaderContext) :
                 webClient.httpPost(url.toHttpUrl(), jsonBody, headers).parseRaw()
             }
         } catch (e: HttpStatusException) {
-            // Always surface 403 via the Cloudflare verification path — the interceptor below
-            // identifies block pages *and* challenge pages, not just "Just a moment…" challenges.
             if (e.statusCode == 403 || e.statusCode == 429 || e.statusCode == 503) {
                 requestCloudflareVerification(url, e)
             } else {
                 throw e
             }
         } catch (e: ParseException) {
-            // Proxy/network-level errors carrying the same markers should also relaunch the
-            // verification rather than presenting as a bare parse failure.
             val causeMessage = e.message.orEmpty() + " " + (e.cause?.message.orEmpty())
             if (causeMessage.contains("CloudFlare", ignoreCase = true) ||
                 causeMessage.contains("cf-mitigated", ignoreCase = true) ||
@@ -235,7 +339,7 @@ internal class Kagane(context: MangaLoaderContext) :
 
         val response = try {
             JSONObject(responseBody)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             throw Exception("Invalid JSON search response: $responseBody")
         }
 
@@ -288,7 +392,7 @@ internal class Kagane(context: MangaLoaderContext) :
         if (!resp.isSuccessful) throw Exception("Details error ${resp.code}: $respBody")
         val json = try {
             JSONObject(respBody)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             throw Exception("Invalid JSON details: $respBody")
         }
 
@@ -486,7 +590,6 @@ internal class Kagane(context: MangaLoaderContext) :
     }
 
     override suspend fun getRelatedManga(seed: Manga): List<Manga> {
-        // Disable related/suggested manga feature
         return emptyList()
     }
 
@@ -518,13 +621,14 @@ internal class Kagane(context: MangaLoaderContext) :
 
         return pages.sortedBy { it.pageNumber }.map { page ->
             val ext = page.ext?.takeIf { it.isNotBlank() } ?: "jxl"
-            val imageUrl = "$cacheUrl/api/v2/books/page".toHttpUrl().newBuilder()
-                .addPathSegment(chapterId)
-                .addPathSegment("${page.pageUuid}.$ext")
-                .addQueryParameter("token", accessToken)
-                .addQueryParameter("is_datasaver", "false")
-                .build()
-                .toString()
+            val imageUrl = "$cacheUrl/api/v2/books/page".toHttpUrl().newBuilder().apply {
+                if (isDataSaver) addPathSegment("datasaver")
+                addPathSegment(chapterId)
+                addPathSegment("${page.pageUuid}.$ext")
+                addQueryParameter("token", accessToken)
+                addQueryParameter("is_datasaver", isDataSaver.toString())
+            }.build().toString()
+
             MangaPage(
                 id = generateUid(imageUrl),
                 url = imageUrl,
@@ -534,24 +638,17 @@ internal class Kagane(context: MangaLoaderContext) :
         }
     }
 
-    private suspend fun <T> requestWithCloudflareRetry(
-        url: String,
-        block: suspend () -> T,
-    ): T {
+    private suspend fun <T> requestWithCloudflareRetry(url: String, block: suspend () -> T, ): T {
         try {
             return block()
         } catch (e: Exception) {
             if (!e.isCloudflareProtectionError()) {
                 throw e
             }
-            delay(CLOUDFLARE_RETRY_DELAY_MS)
+            delay(CLOUDFLARE_RETRY_DELAY_MS.milliseconds)
             try {
                 return block()
             } catch (retryError: Exception) {
-                // A Cloudflare block page (stale/expired clearance) is not resolvable by the
-                // app on its own — the "blocked" exception has no resolver action. Route it
-                // through the verification flow so the user gets a working continuation
-                // instead of a dead-end "Try again" card.
                 if (e.isCloudflareBlock() || retryError.isCloudflareBlock()) {
                     requestCloudflareVerification(url, retryError)
                 }
@@ -563,8 +660,8 @@ internal class Kagane(context: MangaLoaderContext) :
     private fun Throwable.isCloudflareBlock(): Boolean {
         val name = javaClass.simpleName
         return name.contains("CloudflareBlocked", ignoreCase = true) ||
-            name.contains("CloudFlareBlocked") ||
-            (isCloudflareProtectionError() && message.orEmpty().contains("blocked", ignoreCase = true))
+                name.contains("CloudFlareBlocked") ||
+                (isCloudflareProtectionError() && message.orEmpty().contains("blocked", ignoreCase = true))
     }
 
     private fun Throwable.isCloudflareProtectionError(): Boolean {
@@ -574,17 +671,14 @@ internal class Kagane(context: MangaLoaderContext) :
         }
         val message = "${message.orEmpty()} ${cause?.message.orEmpty()}"
         return message.contains("cf-mitigated", ignoreCase = true) ||
-            message.contains("Just a moment", ignoreCase = true) ||
-            message.contains("challenges.cloudflare.com", ignoreCase = true) ||
-            message.contains("cf-error-details", ignoreCase = true) ||
-            message.contains("cf-chl-bypass", ignoreCase = true)
+                message.contains("Just a moment", ignoreCase = true) ||
+                message.contains("challenges.cloudflare.com", ignoreCase = true) ||
+                message.contains("cf-error-details", ignoreCase = true) ||
+                message.contains("cf-chl-bypass", ignoreCase = true)
     }
 
     private fun requestCloudflareVerification(url: String, cause: Throwable? = null): Nothing {
         try {
-            // Always open the site root (not the POST-only API endpoint): Cloudflare serves the
-            // challenge on any browsable page, and solving it writes cf_clearance into the
-            // shared cookie jar for the app's OkHttp requests to reuse.
             context.requestBrowserAction(this, "https://$domain/")
         } catch (e: UnsupportedOperationException) {
             throw ParseException(
@@ -593,21 +687,16 @@ internal class Kagane(context: MangaLoaderContext) :
                 cause ?: e,
             )
         }
-        throw ParseException("Retry after Cloudflare verification.", url, cause)
     }
 
     private fun String.isCloudflareChallenge(): Boolean {
-        // Match any of the CF block/challenge markers *after* the page has finished loading —
-        // including the block-page banner, the challenge-platform script path, and the new
-        // "cf-chl-bypass"-style resumption marker DOMs that a stale clearance cookie can land on.
         return contains("cf-mitigated", ignoreCase = true)
-            || contains("Just a moment", ignoreCase = true)
-            || contains("challenges.cloudflare.com", ignoreCase = true)
-            || contains("/cdn-cgi/challenge-platform/", ignoreCase = true)
-            // CF block-page (Ray ID + "Sorry, you have been blocked") — handled via verification path.
-            || contains("Sorry, you have been blocked", ignoreCase = true)
-            || contains("cf-error-details", ignoreCase = true)
-            || contains("cf-chl-bypass", ignoreCase = true)
+                || contains("Just a moment", ignoreCase = true)
+                || contains("challenges.cloudflare.com", ignoreCase = true)
+                || contains("/cdn-cgi/challenge-platform/", ignoreCase = true)
+                || contains("Sorry, you have been blocked", ignoreCase = true)
+                || contains("cf-error-details", ignoreCase = true)
+                || contains("cf-chl-bypass", ignoreCase = true)
     }
 
     private data class ManifestPage(
@@ -680,7 +769,7 @@ internal class Kagane(context: MangaLoaderContext) :
             .add("Referer", "https://$domain/")
             .add("x-integrity-token", integrityToken)
             .build()
-        val challengeUrl = "$apiUrl/api/v2/books/$chapterId?is_datasaver=false"
+        val challengeUrl = "$apiUrl/api/v2/books/$chapterId?is_datasaver=$isDataSaver"
         return requestWithCloudflareRetry(challengeUrl) {
             webClient.httpPost(challengeUrl.toHttpUrl(), JSONObject(), headers).parseJson()
         }
@@ -755,10 +844,6 @@ internal class Kagane(context: MangaLoaderContext) :
         val url = request.url
         val host = url.host
         var requestBuilder = request.newBuilder()
-            // The host GZipInterceptor stamps a lying "Content-Encoding: gzip" on non-multipart
-            // bodies (the JSON body is sent plain, never gzipped). Cloudflare treats that as an
-            // anomaly on a flagged network and serves a hard block page instead of a challenge.
-            // Drop it so the request matches a clean browser/OkHttp shape.
             .removeHeader("Content-Encoding")
             .removeHeader("cf-connecting-ip")
         if (host == domain || host.endsWith(".$domain")) {
@@ -770,9 +855,6 @@ internal class Kagane(context: MangaLoaderContext) :
 
         var response = chain.proceed(newRequest)
 
-        // Token refresh retry: image page requests carry a `token` query param, so a request
-        // running into an expired/invalid token (401/403/507) is retried once with a fresh
-        // challenge. Mirrors the behaviour of the legacy Keiyoushi Kagane_EN interceptor.
         if (url.queryParameterNames.contains("token") &&
             (response.code == 401 || response.code == 403 || response.code == 507)
         ) {
