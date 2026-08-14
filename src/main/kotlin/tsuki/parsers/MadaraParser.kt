@@ -45,6 +45,7 @@ import tsuki.util.selectLast
 import tsuki.util.toMutableMap
 import tsuki.util.toRelativeUrl
 import tsuki.util.extractChapterNumber
+import tsuki.util.mapChapters
 
 import androidx.collection.scatterSetOf
 import kotlinx.coroutines.async
@@ -59,6 +60,10 @@ import java.text.SimpleDateFormat
 import java.util.Base64
 import java.util.Calendar
 import java.util.EnumSet
+
+/**
+ * Todo: make ContentType filter.
+ */
 
 internal abstract class MadaraParser(
     context: MangaLoaderContext,
@@ -678,7 +683,7 @@ internal abstract class MadaraParser(
 
     protected open suspend fun getChapters(manga: Manga, doc: Document): List<MangaChapter> {
         val dateFormat = SimpleDateFormat(datePattern, sourceLocale)
-        return doc.body().select(selectChapter).map { li ->
+        return doc.body().select(selectChapter).mapChapters(reversed = true) { _, li ->
             val a = li.selectFirstOrThrow("a")
             val href = a.attrAsRelativeUrl("href")
             val link = href + stylePage
@@ -695,9 +700,8 @@ internal abstract class MadaraParser(
                 scanlator = null,
                 branch = null,
             )
-        }.sortedBy { it.number }
+        }
     }
-
 
     protected open suspend fun loadChapters(mangaUrl: String, document: Document): List<MangaChapter> {
         val doc = if (postReq) {
@@ -710,7 +714,7 @@ internal abstract class MadaraParser(
             webClient.httpPost(url, emptyMap()).parseHtml()
         }
         val dateFormat = SimpleDateFormat(datePattern, sourceLocale)
-        return doc.select(selectChapter).map { li ->
+        return doc.select(selectChapter).mapChapters(reversed = true) { _, li ->
             val a = li.selectFirstOrThrow("a")
             val href = a.attrAsRelativeUrl("href")
             val link = href + stylePage
@@ -727,7 +731,7 @@ internal abstract class MadaraParser(
                 scanlator = null,
                 source = source,
             )
-        }.sortedBy { it.number }
+        }
     }
 
     override suspend fun getRelatedManga(seed: Manga): List<Manga> {

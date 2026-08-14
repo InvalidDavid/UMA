@@ -255,7 +255,7 @@ class Wurmz(context: MangaLoaderContext) :
     }
 
     companion object {
-        val GENRES = listOf(
+        private val GENRES = listOf(
             "Fantasy", "Romance", "Drama", "Action", "Comedy", "Shounen", "Adventure", "Shoujo",
             "School", "Slice of Life", "Seinen", "Supernatural", "Historical", "Josei", "Isekai",
             "Webtoons", "Martial Art", "Harem", "Ecchi", "Reincarnation", "Magic", "Mystery",

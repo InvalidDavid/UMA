@@ -30,6 +30,7 @@ import tsuki.util.requireElementById
 import tsuki.util.selectFirstOrThrow
 import tsuki.util.toAbsoluteUrl
 import tsuki.util.urlEncoded
+import tsuki.util.extractChapterNumber
 
 import okhttp3.Interceptor
 import okhttp3.Response
@@ -252,7 +253,7 @@ internal class MangagoParser(context: MangaLoaderContext) :
             authors = author?.let { setOf(it) } ?: emptySet(),
             tags = genres,
             state = state,
-            chapters = chapters,
+            chapters = chapters.sortedBy { it.number },
         )
     }
 
@@ -278,9 +279,13 @@ internal class MangagoParser(context: MangaLoaderContext) :
                 val scanlator = element.selectFirst("td.no a, td.uk-table-shrink a")?.text()?.trim()
                     ?.ifEmpty { null }
 
-                ChapterParseData(name, url, dateUpload, scanlator)
+                ChapterParseData(
+                    name,
+                    url,
+                    dateUpload,
+                    scanlator
+                )
             }
-            .reversed()
 
         return buildChapterList(rawChapters)
     }
@@ -363,19 +368,14 @@ internal class MangagoParser(context: MangaLoaderContext) :
         return result
     }
 
+    private fun extractChapterNumber(title: String): Float? {
+        val num = title.extractChapterNumber()
+        return if (num == 0f) null else num
+    }
+
     private fun extractTitleSuffix(title: String): String? {
         val regex = Regex("""(?:ch\.?|chapter)\s*\d+(?:\.\d+)?\s*[:\-]\s*(.+)""", RegexOption.IGNORE_CASE)
         return regex.find(title)?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() }
-    }
-
-    private fun extractChapterNumber(title: String): Float? {
-        return try {
-            val regex = Regex("""(?:ch\.?|chapter|vol\.?\s*\d+\s+ch\.?)\s*(\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE)
-            val match = regex.find(title)
-            match?.groupValues?.get(1)?.toFloat()
-        } catch (_: Exception) {
-            null
-        }
     }
 
     private val jsCache = mutableMapOf<String, Pair<String, Long>>()
