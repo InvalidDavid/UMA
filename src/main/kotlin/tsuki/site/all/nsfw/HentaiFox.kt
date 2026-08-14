@@ -20,7 +20,6 @@ import tsuki.model.SortOrder
 import tsuki.model.Favicon
 import tsuki.model.Favicons
 
-import org.jsoup.internal.StringUtil
 import org.jsoup.nodes.Element
 import java.util.EnumSet
 import java.util.Locale
@@ -134,13 +133,9 @@ internal class HentaiFox(context: MangaLoaderContext) :
     }
 
     private fun buildQuery(tags: Collection<MangaTag>, language: Locale?): String {
-        val joiner = StringUtil.StringJoiner(" ")
-        tags.forEach { tag ->
-            joiner.add(tag.key)
-        }
-        language?.let { lc ->
-            joiner.add(lc.toLanguagePath())
-        }
-        return joiner.complete()
+        val parts = mutableListOf<String>()
+        tags.forEach { tag -> parts += tag.key }
+        language?.let { parts += it.toLanguagePath() }
+        return parts.joinToString(" ")
     }
 }
