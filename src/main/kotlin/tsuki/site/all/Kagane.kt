@@ -42,6 +42,8 @@ import java.text.SimpleDateFormat
 import java.util.EnumSet
 import java.util.Locale
 import kotlin.time.Duration.Companion.milliseconds
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Created from: https://github.com/glitch-228
@@ -92,79 +94,6 @@ internal class Kagane(context: MangaLoaderContext) :
         isTagsExclusionSupported = true,
     )
 
-    private var genresCache: Set<MangaTag>? = null
-    private val UUID_REGEX = Regex(
-        "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
-    )
-
-    private companion object {
-        const val CLOUDFLARE_RETRY_DELAY_MS = 6_000L
-        private val KAGANE_LANGS: Set<Locale> = setOf(
-            Locale("af"),
-            Locale("ar"),
-            Locale("az"),
-            Locale("be"),
-            Locale("bg"),
-            Locale("bn"),
-            Locale("ca"),
-            Locale("cs"),
-            Locale("cv"),
-            Locale("da"),
-            Locale.GERMAN,
-            Locale("el"),
-            Locale.ENGLISH,
-            Locale("eo"),
-            Locale("es"),
-            Locale("es","419"),
-            Locale("et"),
-            Locale("eu"),
-            Locale("fa"),
-            Locale("fi"),
-            Locale("fil"),
-            Locale.FRENCH,
-            Locale("ga"),
-            Locale("he"),
-            Locale("hi"),
-            Locale("hr"),
-            Locale("hu"),
-            Locale("id"),
-            Locale.ITALIAN,
-            Locale.JAPANESE,
-            Locale("jv"),
-            Locale("ka"),
-            Locale("kk"),
-            Locale.KOREAN,
-            Locale("la"),
-            Locale("lt"),
-            Locale("mn"),
-            Locale("ms"),
-            Locale("my"),
-            Locale("ne"),
-            Locale("nl"),
-            Locale("no"),
-            Locale("pl"),
-            Locale("pt"),
-            Locale("pt", "br"),
-            Locale("ro"),
-            Locale("ru"),
-            Locale("sk"),
-            Locale("sl"),
-            Locale("sq"),
-            Locale("sr"),
-            Locale("sv"),
-            Locale("ta"),
-            Locale("te"),
-            Locale("th"),
-            Locale("tr"),
-            Locale("uk"),
-            Locale("ur"),
-            Locale("uz"),
-            Locale("vi"),
-            Locale.SIMPLIFIED_CHINESE,
-            Locale.TRADITIONAL_CHINESE,
-        )
-    }
-
     private fun Locale.toKaganeLangCode(): String {
         if (language == "pt" && country.equals("br", ignoreCase = true)) return "pt-BR"
         if (language == "es" && country == "419") return "es-419"
@@ -174,7 +103,9 @@ internal class Kagane(context: MangaLoaderContext) :
     }
 
     override suspend fun getFilterOptions(): MangaListFilterOptions {
-        val genres = genresCache ?: fetchGenres().also { genresCache = it }
+        val genres = genresMutex.withLock {
+            genresCache ?: fetchGenres().also { genresCache = it }
+        }
         return MangaListFilterOptions(
             availableTags = genres,
             availableContentRating = EnumSet.of(
@@ -199,6 +130,10 @@ internal class Kagane(context: MangaLoaderContext) :
         )
     }
 
+    @Volatile
+    private var genresCache: Set<MangaTag>? = null
+    private val genresMutex = Mutex()
+
     private suspend fun fetchGenres(): Set<MangaTag> {
         val headers = getRequestHeaders().newBuilder()
             .add("Origin", "https://$domain")
@@ -215,11 +150,8 @@ internal class Kagane(context: MangaLoaderContext) :
             buildSet {
                 for (i in 0 until genres.length()) {
                     val item = genres.optJSONObject(i) ?: continue
-                    val id = item.optString("genre_id").ifBlank { item.optString("id") }
-                    val title = item.optString("genre_name")
-                        .ifBlank { item.optString("genreName") }
-                        .ifBlank { item.optString("name") }
-                        .ifBlank { item.optString("title") }
+                    val id = item.optGenreId()
+                    val title = item.optGenreName()
                     if (id.isNotBlank() && title.isNotBlank() && UUID_REGEX.matches(id)) {
                         add(MangaTag(title, id, source))
                     }
@@ -462,11 +394,8 @@ internal class Kagane(context: MangaLoaderContext) :
                         }
                     }
                     is JSONObject -> {
-                        val key = item.optString("genre_id").ifBlank { item.optString("id") }
-                        val name = item.optString("genre_name")
-                            .ifBlank { item.optString("genreName") }
-                            .ifBlank { item.optString("name") }
-                            .ifBlank { item.optString("title") }
+                        val key = item.optGenreId()
+                        val name = item.optGenreName()
                         if (key.isNotBlank() && name.isNotBlank()) {
                             MangaTag(name, key, source)
                         } else {
@@ -776,12 +705,13 @@ internal class Kagane(context: MangaLoaderContext) :
     private var integrityToken: String = ""
     private var integrityTokenExp: Long = 0L
 
+    private val isIntegrityTokenValid: Boolean
+        get() = integrityToken.isNotBlank() && System.currentTimeMillis() < integrityTokenExp
+
     private suspend fun getIntegrityToken(): String {
-        val now = System.currentTimeMillis()
-        if (integrityToken.isNotBlank() && now < integrityTokenExp) {
+        if (isIntegrityTokenValid) {
             return integrityToken
         }
-
         val headers = getRequestHeaders().newBuilder()
             .add("Origin", "https://$domain")
             .add("Referer", "https://$domain/")
@@ -822,8 +752,7 @@ internal class Kagane(context: MangaLoaderContext) :
         .toFloatOrNull()
 
     private fun getIntegrityTokenBlocking(): String {
-        val now = System.currentTimeMillis()
-        if (integrityToken.isNotBlank() && now < integrityTokenExp) {
+        if (isIntegrityTokenValid) {
             return integrityToken
         }
         val headers = getRequestHeaders().newBuilder()
@@ -913,5 +842,86 @@ internal class Kagane(context: MangaLoaderContext) :
             }
         }
         return response
+    }
+
+     companion object {
+        private const val CLOUDFLARE_RETRY_DELAY_MS = 6_000L
+
+        private val UUID_REGEX = Regex(
+            "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+        )
+
+        private val KAGANE_LANGS: Set<Locale> = setOf(
+            Locale("af"),
+            Locale("ar"),
+            Locale("az"),
+            Locale("be"),
+            Locale("bg"),
+            Locale("bn"),
+            Locale("ca"),
+            Locale("cs"),
+            Locale("cv"),
+            Locale("da"),
+            Locale.GERMAN,
+            Locale("el"),
+            Locale.ENGLISH,
+            Locale("eo"),
+            Locale("es"),
+            Locale("es","419"),
+            Locale("et"),
+            Locale("eu"),
+            Locale("fa"),
+            Locale("fi"),
+            Locale("fil"),
+            Locale.FRENCH,
+            Locale("ga"),
+            Locale("he"),
+            Locale("hi"),
+            Locale("hr"),
+            Locale("hu"),
+            Locale("id"),
+            Locale.ITALIAN,
+            Locale.JAPANESE,
+            Locale("jv"),
+            Locale("ka"),
+            Locale("kk"),
+            Locale.KOREAN,
+            Locale("la"),
+            Locale("lt"),
+            Locale("mn"),
+            Locale("ms"),
+            Locale("my"),
+            Locale("ne"),
+            Locale("nl"),
+            Locale("no"),
+            Locale("pl"),
+            Locale("pt"),
+            Locale("pt", "br"),
+            Locale("ro"),
+            Locale("ru"),
+            Locale("sk"),
+            Locale("sl"),
+            Locale("sq"),
+            Locale("sr"),
+            Locale("sv"),
+            Locale("ta"),
+            Locale("te"),
+            Locale("th"),
+            Locale("tr"),
+            Locale("uk"),
+            Locale("ur"),
+            Locale("uz"),
+            Locale("vi"),
+            Locale.SIMPLIFIED_CHINESE,
+            Locale.TRADITIONAL_CHINESE,
+        )
+
+        private fun JSONObject.optGenreId(): String = optString("genre_id").ifBlank { optString("id") }
+
+        private fun JSONObject.optGenreName(): String =
+            optString("genre_name")
+                .ifBlank { optString("genreName") }
+                .ifBlank { optString("name") }
+                .ifBlank { optString("title") }
     }
 }
