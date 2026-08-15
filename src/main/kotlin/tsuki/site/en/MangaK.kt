@@ -33,6 +33,8 @@ import tsuki.util.json.mapJSON
 import tsuki.util.json.mapJSONNotNullToSet
 import tsuki.util.json.mapJSONToSet
 
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.EnumSet
@@ -46,7 +48,7 @@ internal class MangaK(context: MangaLoaderContext) :
 
     override val configKeyDomain = ConfigKey.Domain("mangak.io")
 
-    private val apiUrl = "https://api.mangak.io"
+    private val apiUrl = "https://api.$domain"
 
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
 
@@ -127,7 +129,7 @@ internal class MangaK(context: MangaLoaderContext) :
             append(page)
             append("&limit=")
             append(pageSize)
-            
+
             // To have "Best match" results
             if (filter.query.isNullOrBlank()) {
                 append("&sort=")
@@ -256,18 +258,32 @@ internal class MangaK(context: MangaLoaderContext) :
             val slug = genre.optString("slug").nullIfEmpty() ?: return@mapJSONNotNullToSet null
             MangaTag(genre.getString("name").toTitleCase(sourceLocale), slug, source)
         }.orEmpty()
-
-    override suspend fun getDetails(manga: Manga): Manga {
+    
+    override suspend fun getDetails(manga: Manga): Manga = coroutineScope {
         val json = webClient.httpGet("$apiUrl/titles/${manga.url}").parseJson()
             .getJSONObject("data").getJSONObject("title")
+
         val cv = json.optLong("cv")
+        val chaptersDeferred = async {
+            fetchChapters(manga.url, cv)
+        }
         val authors = json.optJSONArray("authors")?.mapJSONNotNullToSet {
             it.optString("name").nullIfEmpty()
         }.orEmpty()
         val artists = json.optJSONArray("artists")?.mapJSONNotNullToSet {
             it.optString("name").nullIfEmpty()
         }.orEmpty()
-        return manga.copy(
+
+        val contentRating = json.optString("content_rating").nullIfEmpty()?.let {
+            when (it) {
+                "safe" -> ContentRating.SAFE
+                "suggestive" -> ContentRating.SUGGESTIVE
+                "erotica", "pornographic" -> ContentRating.ADULT
+                else -> null
+            }
+        }
+
+        manga.copy(
             title = json.optString("name").nullIfEmpty() ?: manga.title,
             altTitles = json.parseAltTitles().ifEmpty { manga.altTitles },
             description = json.optString("summary").nullIfEmpty() ?: manga.description,
@@ -275,7 +291,8 @@ internal class MangaK(context: MangaLoaderContext) :
             authors = authors + artists,
             state = json.optString("status").toMangaState() ?: manga.state,
             rating = json.optDouble("rating", 0.0).toRating(),
-            chapters = fetchChapters(manga.url, cv),
+            contentRating = contentRating ?: manga.contentRating,
+            chapters = chaptersDeferred.await(),
         )
     }
 

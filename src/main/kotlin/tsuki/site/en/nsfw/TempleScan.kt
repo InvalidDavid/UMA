@@ -30,7 +30,6 @@ import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
 import org.jsoup.Jsoup
-import org.jsoup.safety.Safelist
 import java.text.SimpleDateFormat
 import java.util.EnumSet
 import java.util.Locale
@@ -153,7 +152,7 @@ internal class TempleScan(context: MangaLoaderContext) :
                 val cleanDesc = if (desc.contains("#")) desc.substringBefore("#")
                     .replace(TRAILING_WORD_REGEX, "").trim()
                 else desc
-                Jsoup.clean(cleanDesc, Safelist.none())
+                Jsoup.parse(cleanDesc).text()
             }?.trim().orEmpty(),
             authors = details.author?.let { setOf(it) } ?: emptySet(),
             state = when (details.status) {
