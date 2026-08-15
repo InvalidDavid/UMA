@@ -196,6 +196,7 @@ internal class Atsumaru(context: MangaLoaderContext) :
         val showAdult = config[showAdultKey]
         return (0 until items.length()).mapNotNull { i ->
             val obj = items.getJSONObject(i)
+            if (obj.optString("medium") == "Novel") return@mapNotNull null
             val isAdult = obj.optBoolean("isAdult", false)
             if (!showAdult && isAdult) return@mapNotNull null
             val id = obj.getString("id")
@@ -235,7 +236,7 @@ internal class Atsumaru(context: MangaLoaderContext) :
             addQueryParameter("page", page.toString())
             addQueryParameter("per_page", pageSize.toString())
 
-            val filterParts = mutableListOf("hidden:!=true", "views:>0")
+            val filterParts = mutableListOf("hidden:!=true", "views:>0", "medium:!=[`Novel`]")
 
             val showAdult = config[showAdultKey]
 
