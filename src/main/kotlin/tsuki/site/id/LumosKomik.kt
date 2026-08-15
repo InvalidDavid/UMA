@@ -226,7 +226,7 @@ internal class LumosKomik(context: MangaLoaderContext) :
                 scanlator = null,
                 branch = null,
             )
-        }
+        }.reversed()
     }
 
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
