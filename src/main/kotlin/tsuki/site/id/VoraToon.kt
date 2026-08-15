@@ -1,7 +1,5 @@
 package tsuki.site.id
 
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
@@ -24,6 +22,8 @@ import tsuki.model.SortOrder
 import tsuki.util.generateUid
 import tsuki.util.oneOrThrowIfMany
 
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import java.net.URLEncoder
 import java.text.DecimalFormat
@@ -368,7 +368,7 @@ internal class VoraToon(context: MangaLoaderContext) :
             0L
         }
     }
-    
+
     private fun JSONObject.nonNullString(key: String): String? {
         return optString(key).takeIf { it.isNotBlank() && it != "null" }
     }
