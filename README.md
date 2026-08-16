@@ -63,7 +63,6 @@ The JVM smoke context cannot evaluate JavaScript, redraw images, or complete int
 
 Automated checks do not install the plugin into a consumer application. Before publishing, install `build/libs/en-ru.jar` through the consumer's normal plugin installation flow, reload the plugin catalog, confirm that all 90 entries are listed without Vietnamese sources, and open representative English and Russian sources through list, details, chapter, and page-image loading.
 
-The catalog currently marks `TWENTYFOURHNOVEL`, `ACOMICS`, `ALLHENTAI`, `BEST_MANGA`, `HENTAILIB`, `MANGAZAVR`, `MINTMANGA`, `NINEMANGA_RU`, and `ZENMANGA` as broken because their endpoints are retired, parked, or have no viable current reading contract. Sources blocked only in the JVM by Cloudflare, browser requirements, or the local Java trust store are not marked broken and must be checked in the Android consumer.
 
 ## Credits
 

@@ -2,7 +2,6 @@ package tsuki.site.ru
 
 import okhttp3.Headers
 import okhttp3.HttpUrl
-import org.json.JSONArray
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import tsuki.MangaLoaderContext
@@ -26,6 +25,7 @@ import tsuki.util.LinkResolver
 import tsuki.util.attrAsRelativeUrl
 import tsuki.util.generateUid
 import tsuki.util.parseHtml
+import tsuki.util.parseJson
 import tsuki.util.selectFirstOrThrow
 import tsuki.util.toAbsoluteUrl
 import tsuki.util.toTitleCase
@@ -92,14 +92,22 @@ internal class DesuMeParser(context: MangaLoaderContext) :
 				?.map(String::trim)
 				?.filterTo(this) { it.isNotEmpty() }
 		}
+		val mangaId = root.selectFirst("ul.chlist[data-manga_id]")
+			?.attr("data-manga_id")
+			?.toLongOrNull()
+			?: error("Cannot find Desu manga id")
 		val chapters = root.select("ul.chlist > li").map { item ->
 			val link = item.selectFirstOrThrow("h4 > a")
 			val chapterUrl = link.attrAsRelativeUrl("href")
 			val match = DESU_CHAPTER_PATH.find(chapterUrl)
 				?: error("Unsupported Desu chapter URL: $chapterUrl")
+			val chapterId = item.selectFirst("[data-chapters_id]")
+				?.attr("data-chapters_id")
+				?.toLongOrNull()
+				?: error("Cannot find Desu chapter id")
 			MangaChapter(
-				id = generateUid(chapterUrl),
-				url = chapterUrl,
+				id = generateUid(chapterId),
+				url = "/api/manga/$mangaId/chapters/$chapterId",
 				source = source,
 				number = match.groupValues[2].toFloat(),
 				volume = match.groupValues[1].toInt(),
@@ -134,16 +142,13 @@ internal class DesuMeParser(context: MangaLoaderContext) :
 	}
 
 	override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
-		val html = webClient.httpGet(chapter.url.toAbsoluteUrl(domain)).parseHtml().html()
-		val directory = DESU_READER_DIRECTORY.find(html)?.groupValues?.get(1)
-			?: error("Cannot find Desu reader directory")
-		val imagesJson = DESU_READER_IMAGES.find(html)?.groupValues?.get(1)
-			?: error("Cannot find Desu reader images")
-		val images = JSONArray(imagesJson)
+		val pages = webClient.httpGet(chapter.url.toAbsoluteUrl(domain))
+			.parseJson()
+			.getJSONObject("chapter")
+			.getJSONArray("pages")
 
-		return (0 until images.length()).map { index ->
-			val fileName = images.getJSONArray(index).getString(0)
-			val imageUrl = "https:${directory}${fileName}"
+		return (0 until pages.length()).map { index ->
+			val imageUrl = pages.getJSONObject(index).getString("url")
 			MangaPage(
 				id = generateUid(imageUrl),
 				preview = null,
@@ -273,5 +278,3 @@ private fun Set<String>.toDesuState(): MangaState? = when {
 
 private val DESU_BACKGROUND_IMAGE = Regex("url\\(['\"]?([^'\")]+)")
 private val DESU_CHAPTER_PATH = Regex("/vol(\\d+)/ch([0-9.]+)/")
-private val DESU_READER_DIRECTORY = Regex("dir:\\s*\"([^\"]+/)\"")
-private val DESU_READER_IMAGES = Regex("images:\\s*(\\[\\[.*?]])\\s*,\\s*page:", RegexOption.DOT_MATCHES_ALL)

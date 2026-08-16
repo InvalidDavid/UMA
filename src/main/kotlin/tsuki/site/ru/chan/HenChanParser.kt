@@ -1,6 +1,7 @@
 package tsuki.site.ru.chan
 
 import okhttp3.HttpUrl
+import tsuki.Broken
 import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
@@ -8,6 +9,7 @@ import tsuki.model.*
 import tsuki.util.*
 import java.util.*
 
+@Broken
 @MangaSourceParser("HENCHAN", "Хентай-тян", "ru", type = ContentType.HENTAI)
 internal class HenChanParser(context: MangaLoaderContext) : ChanParser(context, MangaParserSource.HENCHAN) {
 

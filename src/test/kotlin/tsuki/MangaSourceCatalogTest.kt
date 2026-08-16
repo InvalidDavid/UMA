@@ -164,7 +164,7 @@ class MangaSourceCatalogTest {
     }
 
     @Test
-    fun `catalog exposes active Russian Chan sources`() {
+    fun `catalog exposes approved Russian Chan sources`() {
         val expected = setOf("HENCHAN", "MANGACHAN", "YAOICHAN")
         val actual = MangaParserSource.entries
             .mapTo(mutableSetOf()) { it.name }
@@ -174,7 +174,7 @@ class MangaSourceCatalogTest {
     }
 
     @Test
-    fun `catalog exposes active Russian Madara sources`() {
+    fun `catalog exposes approved Russian Madara sources`() {
         val expected = setOf("MANGAMAMMY", "MANGAONELOVE", "MANGAZAVR")
         val actual = MangaParserSource.entries
             .mapTo(mutableSetOf()) { it.name }
@@ -184,7 +184,7 @@ class MangaSourceCatalogTest {
     }
 
     @Test
-    fun `catalog exposes active independent Russian sources`() {
+    fun `catalog exposes approved independent Russian sources`() {
         val expected = setOf(
             "COMX",
             "DESUME",
@@ -202,17 +202,20 @@ class MangaSourceCatalogTest {
     }
 
     @Test
-    fun `catalog preserves upstream broken status for unavailable Russian sources`() {
+    fun `catalog marks every confirmed unavailable Russian source as broken`() {
         val expected = setOf(
-            "ACOMICS",
             "ALLHENTAI",
             "BEST_MANGA",
+            "HENCHAN",
             "HENTAILIB",
+            "MANGAZAVR",
             "MINTMANGA",
+            "NINEMANGA_RU",
+            "NUDEMOON",
             "ZENMANGA",
         )
         val actual = MangaParserSource.entries
-            .filter { it.name in expected && it.isBroken }
+            .filter { it.locale == "ru" && it.isBroken }
             .mapTo(mutableSetOf()) { it.name }
 
         assertEquals(expected, actual)

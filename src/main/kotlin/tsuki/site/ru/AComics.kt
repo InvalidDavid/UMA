@@ -10,10 +10,8 @@ import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
 import tsuki.model.*
 import tsuki.util.*
-import tsuki.Broken
 import java.util.*
 
-@Broken
 @MangaSourceParser("ACOMICS", "AComics", "ru", ContentType.COMICS)
 internal class AComics(context: MangaLoaderContext) :
     PagedMangaParser(context, MangaParserSource.ACOMICS, pageSize = 10) {
@@ -98,18 +96,18 @@ internal class AComics(context: MangaLoaderContext) :
     }
 
     private fun parseMangaList(docs: Document): List<Manga> {
-        return docs.select("table.list-loadable").map {
-            val a = it.selectFirstOrThrow("a")
+        return docs.select("section.serial-card").map {
+            val a = it.selectFirstOrThrow("a.cover")
             val url = a.attrAsAbsoluteUrl("href") + "/about"
             Manga(
                 id = generateUid(url),
                 url = url,
-                title = it.selectFirstOrThrow(".title").text(),
+                title = it.selectFirstOrThrow("h2.title a").text(),
                 altTitles = emptySet(),
                 publicUrl = url,
                 rating = RATING_UNKNOWN,
                 contentRating = if (isNsfwSource) ContentRating.ADULT else null,
-                coverUrl = it.selectFirstOrThrow("img").src().orEmpty(),
+                coverUrl = a.selectFirstOrThrow("img").attrAsAbsoluteUrl("data-real-src"),
                 tags = emptySet(),
                 state = null,
                 authors = emptySet(),
@@ -124,14 +122,15 @@ internal class AComics(context: MangaLoaderContext) :
     private suspend fun getOrCreateTagMap(): Map<String, MangaTag> = mutex.withLock {
         tagCache?.let { return@withLock it }
         val tagMap = ArrayMap<String, MangaTag>()
-        val tagElements =
-            webClient.httpGet("https://$domain/comics").parseHtml().requireElementById("catalog").select(" a.button")
+        val tagElements = webClient.httpGet("https://$domain/comics")
+            .parseHtml()
+            .select("form.catalog-filters-form fieldset.categories label")
         for (el in tagElements) {
-            val name = el.html().substringAfterLast("</span>")
-            if (name.isEmpty()) continue
+            val name = el.ownText().trim()
+            val key = el.selectFirstOrThrow("input[name='categories[]']").attr("value")
             tagMap[name] = MangaTag(
                 title = name,
-                key = el.attr("onclick").substringAfterLast("('").substringBefore("')"),
+                key = key,
                 source = source,
             )
         }
@@ -143,7 +142,7 @@ internal class AComics(context: MangaLoaderContext) :
         val doc = webClient.httpGet(manga.url.toAbsoluteUrl(domain)).parseHtml()
         val tagMap = getOrCreateTagMap()
         val tags = doc.select("p.serial-about-badges .category").mapNotNullToSet { tagMap[it.text()] }
-        val author = doc.selectFirst("p:contains(Автор оригинала:)")?.text()?.replace("Автор оригинала: ", "")
+        val author = doc.selectFirst("p.serial-about-authors a")?.textOrNull()
         return manga.copy(
             tags = tags,
             description = doc.selectFirst("section.serial-about-text p")?.text(),
@@ -166,7 +165,10 @@ internal class AComics(context: MangaLoaderContext) :
 
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
         val doc = webClient.httpGet(chapter.url + "1").parseHtml()
-        val totalPages = doc.selectFirstOrThrow("span.issueNumber").text().substringAfterLast('/').toInt()
+        val totalPages = doc.selectFirstOrThrow("h1.reader-issue-title span.number")
+            .text()
+            .substringAfterLast('/')
+            .toInt()
         return (1..totalPages).map {
             val url = chapter.url + it
             MangaPage(
@@ -180,6 +182,6 @@ internal class AComics(context: MangaLoaderContext) :
 
     override suspend fun getPageUrl(page: MangaPage): String {
         val doc = webClient.httpGet(page.url.toAbsoluteUrl(domain)).parseHtml()
-        return doc.requireElementById("mainImage").requireSrc()
+        return doc.selectFirstOrThrow("section.reader-issue img.issue").requireSrc()
     }
 }

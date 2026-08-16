@@ -1,0 +1,20 @@
+{
+  "chapter": {
+    "id": 690,
+    "volume": "2",
+    "number": "3",
+    "title": "Chapter title",
+    "status": "saved",
+    "is_readable": true,
+    "publish_date": 1786900000,
+    "view_url": "/manga/example.42/vol2/ch3/rus",
+    "pages": [
+      {
+        "page": 1,
+        "url": "https://img3.desu.uno/manga/rus/example/001.webp",
+        "width": 1000,
+        "height": 1400
+      }
+    ]
+  }
+}

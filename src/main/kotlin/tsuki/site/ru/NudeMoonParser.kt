@@ -1,5 +1,6 @@
 package tsuki.site.ru
 
+import tsuki.Broken
 import tsuki.MangaLoaderContext
 import tsuki.MangaParserAuthProvider
 import tsuki.MangaSourceParser
@@ -11,6 +12,7 @@ import tsuki.util.*
 import java.text.SimpleDateFormat
 import java.util.*
 
+@Broken
 @MangaSourceParser("NUDEMOON", "Nude-Moon", "ru", type = ContentType.HENTAI)
 internal class NudeMoonParser(
 	context: MangaLoaderContext,
