@@ -17,6 +17,8 @@ import tsuki.model.MangaState
 import tsuki.model.MangaTag
 import tsuki.model.RATING_UNKNOWN
 import tsuki.model.SortOrder
+import tsuki.model.Favicon
+import tsuki.model.Favicons
 
 import tsuki.util.generateUid
 import tsuki.util.parseHtml
@@ -46,6 +48,15 @@ internal class AnimeSama(context: MangaLoaderContext) :
 
     override val configKeyDomain = ConfigKey.Domain("anime-sama.to")
     private val baseUrl = "https://$domain"
+
+    override suspend fun getFavicons(): Favicons {
+        return Favicons(
+            listOf(
+                Favicon("https://cdn.jsdelivr.net/gh/Anime-Sama/IMG@img/autres/logo.png", 2600, null),
+            ),
+            domain,
+        )
+    }
 
     override val webClient by lazy {
         OkHttpWebClient(context.httpClient.newBuilder().build(), source)
