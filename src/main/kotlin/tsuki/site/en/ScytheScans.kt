@@ -16,7 +16,7 @@ import java.util.Base64
 
 @MangaSourceParser("SYCTHESCANS", "Scythe Scans", "en")
 internal class ScytheScans(context: MangaLoaderContext) :
-    MangaThemesia(context, MangaParserSource.SYCTHESCANS, "erosscans.com", pageSize = 20) {
+    MangaThemesia(context, MangaParserSource.SYCTHESCANS, "scythescans.com", pageSize = 20) {
 
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
         val chapterUrl = chapter.url.toAbsoluteUrl(domain)
