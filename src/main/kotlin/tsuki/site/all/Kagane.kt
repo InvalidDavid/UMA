@@ -5,6 +5,7 @@ import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
 import tsuki.exception.ParseException
+import tsuki.network.CloudFlareHelper
 
 import tsuki.model.ContentRating
 import tsuki.model.Manga
@@ -35,7 +36,6 @@ import okhttp3.Response
 import kotlinx.coroutines.delay
 import org.json.JSONArray
 import org.json.JSONObject
-import org.jsoup.HttpStatusException
 import java.io.IOException
 import java.net.URI
 import java.text.SimpleDateFormat
@@ -55,7 +55,7 @@ internal class Kagane(context: MangaLoaderContext) :
     PagedMangaParser(context, MangaParserSource.KAGANE, pageSize = 35) {
 
     override val configKeyDomain = ConfigKey.Domain("kagane.to")
-    private val apiUrl = "https://kagane.to"
+    private val apiUrl = "https://$domain"
 
     private val dataSaverKey = ConfigKey.PreferredImageServer(
         presetValues = mapOf(
@@ -285,27 +285,11 @@ internal class Kagane(context: MangaLoaderContext) :
             .add("Referer", "https://$domain/")
             .build()
 
-        val responseBody = try {
-            requestWithCloudflareRetry(url) {
-                webClient.httpPost(url.toHttpUrl(), jsonBody, headers).parseRaw()
-            }
-        } catch (e: HttpStatusException) {
-            if (e.statusCode == 403 || e.statusCode == 429 || e.statusCode == 503) {
-                requestCloudflareVerification(url, e)
-            } else {
-                throw e
-            }
-        } catch (e: ParseException) {
-            val causeMessage = e.message.orEmpty() + " " + (e.cause?.message.orEmpty())
-            if (causeMessage.contains("CloudFlare", ignoreCase = true) ||
-                causeMessage.contains("cf-mitigated", ignoreCase = true) ||
-                causeMessage.contains("cf-error-details", ignoreCase = true)
-            ) {
-                requestCloudflareVerification(url, e)
-            } else {
-                throw e
-            }
-        }
+        val responseBody = executeWithCloudflareCheck(
+            url = url,
+            block = { webClient.httpPost(url.toHttpUrl(), jsonBody, headers) },
+            parse = { it.parseRaw() },
+        )
 
         if (responseBody.isCloudflareChallenge()) {
             requestCloudflareVerification(url)
@@ -359,9 +343,11 @@ internal class Kagane(context: MangaLoaderContext) :
             .add("Origin", "https://$domain")
             .add("Referer", "https://$domain/")
             .build()
-        val resp = requestWithCloudflareRetry(url) {
-            webClient.httpGet(url, headers)
-        }
+        val resp = executeWithCloudflareCheck(
+            url = url,
+            block = { webClient.httpGet(url, headers) },
+            parse = { it },
+        )
         val respBody = resp.body?.string() ?: ""
         if (!resp.isSuccessful) throw Exception("Details error ${resp.code}: $respBody")
         val json = try {
@@ -609,43 +595,36 @@ internal class Kagane(context: MangaLoaderContext) :
         }
     }
 
-    private suspend fun <T> requestWithCloudflareRetry(url: String, block: suspend () -> T): T {
-        try {
-            return block()
-        } catch (e: Exception) {
-            if (!e.isCloudflareProtectionError()) {
-                throw e
-            }
-            delay(CLOUDFLARE_RETRY_DELAY_MS.milliseconds)
-            try {
-                return block()
-            } catch (retryError: Exception) {
-                if (e.isCloudflareBlock() || retryError.isCloudflareBlock()) {
-                    requestCloudflareVerification(url, retryError)
+    private suspend fun <T> executeWithCloudflareCheck(
+        url: String,
+        block: suspend () -> Response,
+        parse: (Response) -> T,
+    ): T {
+        CloudFlareHelper.getClearanceCookie(context.cookieJar, "https://$domain")
+        val response = block()
+        return when (CloudFlareHelper.checkResponseForProtection(response)) {
+            CloudFlareHelper.PROTECTION_NOT_DETECTED -> parse(response)
+            CloudFlareHelper.PROTECTION_CAPTCHA -> {
+                response.close()
+                delay(CLOUDFLARE_RETRY_DELAY_MS.milliseconds)
+                val retryResponse = block()
+                when (CloudFlareHelper.checkResponseForProtection(retryResponse)) {
+                    CloudFlareHelper.PROTECTION_NOT_DETECTED -> parse(retryResponse)
+                    else -> {
+                        retryResponse.close()
+                        requestCloudflareVerification(url)
+                    }
                 }
-                throw retryError
+            }
+            CloudFlareHelper.PROTECTION_BLOCKED -> {
+                response.close()
+                requestCloudflareVerification(url)
+            }
+            else -> {
+                response.close()
+                requestCloudflareVerification(url)
             }
         }
-    }
-
-    private fun Throwable.isCloudflareBlock(): Boolean {
-        val name = javaClass.simpleName
-        return name.contains("CloudflareBlocked", ignoreCase = true) ||
-                name.contains("CloudFlareBlocked") ||
-                (isCloudflareProtectionError() && message.orEmpty().contains("blocked", ignoreCase = true))
-    }
-
-    private fun Throwable.isCloudflareProtectionError(): Boolean {
-        val name = javaClass.simpleName
-        if (name.contains("Cloudflare", ignoreCase = true) || name.contains("CloudFlare")) {
-            return true
-        }
-        val message = "${message.orEmpty()} ${cause?.message.orEmpty()}"
-        return message.contains("cf-mitigated", ignoreCase = true) ||
-                message.contains("Just a moment", ignoreCase = true) ||
-                message.contains("challenges.cloudflare.com", ignoreCase = true) ||
-                message.contains("cf-error-details", ignoreCase = true) ||
-                message.contains("cf-chl-bypass", ignoreCase = true)
     }
 
     private fun requestCloudflareVerification(url: String, cause: Throwable? = null): Nothing {
@@ -717,13 +696,17 @@ internal class Kagane(context: MangaLoaderContext) :
             .add("Referer", "https://$domain/")
             .build()
 
-        val response = requestWithCloudflareRetry("$apiUrl/api/integrity") {
-            webClient.httpPost(
-                urlBuilder().addPathSegments("api/integrity").build(),
-                JSONObject(),
-                headers,
-            ).parseJson()
-        }
+        val response = executeWithCloudflareCheck(
+            url = "$apiUrl/api/integrity",
+            block = {
+                webClient.httpPost(
+                    urlBuilder().addPathSegments("api/integrity").build(),
+                    JSONObject(),
+                    headers,
+                )
+            },
+            parse = { it.parseJson() },
+        )
 
         val token = response.optString("token")
         if (token.isBlank()) {
@@ -742,9 +725,11 @@ internal class Kagane(context: MangaLoaderContext) :
             .add("x-integrity-token", integrityToken)
             .build()
         val challengeUrl = "$apiUrl/api/v2/books/$chapterId?is_datasaver=$isDataSaver"
-        return requestWithCloudflareRetry(challengeUrl) {
-            webClient.httpPost(challengeUrl.toHttpUrl(), JSONObject(), headers).parseJson()
-        }
+        return executeWithCloudflareCheck(
+            url = challengeUrl,
+            block = { webClient.httpPost(challengeUrl.toHttpUrl(), JSONObject(), headers) },
+            parse = { it.parseJson() },
+        )
     }
 
     private fun String.toChapterNumberOrNull(): Float? = trim()
