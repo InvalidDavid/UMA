@@ -1,0 +1,11 @@
+[
+  {
+    "slug": "example",
+    "name": {"ru": "Example Manga", "en": "Example Manga"},
+    "altNames": [{"name": "Example Alternative"}],
+    "poster": "https://cdn.inkstory.test/example-cover.jpg",
+    "averageRating": 9.2,
+    "status": "ONGOING",
+    "contentStatus": "SAFE"
+  }
+]

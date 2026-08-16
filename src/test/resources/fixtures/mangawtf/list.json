@@ -1,0 +1,14 @@
+[
+  {
+    "id": "book-id",
+    "slug": "test-title",
+    "poster": "https://static.inkstory.net/test-title.jpg",
+    "status": "ONGOING",
+    "contentStatus": "SAFE",
+    "name": {
+      "ru": "Test title",
+      "en": "Test title"
+    },
+    "averageRating": 8.5
+  }
+]
