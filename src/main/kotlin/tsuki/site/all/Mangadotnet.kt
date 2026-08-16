@@ -4,6 +4,7 @@ import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
+import tsuki.exception.ParseException
 
 import tsuki.model.ContentType
 import tsuki.model.Demographic
@@ -35,7 +36,7 @@ import java.util.EnumSet
 import java.util.Locale
 import java.util.TimeZone
 
-@MangaSourceParser("MANGADOTNET", "Mangadot.net", "en", ContentType.MANGA)
+@MangaSourceParser("MANGADOTNET", "Mangadot.net", type = ContentType.MANGA)
 internal class Mangadotnet(context: MangaLoaderContext) :
     PagedMangaParser(context, MangaParserSource.MANGADOTNET, 20) {
 
@@ -82,11 +83,42 @@ internal class Mangadotnet(context: MangaLoaderContext) :
     }
 
     @Suppress("UNCHECKED_CAST")
-    private suspend fun fetchRscData(url: String, route: String): Map<String, Any?>? {
+    private suspend fun fetchRscData(url: String, route: String): Map<String, Any?> {
         val flat = webClient.httpGet(url).parseJsonArray()
-        val decoded = decodeRsc(flat) ?: return null
-        val routeValue = (decoded as? Map<String, Any?>)?.get(route) as? Map<String, Any?> ?: return null
-        return routeValue.asMap("data")
+        val decoded = decodeRsc(flat)
+            ?: throw ParseException("Failed to decode RSC data", url)
+        val routeValue = (decoded as? Map<String, Any?>)?.get(route) as? Map<String, Any?>
+            ?: throw ParseException("Missing RSC route '$route'", url)
+        val mangaListKeys = listOf("manga_list", "results", "rows")
+        for (key in mangaListKeys) {
+            routeValue[key]?.let { found ->
+                return mapOf(key to found)
+            }
+        }
+        fun searchRecursively(obj: Any?, depth: Int = 0): Any? {
+            if (depth > 5) return null
+            when (obj) {
+                is Map<*, *> -> {
+                    for (key in mangaListKeys) {
+                        obj[key]?.let { return it }
+                    }
+                    for (value in obj.values) {
+                        val result = searchRecursively(value, depth + 1)
+                        if (result != null) return result
+                    }
+                }
+                is List<*> -> {
+                    for (item in obj) {
+                        val result = searchRecursively(item, depth + 1)
+                        if (result != null) return result
+                    }
+                }
+            }
+            return null
+        }
+        val found = searchRecursively(routeValue)
+            ?: throw ParseException("Manga list not found in route '$route'", url)
+        return mapOf("manga_list" to found)
     }
 
     override val filterCapabilities = MangaListFilterCapabilities(
@@ -203,19 +235,19 @@ internal class Mangadotnet(context: MangaLoaderContext) :
             addQueryParameter("_routes", "pages/SearchPage")
         }.build().toString()
 
-        val dataMap = fetchRscData(url, "pages/SearchPage") ?: return emptyList()
-        return parseMangaList(dataMap)
+        val dataMap = fetchRscData(url, "pages/SearchPage")
+
+        val mangaList = dataMap["manga_list"] as? List<*>
+            ?: throw ParseException("Missing 'manga_list' in decoded data. Keys: ${dataMap.keys}", url)
+
+        return mangaList.filterIsInstance<Map<String, Any?>>().map { parseMangaFromList(it) }
     }
 
     private suspend fun parseViewAllPage(url: String): List<Manga> {
-        val viewAllData = fetchRscData(url, "pages/ViewAllPage") ?: return emptyList()
-        val mangaListMap = viewAllData.asMap("data") ?: return emptyList()
-        return parseMangaList(mangaListMap)
-    }
-
-    private fun parseMangaList(data: Map<String, Any?>): List<Manga> {
-        val list = data["manga_list"] as? List<*> ?: data["results"] as? List<*> ?: return emptyList()
-        return list.filterIsInstance<Map<String, Any?>>().map { parseMangaFromList(it) }
+        val viewAllData = fetchRscData(url, "pages/ViewAllPage")
+        val mangaList = viewAllData["manga_list"] as? List<*>
+            ?: throw ParseException("Missing 'manga_list' in view-all data. Keys: ${viewAllData.keys}", url)
+        return mangaList.filterIsInstance<Map<String, Any?>>().map { parseMangaFromList(it) }
     }
 
     private fun parseMangaFromList(data: Map<String, Any?>): Manga {
@@ -253,7 +285,7 @@ internal class Mangadotnet(context: MangaLoaderContext) :
 
     override suspend fun getDetails(manga: Manga): Manga = coroutineScope {
         val url = "$baseUrl/manga/${manga.url}.data?_routes=pages/MangaDetailPage"
-        val mangaData = fetchRscData(url, "pages/MangaDetailPage") ?: return@coroutineScope manga
+        val mangaData = fetchRscData(url, "pages/MangaDetailPage")
 
         val mangaInfo = mangaData.asMap("mangaData")?.asMap("manga") ?: return@coroutineScope manga
         val title = mangaInfo["title"] as? String ?: manga.title
@@ -475,11 +507,10 @@ internal class Mangadotnet(context: MangaLoaderContext) :
         }
     }
 
-
     @Suppress("UNCHECKED_CAST")
     override suspend fun getRelatedManga(seed: Manga): List<Manga> {
         val url = "$baseUrl/manga/${seed.url}.data?_routes=pages/MangaDetailPage"
-        val data = fetchRscData(url, "pages/MangaDetailPage") ?: return emptyList()
+        val data = fetchRscData(url, "pages/MangaDetailPage")
 
         val related = mutableListOf<Manga>()
         (data["suggestions"] as? List<*>)?.filterIsInstance<Map<String, Any?>>()?.mapTo(related) { parseMangaFromList(it) }
