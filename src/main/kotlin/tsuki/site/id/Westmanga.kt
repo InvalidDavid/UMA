@@ -17,6 +17,8 @@ import tsuki.model.MangaState
 import tsuki.model.MangaTag
 import tsuki.model.RATING_UNKNOWN
 import tsuki.model.SortOrder
+import tsuki.model.Favicon
+import tsuki.model.Favicons
 
 import tsuki.util.generateUid
 import tsuki.util.oneOrThrowIfMany
@@ -40,10 +42,19 @@ import javax.crypto.spec.SecretKeySpec
 internal class WestmangaParser(context: MangaLoaderContext) :
     PagedMangaParser(context, MangaParserSource.WESTMANGA, pageSize = 20) {
 
-    override val configKeyDomain = ConfigKey.Domain("v1.westmanga.cc")
+    override val configKeyDomain = ConfigKey.Domain("westmanga.co")
 
     private val apiDomain: String
         get() = "data.mantweh.online"
+
+    override suspend fun getFavicons(): Favicons {
+        return Favicons(
+            listOf(
+                Favicon("https://$domain/favicon.ico", 48, null),
+            ),
+            domain,
+        )
+    }
 
     private val accessKey = "WM_WEB_FRONT_END"
     private val secretKey = "xxxoidj"
