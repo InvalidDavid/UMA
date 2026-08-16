@@ -6,6 +6,7 @@ import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
 import tsuki.network.OkHttpWebClient
 import tsuki.MangaParserAuthProvider
+import tsuki.exception.ParseException
 
 import tsuki.model.ContentRating
 import tsuki.model.ContentType
@@ -24,6 +25,7 @@ import tsuki.model.SortOrder
 
 import tsuki.util.generateUid
 import tsuki.util.parseJson
+import tsuki.util.nullIfEmpty
 
 import okhttp3.Interceptor
 import org.jsoup.Jsoup
@@ -37,6 +39,7 @@ import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.concurrent.Semaphore
 import okio.ByteString
 import okio.ByteString.Companion.decodeBase64
+import okhttp3.HttpUrl.Builder
 
 internal class VrfSigner {
     fun interceptor() = Interceptor { chain ->
@@ -266,12 +269,8 @@ internal abstract class MangaFireParser(
         availableContentRating = EnumSet.of(ContentRating.SAFE, ContentRating.SUGGESTIVE, ContentRating.ADULT)
     )
 
-    override suspend fun getListPage(
-        page: Int,
-        order: SortOrder,
-        filter: MangaListFilter,
-    ): List<Manga> = try {
-        val urlBuilder = okhttp3.HttpUrl.Builder()
+    override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
+        val urlBuilder = Builder()
             .scheme("https")
             .host(domain)
             .addPathSegments("api/titles")
@@ -349,43 +348,54 @@ internal abstract class MangaFireParser(
         }
 
         val url = urlBuilder.build().toString()
-        val response = apiClient.httpGet(url).parseJson()
-        val items = response.optJSONArray("items") ?: return emptyList()
 
-        val mangas = mutableListOf<Manga>()
-        for (i in 0 until items.length()) {
-            try {
-                val obj = items.getJSONObject(i)
-                val hid = obj.getString("hid")
-                val title = obj.getString("title")
-                val slug = obj.optString("slug", null)
-                val poster = obj.optJSONObject("poster")
-                val cover = poster?.optString("large") ?: poster?.optString("medium")
-                ?: poster?.optString("small") ?: ""
-                val urlPath = "/title/$hid${slug?.let { "-$it" } ?: ""}"
-                mangas.add(
-                    Manga(
-                        id = generateUid(urlPath),
-                        url = urlPath,
-                        publicUrl = "https://$domain$urlPath",
-                        title = title,
-                        coverUrl = cover,
-                        source = source,
-                        altTitles = emptySet(),
-                        largeCoverUrl = null,
-                        authors = emptySet(),
-                        contentRating = null,
-                        rating = RATING_UNKNOWN,
-                        state = null,
-                        tags = emptySet(),
+        try {
+            val response = apiClient.httpGet(url).parseJson()
+            val items = response.optJSONArray("items")
+                ?: throw ParseException("Missing 'items' array in API response", url)
+
+            val mangas = mutableListOf<Manga>()
+            for (i in 0 until items.length()) {
+                try {
+                    val obj = items.getJSONObject(i)
+                    val hid = obj.getString("hid")
+                    val title = obj.getString("title")
+                    val slug = obj.optString("slug").nullIfEmpty()
+                    val poster = obj.optJSONObject("poster")
+                    val cover = poster?.optString("large")
+                        ?: poster?.optString("medium")
+                        ?: poster?.optString("small")
+                        ?: ""
+
+                    val urlPath = "/title/$hid${slug?.let { "-$it" } ?: ""}"
+
+                    mangas.add(
+                        Manga(
+                            id = generateUid(urlPath),
+                            url = urlPath,
+                            publicUrl = "https://$domain$urlPath",
+                            title = title,
+                            coverUrl = cover,
+                            source = source,
+                            altTitles = emptySet(),
+                            largeCoverUrl = null,
+                            authors = emptySet(),
+                            contentRating = null,
+                            rating = RATING_UNKNOWN,
+                            state = null,
+                            tags = emptySet(),
+                        )
                     )
-                )
-            } catch (_: Exception) {
+                } catch (e: Exception) {
+                    throw ParseException("Failed to parse manga item at index $i: ${e.message}", url, e)
+                }
             }
+            return mangas
+        } catch (e: ParseException) {
+            throw e
+        } catch (e: Exception) {
+            throw ParseException("Failed to load list page: ${e.message}\nOpen Webview and then reload Page", url, e)
         }
-        mangas
-    } catch (_: Exception) {
-        emptyList()
     }
 
     private val detailsCacheLock = Any()
