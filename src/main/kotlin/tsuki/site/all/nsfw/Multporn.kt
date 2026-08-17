@@ -26,7 +26,6 @@ import tsuki.util.generateUid
 import tsuki.util.oneOrThrowIfMany
 import tsuki.util.parseHtml
 import tsuki.util.requireSrc
-import tsuki.util.selectFirstOrThrow
 import tsuki.util.splitByWhitespace
 import tsuki.util.toAbsoluteUrl
 import tsuki.util.urlEncoded
@@ -159,12 +158,35 @@ internal class Multporn(context: MangaLoaderContext) :
         }
 
         val doc = webClient.httpGet(url).parseHtml()
-        return doc.select(".masonry-item").map { div ->
-            val href = div.selectFirstOrThrow(".views-field-title a").attrAsRelativeUrl("href")
-            val coverUrl = div.selectFirstOrThrow(".views-field img").requireSrc()
+        val items = doc.select(".masonry-item")
+            .ifEmpty { doc.select(".views-row") }
+            .ifEmpty { doc.select(".node") }
+
+        return items.mapNotNull { div ->
+            val linkElement = div.selectFirst(".views-field-title a")
+                ?: div.selectFirst(".views-field-name a")
+                ?: div.selectFirst(".field-content a")
+                ?: div.selectFirst("h2 a")
+                ?: div.selectFirst("h3 a")
+                ?: return@mapNotNull null
+
+            val href = linkElement.attrAsRelativeUrl("href")
+            if (href.isBlank()) return@mapNotNull null
+            val coverElement = div.selectFirst(".views-field-field-files img")
+                ?: div.selectFirst(".views-field-field-game-preview img")
+                ?: div.selectFirst(".views-field-field-preview-1 img")
+                ?: div.selectFirst(".views-field-field-picture-preview img")
+                ?: div.selectFirst(".views-field img")
+                ?: div.selectFirst("img")
+                ?: return@mapNotNull null
+
+            val coverUrl = coverElement.requireSrc()
+            val title = linkElement.text()
+                .ifEmpty { div.selectFirst(".views-field-title")?.text() ?: "Unknown" }
+
             Manga(
                 id = generateUid(href),
-                title = div.select(".views-field-title").text(),
+                title = title,
                 altTitles = emptySet(),
                 url = href,
                 publicUrl = href.toAbsoluteUrl(domain),
