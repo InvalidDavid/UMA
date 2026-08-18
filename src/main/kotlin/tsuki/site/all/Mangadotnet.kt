@@ -123,6 +123,15 @@ internal class Mangadotnet(context: MangaLoaderContext) :
         return mapOf("manga_list" to found)
     }
 
+    @Suppress("UNCHECKED_CAST")
+    private suspend fun fetchRscRoute(url: String, route: String): Map<String, Any?> {
+        val flat = webClient.httpGet(url).parseJsonArray()
+        val decoded = decodeRsc(flat)
+            ?: throw ParseException("Failed to decode RSC data", url)
+        return (decoded as? Map<String, Any?>)?.get(route) as? Map<String, Any?>
+            ?: throw ParseException("Missing RSC route '$route'", url)
+    }
+
     override val filterCapabilities = MangaListFilterCapabilities(
         isSearchSupported = true,
         isMultipleTagsSupported = true,
@@ -345,9 +354,14 @@ internal class Mangadotnet(context: MangaLoaderContext) :
 
     override suspend fun getDetails(manga: Manga): Manga = coroutineScope {
         val url = "$baseUrl/manga/${manga.url}.data?_routes=pages/MangaDetailPage"
-        val mangaData = fetchRscData(url, "pages/MangaDetailPage")
+        val routeValue = fetchRscRoute(url, "pages/MangaDetailPage")
 
-        val mangaInfo = mangaData.asMap("mangaData")?.asMap("manga") ?: return@coroutineScope manga
+        val dataMap = routeValue.asMap("data")
+            ?: throw ParseException("Missing 'data' in detail route", url)
+
+        val mangaInfo = dataMap.asMap("mangaData")
+            ?: throw ParseException("Missing 'mangaData' in detail route", url)
+        
         val title = mangaInfo["title"] as? String ?: manga.title
         val description = mangaInfo["description"] as? String
         val photo = mangaInfo["photo"] as? String
@@ -570,11 +584,13 @@ internal class Mangadotnet(context: MangaLoaderContext) :
     @Suppress("UNCHECKED_CAST")
     override suspend fun getRelatedManga(seed: Manga): List<Manga> {
         val url = "$baseUrl/manga/${seed.url}.data?_routes=pages/MangaDetailPage"
-        val data = fetchRscData(url, "pages/MangaDetailPage")
+        val routeValue = fetchRscRoute(url, "pages/MangaDetailPage")
 
         val related = mutableListOf<Manga>()
-        (data["suggestions"] as? List<*>)?.filterIsInstance<Map<String, Any?>>()?.mapTo(related) { parseMangaFromList(it) }
-        val relationsData = data.asMap("relationsData")
+        (routeValue["suggestions"] as? List<*>)?.filterIsInstance<Map<String, Any?>>()?.mapTo(related) {
+            parseMangaFromList(it)
+        }
+        val relationsData = routeValue.asMap("relationsData")
         val relations = relationsData?.asMap("relations") as? Map<String, List<Map<String, Any?>>>
         relations?.values?.forEach { list -> list.mapTo(related) { parseMangaFromList(it) } }
 
