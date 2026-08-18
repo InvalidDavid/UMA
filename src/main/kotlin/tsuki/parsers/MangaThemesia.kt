@@ -129,39 +129,48 @@ abstract class MangaThemesia(
             }
             filter.states.firstOrNull()?.let {
                 append("&status=")
-                append(when (it) {
-                    MangaState.ONGOING -> "ongoing"
-                    MangaState.FINISHED -> "completed"
-                    MangaState.PAUSED -> "hiatus"
-                    MangaState.ABANDONED -> "dropped"
-                    else -> ""
-                })
+                append(it.toQueryParam())
             }
             filter.types.firstOrNull()?.let {
                 append("&type=")
-                append(when (it) {
-                    ContentType.MANGA -> "manga"
-                    ContentType.MANHWA -> "manhwa"
-                    ContentType.MANHUA -> "manhua"
-                    ContentType.COMICS -> "comic"
-                    ContentType.NOVEL -> "novel"
-                    else -> ""
-                })
+                append(it.toQueryParam())
             }
-            filter.tags.forEach { append("&genre[]=${it.key.urlEncoded()}") }
+            filter.tags.forEach {
+                append("&genre[]=")
+                append(it.key.urlEncoded())
+            }
             append("&order=")
-            append(when (order) {
-                SortOrder.UPDATED -> "update"
-                SortOrder.POPULARITY -> "popular"
-                SortOrder.ADDED -> "latest"
-                SortOrder.ALPHABETICAL -> "title"
-                SortOrder.ALPHABETICAL_DESC -> "titlereverse"
-                else -> "update"
-            })
+            append(order.toQueryParam()
+            )
         }
-
         val doc = webClient.httpGet(url).parseHtml()
         return parseMangaList(doc)
+    }
+
+    private fun MangaState.toQueryParam(): String = when (this) {
+        MangaState.ONGOING -> "ongoing"
+        MangaState.FINISHED -> "completed"
+        MangaState.PAUSED -> "hiatus"
+        MangaState.ABANDONED -> "dropped"
+        else -> ""
+    }
+
+    private fun ContentType.toQueryParam(): String = when (this) {
+        ContentType.MANGA -> "manga"
+        ContentType.MANHWA -> "manhwa"
+        ContentType.MANHUA -> "manhua"
+        ContentType.COMICS -> "comic"
+        ContentType.NOVEL -> "novel"
+        else -> ""
+    }
+
+    private fun SortOrder.toQueryParam(): String = when (this) {
+        SortOrder.UPDATED -> "update"
+        SortOrder.POPULARITY -> "popular"
+        SortOrder.ADDED -> "latest"
+        SortOrder.ALPHABETICAL -> "title"
+        SortOrder.ALPHABETICAL_DESC -> "titlereverse"
+        else -> "update"
     }
 
     protected open fun parseMangaList(doc: Document): List<Manga> {
@@ -219,25 +228,7 @@ abstract class MangaThemesia(
                     doc.selectFirst("div.post-content_item:contains(Status) div.summary-content")?.text()
                 }
         }
-        val altnamesFromTable = if (hasTable) {
-            table.selectFirst("tr:has(td:contains(Alternative)) td:last-child")
-                ?.text()
-                ?.trim()
-                ?.takeIf { it.isNotBlank() && it != "n/a" && it != "N/A" }
-                ?.let { setOf(it) }
-        } else emptySet()
-
-        val altnamesFromAlternative = doc.select(".alternative")
-            .firstOrNull()
-            ?.text()
-            ?.trim()
-            ?.takeIf { it.isNotBlank() }
-            ?.split(",")
-            ?.map { it.trim() }
-            ?.filter { it.isNotBlank() }
-            ?.toSet() ?: emptySet()
-
-        val altnames = altnamesFromTable?.plus(altnamesFromAlternative)
+        val altTitles = parseAltTitles(doc, table, hasTable)
 
         val state = parseStatus(statusText)
 
@@ -256,8 +247,46 @@ abstract class MangaThemesia(
             state = state,
             rating = normalizedRating,
             chapters = chapters,
-            altTitles = altnames ?: emptySet()
+            altTitles = altTitles
         )
+    }
+
+    protected open fun parseAltTitles(doc: Document, table: Element?, hasTable: Boolean): Set<String> {
+        return buildSet {
+            if (hasTable && table != null) {
+                table.select("tr").forEach { row ->
+                    val label = row.selectFirst("td")?.text()?.trim().orEmpty()
+                    if (
+                        label.contains("Alternative", ignoreCase = true) ||
+                        label.contains("Alt.", ignoreCase = true) ||
+                        label.contains("Alt ", ignoreCase = true)
+                    ) {
+                        addAll(splitAltTitles(row.selectFirst("td:last-child")?.text()))
+                    }
+                }
+            } else {
+                val selectors = listOf(
+                    ".tsinfo .imptdt:contains(Alt) i",
+                    ".tsinfo .imptdt:contains(Alternative) i",
+                    ".spe span:contains(Alt) a",
+                    ".spe span:contains(Alternative) a",
+                    ".alternative",
+                    ".alter",
+                    ".post-content_item:contains(Alt) .summary-content",
+                )
+                doc.select(selectors.joinToString(", ")).forEach { element ->
+                    addAll(splitAltTitles(element.text()))
+                }
+            }
+        }
+    }
+
+    protected fun splitAltTitles(text: String?): Set<String> {
+        return text.orEmpty()
+            .split(',', ';', '/', '•', '\n')
+            .map { it.trim() }
+            .filter { it.isNotBlank() && !it.equals("n/a", true) }
+            .toSet()
     }
 
     protected open fun parseStatus(text: String?): MangaState? {

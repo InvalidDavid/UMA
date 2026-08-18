@@ -33,7 +33,7 @@ import org.jsoup.nodes.Document
 import java.text.SimpleDateFormat
 import java.util.EnumSet
 
-@MangaSourceParser("KALISCAN", "kaliscan.io", "en")
+@MangaSourceParser("KALISCAN", "Kaliscan.io", "en")
 internal class KaliScan(context: MangaLoaderContext) :
     MadthemeParser(context, MangaParserSource.KALISCAN, "kaliscan.io", pageSize=24) {
 
