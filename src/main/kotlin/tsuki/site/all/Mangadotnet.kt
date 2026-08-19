@@ -91,15 +91,6 @@ internal class Mangadotnet(context: MangaLoaderContext) :
             ?: throw ParseException("Missing RSC route '$route'", url)
     }
 
-    @Suppress("UNCHECKED_CAST")
-    private suspend fun fetchRscRoute(url: String, route: String): Map<String, Any?> {
-        val flat = webClient.httpGet(url).parseJsonArray()
-        val decoded = decodeRsc(flat)
-            ?: throw ParseException("Failed to decode RSC data", url)
-        return (decoded as? Map<String, Any?>)?.get(route) as? Map<String, Any?>
-            ?: throw ParseException("Missing RSC route '$route'", url)
-    }
-
     override val filterCapabilities = MangaListFilterCapabilities(
         isSearchSupported = true,
         isMultipleTagsSupported = true,
