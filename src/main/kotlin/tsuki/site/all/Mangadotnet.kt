@@ -28,8 +28,6 @@ import tsuki.util.parseSafe
 
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.json.JSONArray
 import org.json.JSONObject
@@ -85,42 +83,12 @@ internal class Mangadotnet(context: MangaLoaderContext) :
     }
 
     @Suppress("UNCHECKED_CAST")
-    private suspend fun fetchRscData(url: String, route: String): Map<String, Any?> {
+    private suspend fun fetchRscRoute(url: String, route: String): Map<String, Any?> {
         val flat = webClient.httpGet(url).parseJsonArray()
         val decoded = decodeRsc(flat)
             ?: throw ParseException("Failed to decode RSC data", url)
-        val routeValue = (decoded as? Map<String, Any?>)?.get(route) as? Map<String, Any?>
+        return (decoded as? Map<String, Any?>)?.get(route) as? Map<String, Any?>
             ?: throw ParseException("Missing RSC route '$route'", url)
-        val mangaListKeys = listOf("manga_list", "results", "rows")
-        for (key in mangaListKeys) {
-            routeValue[key]?.let { found ->
-                return mapOf(key to found)
-            }
-        }
-        fun searchRecursively(obj: Any?, depth: Int = 0): Any? {
-            if (depth > 5) return null
-            when (obj) {
-                is Map<*, *> -> {
-                    for (key in mangaListKeys) {
-                        obj[key]?.let { return it }
-                    }
-                    for (value in obj.values) {
-                        val result = searchRecursively(value, depth + 1)
-                        if (result != null) return result
-                    }
-                }
-                is List<*> -> {
-                    for (item in obj) {
-                        val result = searchRecursively(item, depth + 1)
-                        if (result != null) return result
-                    }
-                }
-            }
-            return null
-        }
-        val found = searchRecursively(routeValue)
-            ?: throw ParseException("Manga list not found in route '$route'", url)
-        return mapOf("manga_list" to found)
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -140,29 +108,59 @@ internal class Mangadotnet(context: MangaLoaderContext) :
     )
 
     override val availableSortOrders: Set<SortOrder> = EnumSet.of(
-        SortOrder.UPDATED,      // latest
-        SortOrder.POPULARITY,   // most viewed
-        SortOrder.RATING,       // top rated
-        SortOrder.ALPHABETICAL, // a-z
-        SortOrder.RELEVANCE,    // most tracked
-        SortOrder.ADDED     // chapters
+        SortOrder.UPDATED,
+        SortOrder.POPULARITY,
+        SortOrder.RATING,
+        SortOrder.ALPHABETICAL,
+        SortOrder.RELEVANCE,
+        SortOrder.ADDED,
     )
+
+    companion object {
+        private val GENRES = setOf(
+            "Action", "Adventure", "Comedy", "Drama", "Fantasy",
+            "Historical", "Horror", "Mecha", "Mystery", "Psychological",
+            "Romance", "Sci-Fi", "Slice of Life", "Sports", "Supernatural", "Thriller", "Tragedy",
+            "Cooking", "Demons", "Ecchi", "Harem", "Isekai", "Magic", "Martial Arts",
+            "Medical", "Military", "Music", "School Life", "Webtoon",
+            "Academy", "Acting", "Adult", "Aliens", "Animals", "Anthology", "Apocalypse",
+            "Avant Garde", "Award Winning", "BDSM", "Boys Love", "Bully", "Business",
+            "Child Abuse", "Child Neglect", "Comic", "Crime", "crossdressing", "Crossdressing",
+            "Cultivation", "Delinquents", "Difficult Childhood", "dojinshi", "Doujinshi",
+            "Erotica", "Female Protagonist", "Femdom", "Fight", "futanari on male", "futunari",
+            "Gender Bender", "Genderswap", "Ghosts", "Girls Love", "Gore", "Gourmet",
+            "Gyaru", "Hentai", "Hunters", "Idol", "Incest", "Loli", "Lolicon", "Mafia",
+            "Magical Girls", "Mahou Shoujo", "Manga", "Manhua", "Manhwa", "Mature",
+            "Medieval Area", "Monster Girls", "Monsters", "Ninja", "Nobility",
+            "Office Romance", "Office Worker", "Office Workers", "One Shot", "Otome",
+            "Overpowered", "Philosophical", "playboy", "Police", "Post-Apocalyptic",
+            "Reincarnation", "Revenge", "Reverse Harem", "Royalty", "Samurai", "School",
+            "Seinin", "Shota", "Shotacon", "Shoujo Ai", "Shounen Ai", "Smut", "Superhero",
+            "Survival", "Suspense", "System", "Time Travel", "Traditional Games", "uncensored",
+            "Vampires", "Video Games", "Villainess", "Virtual Reality", "War", "Workplace",
+            "Wuxia", "Yaoi", "Yuri", "Zombies"
+        )
+    }
+
+    private val availableTags = GENRES
+        .map { MangaTag(it, it, source) }
+        .toSet()
 
     override suspend fun getFilterOptions(): MangaListFilterOptions {
         return MangaListFilterOptions(
-            availableTags = fetchAvailableTags(),
+            availableTags = availableTags,
             availableStates = EnumSet.of(MangaState.ONGOING, MangaState.FINISHED, MangaState.PAUSED),
             availableContentTypes = EnumSet.of(
                 ContentType.MANGA,
                 ContentType.MANHWA,
                 ContentType.MANHUA,
-                ContentType.OTHER
+                ContentType.OTHER,
             ),
             availableDemographics = EnumSet.of(
                 Demographic.JOSEI,
                 Demographic.SEINEN,
                 Demographic.SHOUJO,
-                Demographic.SHOUNEN
+                Demographic.SHOUNEN,
             ),
             availableLocales = setOf(
                 Locale.ENGLISH,
@@ -177,96 +175,17 @@ internal class Mangadotnet(context: MangaLoaderContext) :
         )
     }
 
-    @Volatile
-    private var tagsCache: Set<MangaTag>? = null
-    private val tagsMutex = Mutex()
-
-    private fun findValueRecursively(obj: Any?, key: String, maxDepth: Int = 6): Any? {
-        if (maxDepth < 0 || obj == null) return null
-
-        return when (obj) {
-            is Map<*, *> -> {
-                obj[key]?.let { return it }
-                for (value in obj.values) {
-                    findValueRecursively(value, key, maxDepth - 1)?.let { return it }
-                }
-                null
-            }
-            is List<*> -> {
-                for (item in obj) {
-                    findValueRecursively(item, key, maxDepth - 1)?.let { return it }
-                }
-                null
-            }
-            else -> null
-        }
-    }
-
-    private suspend fun fetchTags(): Set<MangaTag> = try {
-        val url = "$baseUrl/search.data?page=1&_routes=pages/SearchPage".toHttpUrl()
-
-        val flat = webClient.httpGet(url).parseJsonArray()
-        val decoded = decodeRsc(flat)
-            ?: throw ParseException("Failed to decode RSC data", url.toString())
-
-        val routeValue = (decoded as? Map<*, *>)?.get("pages/SearchPage") as? Map<*, *>
-            ?: throw ParseException("Missing RSC route 'pages/SearchPage'", url.toString())
-
-        val allGenres = findValueRecursively(routeValue, "allGenres") as? List<*>
-            ?: emptyList<Any?>()
-
-        val ignore = setOf("Josei", "Seinen", "Shoujo", "Shounen", "Manga", "Manhwa", "Manhua", "One Shot")
-
-        allGenres.asSequence().filterIsInstance<String>()
-            .filter { it !in ignore }
-            .distinct()
-            .sortedBy { it.lowercase(Locale.ROOT) }
-            .map { MangaTag(it, it, source) }
-            .toSet()
-    } catch (i: Exception) {
-        throw Exception("Failed to load: $i")
-    }
-
-    private suspend fun fetchAvailableTags(): Set<MangaTag> = tagsMutex.withLock {
-        tagsCache ?: fetchTags().also { tagsCache = it }
-    }
-
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
         selectedLanguage = filter.locale?.let { localeToLang(it) } ?: "en"
-        if (!filter.query.isNullOrBlank() || filter.tags.isNotEmpty() || filter.tagsExclude.isNotEmpty() ||
-            filter.states.isNotEmpty() || filter.types.isNotEmpty() || filter.demographics.isNotEmpty()) {
-            return getSearchPage(page, order, filter)
-        }
-        return getBrowsePage(page, order)
-    }
-
-    private suspend fun getBrowsePage(page: Int, order: SortOrder): List<Manga> {
-        val sortParam = when (order) {
-            SortOrder.UPDATED -> "latest"
-            SortOrder.POPULARITY -> "views"
-            SortOrder.RATING -> "rating"
-            SortOrder.ALPHABETICAL -> "alphabetical"
-            SortOrder.RELEVANCE -> "tracked"
-            SortOrder.ADDED -> "chapters"
-            else -> null
-        }
-        val adultParam = if (config[showAdultKey]) "both" else "0"
-        val url = "$baseUrl/view-all/latest-updates.data".toHttpUrl().newBuilder().apply {
-            addQueryParameter("adult", adultParam)
-            if (page > 1) addQueryParameter("page", page.toString())
-            sortParam?.let { addQueryParameter("sortBy", it) }
-            addQueryParameter("_routes", "pages/ViewAllPage")
-        }.build().toString()
-        return parseViewAllPage(url)
+        return getSearchPage(page, order, filter)
     }
 
     private suspend fun getSearchPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
         val adultParam = if (config[showAdultKey]) "both" else "0"
-        val url = "$baseUrl/search.data".toHttpUrl().newBuilder().apply {
-            addQueryParameter("adult", adultParam)
+        val url = "$baseUrl/api/search".toHttpUrl().newBuilder().apply {
             if (!filter.query.isNullOrBlank()) addQueryParameter("search", filter.query!!)
             addQueryParameter("page", page.toString())
-            addQueryParameter("perPage", "56")
+            addQueryParameter("adult", adultParam)
 
             val (sortBy, sortOrder) = when (order) {
                 SortOrder.UPDATED -> "latest" to "desc"
@@ -275,7 +194,7 @@ internal class Mangadotnet(context: MangaLoaderContext) :
                 SortOrder.RATING -> "rating" to "desc"
                 SortOrder.RELEVANCE -> "tracked" to "desc"
                 SortOrder.ADDED -> "chapters" to "desc"
-                else -> "relevance" to "desc"
+                else -> "latest" to "desc"
             }
             addQueryParameter("sortBy", sortBy)
             addQueryParameter("sortOrder", sortOrder)
@@ -295,35 +214,33 @@ internal class Mangadotnet(context: MangaLoaderContext) :
             }
 
             filter.demographics.forEach { demographic ->
-                addQueryParameter("genre", demographic.name.lowercase().replaceFirstChar { it.uppercase() })
+                addQueryParameter("genres", demographic.name.lowercase().replaceFirstChar { it.uppercase() })
             }
 
-            filter.tags.forEach { tag -> addQueryParameter("genre", tag.key) }
-            filter.tagsExclude.forEach { tag -> addQueryParameter("genre", "-${tag.key}") }
+            filter.tags.forEach { tag ->
+                addQueryParameter("genres", tag.key)
+            }
 
-            addQueryParameter("_routes", "pages/SearchPage")
+            filter.tagsExclude.forEach { tag ->
+                addQueryParameter("excludeGenres", tag.key)
+            }
         }.build().toString()
 
-        val dataMap = fetchRscData(url, "pages/SearchPage")
+        val json = webClient.httpGet(url).parseJson()
+        val items = json.optJSONArray("manga_list")
+            ?: json.optJSONArray("results")
+            ?: throw ParseException("Missing manga list in search response", url)
 
-        val mangaList = dataMap["manga_list"] as? List<*>
-            ?: throw ParseException("Missing 'manga_list' in decoded data. Keys: ${dataMap.keys}", url)
-
-        return mangaList.filterIsInstance<Map<String, Any?>>().map { parseMangaFromList(it) }
+        return (0 until items.length()).map { i ->
+            parseMangaFromList(items.getJSONObject(i))
+        }
     }
 
-    private suspend fun parseViewAllPage(url: String): List<Manga> {
-        val viewAllData = fetchRscData(url, "pages/ViewAllPage")
-        val mangaList = viewAllData["manga_list"] as? List<*>
-            ?: throw ParseException("Missing 'manga_list' in view-all data. Keys: ${viewAllData.keys}", url)
-        return mangaList.filterIsInstance<Map<String, Any?>>().map { parseMangaFromList(it) }
-    }
-
-    private fun parseMangaFromList(data: Map<String, Any?>): Manga {
-        val id = (data["id"] as? Number)?.toInt()?.toString() ?: ""
-        val title = data["title"] as? String ?: ""
-        val photo = data["photo"] as? String
-        val coverUrl = photo?.let {
+    private fun parseMangaFromList(data: JSONObject): Manga {
+        val id = (data.optInt("id", data.optInt("manga_id", 0))).takeIf { it > 0 }?.toString() ?: ""
+        val title = data.optString("title")
+        val photo = data.optString("photo")
+        val coverUrl = photo?.takeIf { it.isNotBlank() }?.let {
             when {
                 it.startsWith("/") -> "$baseUrl$it"
                 it.startsWith("http") -> it
@@ -356,12 +273,12 @@ internal class Mangadotnet(context: MangaLoaderContext) :
         val url = "$baseUrl/manga/${manga.url}.data?_routes=pages/MangaDetailPage"
         val routeValue = fetchRscRoute(url, "pages/MangaDetailPage")
 
-        val dataMap = routeValue.asMap("data")
-            ?: throw ParseException("Missing 'data' in detail route", url)
+        val mangaInfo = routeValue
+            .asMap("data")
+            ?.asMap("mangaData")
+            ?.asMap("manga")
+            ?: throw ParseException("Missing manga data in detail route", url)
 
-        val mangaInfo = dataMap.asMap("mangaData")
-            ?: throw ParseException("Missing 'mangaData' in detail route", url)
-        
         val title = mangaInfo["title"] as? String ?: manga.title
         val description = mangaInfo["description"] as? String
         val photo = mangaInfo["photo"] as? String
@@ -372,6 +289,7 @@ internal class Mangadotnet(context: MangaLoaderContext) :
                 else -> null
             }
         } ?: manga.coverUrl
+
         val bannerImage = mangaInfo["banner_image"] as? String
         val largeCoverUrl = bannerImage?.let {
             when {
@@ -381,9 +299,19 @@ internal class Mangadotnet(context: MangaLoaderContext) :
             }
         }
 
-        val genres = (mangaInfo["genres"] as? List<*>)?.filterIsInstance<String>()?.mapNotNull { it.trim().ifBlank { null } }.orEmpty()
-        val altTitles = (mangaInfo["alt_titles"] as? List<*>)?.filterIsInstance<String>()?.mapNotNull { it.trim().ifBlank { null } }?.toSet().orEmpty()
+        val genres = (mangaInfo["genres"] as? List<*>)
+            ?.filterIsInstance<String>()
+            ?.mapNotNull { it.trim().ifBlank { null } }
+            .orEmpty()
+
+        val altTitles = (mangaInfo["alt_titles"] as? List<*>)
+            ?.filterIsInstance<String>()
+            ?.mapNotNull { it.trim().ifBlank { null } }
+            ?.toSet()
+            .orEmpty()
+
         val origin = mangaInfo["country_of_origin"] as? String
+
         val authorRaw = mangaInfo["authors"] as? String
         val author = parseJsonArrayString(authorRaw)?.joinToString(", ") ?: authorRaw
 
@@ -404,33 +332,23 @@ internal class Mangadotnet(context: MangaLoaderContext) :
             }
             else -> null
         }
-        val tagSet = genres.mapTo(LinkedHashSet(genres.size)) { MangaTag(key = it, title = it, source = source) }
+
+        val tagSet = genres.mapTo(LinkedHashSet(genres.size)) {
+            MangaTag(key = it, title = it, source = source)
+        }
         when (origin) {
             "JP" -> tagSet.add(MangaTag("Manga", "Manga", source))
             "KR" -> tagSet.add(MangaTag("Manhwa", "Manhwa", source))
             "CN" -> tagSet.add(MangaTag("Manhua", "Manhua", source))
         }
 
-        val tagsArray = mangaInfo["tags"]
-        if (tagsArray is List<*>) {
-            for (category in tagsArray) {
-                if (category !is Map<*, *>) continue
-                val innerTags = category["tags"]
-                if (innerTags !is List<*>) continue
-                for (tag in innerTags) {
-                    if (tag !is Map<*, *>) continue
-                    val name = tag["name"] as? String ?: continue
-                    val key = name.lowercase().replace(" ", "-")
-                    tagSet.add(MangaTag(key, name, source))
-                }
-            }
-        }
-
         val rawRating = (mangaInfo["avg_rating"] as? Number)?.toDouble() ?: -1.0
         val rating = if (rawRating >= 0.0) (rawRating / 10.0).toFloat() else RATING_UNKNOWN
 
         val chapterLang = selectedLanguage ?: "en"
-        val chaptersDeferred = async { fetchChaptersAndVolumes(manga.url, chapterLang) }
+        val chaptersDeferred = async {
+            fetchChaptersAndVolumes(manga.url, chapterLang)
+        }
 
         manga.copy(
             title = title,
@@ -586,13 +504,19 @@ internal class Mangadotnet(context: MangaLoaderContext) :
         val url = "$baseUrl/manga/${seed.url}.data?_routes=pages/MangaDetailPage"
         val routeValue = fetchRscRoute(url, "pages/MangaDetailPage")
 
+        val dataMap = routeValue.asMap("data")
+            ?: throw ParseException("Missing 'data' in detail route", url)
+
         val related = mutableListOf<Manga>()
-        (routeValue["suggestions"] as? List<*>)?.filterIsInstance<Map<String, Any?>>()?.mapTo(related) {
-            parseMangaFromList(it)
-        }
-        val relationsData = routeValue.asMap("relationsData")
+        (dataMap["suggestions"] as? List<*>)
+            ?.filterIsInstance<Map<String, Any?>>()
+            ?.mapTo(related) { parseMangaFromList(JSONObject(it)) }
+
+        val relationsData = dataMap.asMap("relationsData")
         val relations = relationsData?.asMap("relations") as? Map<String, List<Map<String, Any?>>>
-        relations?.values?.forEach { list -> list.mapTo(related) { parseMangaFromList(it) } }
+        relations?.values?.forEach { list ->
+            list.mapTo(related) { parseMangaFromList(JSONObject(it)) }
+        }
 
         return related
     }
