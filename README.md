@@ -3,13 +3,6 @@
 [![Stars][stars-shield]][stars-url]
 [![Issues][issues-shield]][issues-url]
 [![License][license-shield]][license-url]
-
-> [!IMPORTANT]
-> For Usagi 0.0.32-beta2 or above use this release --> https://github.com/InvalidDavid/UMA/releases/tag/d9db4a9
-> 
-> Manual install is required.
-
-
 ### Please give the repo a ⭐
 It motivates me. =^..^=
 

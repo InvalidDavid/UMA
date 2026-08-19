@@ -1,7 +1,21 @@
-<html><body><div class="infinite-scroll-content">
-  <section class="serial-card">
-    <a href="/~example" class="cover"><img src="/static/loading.svg" data-real-src="/upload/example-cover.jpg"></a>
-    <h2 class="title"><a href="/~example">Example Comic</a></h2>
-    <p class="about">Catalog summary</p>
-  </section>
-</div></body></html>
+<!doctype html>
+<html>
+<body>
+<form class="catalog-filters-form">
+    <fieldset class="categories">
+        <label class="category-fantasy">
+            <input type="checkbox" name="categories[]" value="3">Fantasy
+        </label>
+    </fieldset>
+</form>
+<div class="infinite-scroll-content">
+    <section class="serial-card">
+        <a class="cover" href="/~fixture">
+            <img src="/static/img/tail-spin.svg" data-real-src="/upload/fixture-cover.jpg" alt="Fixture Comic">
+        </a>
+        <h2 class="title"><a href="/~fixture">Fixture Comic</a></h2>
+        <p class="about">Catalog summary.</p>
+    </section>
+</div>
+</body>
+</html>
