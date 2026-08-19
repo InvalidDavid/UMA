@@ -28,8 +28,6 @@ import tsuki.util.parseSafe
 
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.json.JSONArray
 import org.json.JSONObject
@@ -109,48 +107,39 @@ internal class Mangadotnet(context: MangaLoaderContext) :
         SortOrder.ADDED,
     )
 
-    @Volatile
-    private var genreNames: Set<String>? = null
-    @Volatile
-    private var availableTagsCache: Set<MangaTag>? = null
-    private val filterMutex = Mutex()
-
-    private suspend fun fetchFilterData() {
-        if (genreNames != null) return
-
-        val facetsUrl = "$baseUrl/api/search?facets=1".toHttpUrl()
-        val facetsResponse = runCatching {
-            webClient.httpGet(facetsUrl).parseJson()
-        }.getOrNull()
-        val ignore = setOf("Josei", "Seinen", "Shoujo", "Shounen", "Manga", "Manhwa", "Manhua", "One Shot")
-        val genres = facetsResponse
-            ?.optJSONObject("facets")
-            ?.optJSONArray("genres")
-            ?.let { arr ->
-                (0 until arr.length()).mapNotNull { arr.getJSONObject(it).optString("key") }
-            }
-            ?.filter { it !in ignore }
-            ?.toSet()
-            ?: emptySet()
-
-        genreNames = genres
-
-        availableTagsCache = genres
-            .map { MangaTag(it, it, source) }
-            .toSet()
+    companion object {
+        private val GENRES = setOf(
+            "Action", "Adventure", "Comedy", "Drama", "Fantasy",
+            "Historical", "Horror", "Mecha", "Mystery", "Psychological",
+            "Romance", "Sci-Fi", "Slice of Life", "Sports", "Supernatural", "Thriller", "Tragedy",
+            "Cooking", "Demons", "Ecchi", "Harem", "Isekai", "Magic", "Martial Arts",
+            "Medical", "Military", "Music", "School Life", "Webtoon",
+            "Academy", "Acting", "Adult", "Aliens", "Animals", "Anthology", "Apocalypse",
+            "Avant Garde", "Award Winning", "BDSM", "Boys Love", "Bully", "Business",
+            "Child Abuse", "Child Neglect", "Comic", "Crime", "crossdressing", "Crossdressing",
+            "Cultivation", "Delinquents", "Difficult Childhood", "dojinshi", "Doujinshi",
+            "Erotica", "Female Protagonist", "Femdom", "Fight", "futanari on male", "futunari",
+            "Gender Bender", "Genderswap", "Ghosts", "Girls Love", "Gore", "Gourmet",
+            "Gyaru", "Hentai", "Hunters", "Idol", "Incest", "Loli", "Lolicon", "Mafia",
+            "Magical Girls", "Mahou Shoujo", "Manga", "Manhua", "Manhwa", "Mature",
+            "Medieval Area", "Monster Girls", "Monsters", "Ninja", "Nobility",
+            "Office Romance", "Office Worker", "Office Workers", "One Shot", "Otome",
+            "Overpowered", "Philosophical", "playboy", "Police", "Post-Apocalyptic",
+            "Reincarnation", "Revenge", "Reverse Harem", "Royalty", "Samurai", "School",
+            "Seinin", "Shota", "Shotacon", "Shoujo Ai", "Shounen Ai", "Smut", "Superhero",
+            "Survival", "Suspense", "System", "Time Travel", "Traditional Games", "uncensored",
+            "Vampires", "Video Games", "Villainess", "Virtual Reality", "War", "Workplace",
+            "Wuxia", "Yaoi", "Yuri", "Zombies"
+        )
     }
 
-    private suspend fun fetchAvailableTags(): Set<MangaTag> = filterMutex.withLock {
-        if (availableTagsCache == null) {
-            fetchFilterData()
-        }
-        availableTagsCache ?: emptySet()
-    }
+    private val availableTags = GENRES
+        .map { MangaTag(it, it, source) }
+        .toSet()
 
     override suspend fun getFilterOptions(): MangaListFilterOptions {
-        val genres = fetchAvailableTags()
         return MangaListFilterOptions(
-            availableTags = genres,
+            availableTags = availableTags,
             availableStates = EnumSet.of(MangaState.ONGOING, MangaState.FINISHED, MangaState.PAUSED),
             availableContentTypes = EnumSet.of(
                 ContentType.MANGA,
