@@ -14,22 +14,6 @@ version = "1.0.0"
 
 tasks.test {
     useJUnitPlatform()
-    listOf(
-        "LIVE_SOURCE",
-        "LIVE_STAGE",
-        "LIVE_SORT",
-        "LIVE_QUERY",
-        "LIVE_EXPECT_TITLE",
-        "LIVE_AUDIT",
-        "LIVE_AUDIT_STAGE",
-        "LIVE_AUDIT_LOCALES",
-        "LIVE_AUDIT_INCLUDE_BROKEN",
-        "LIVE_AUDIT_CONCURRENCY",
-        "LIVE_AUDIT_TIMEOUT_SECONDS",
-        "LIVE_AUDIT_FAIL_ON_ERROR",
-    ).forEach { variable ->
-        inputs.property(variable, providers.environmentVariable(variable).orElse(""))
-    }
 }
 
 ksp {
