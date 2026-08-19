@@ -177,6 +177,22 @@ internal abstract class MangaFireParser(
             .build()
     )
 
+    private suspend fun apiGetJsonWithRetry(url: String, maxRetries: Int = 5): org.json.JSONObject {
+        var lastResponse: org.json.JSONObject? = null
+        repeat(maxRetries) {
+            val json = apiClient.httpGet(url).parseJson()
+            if (json.optString("message").equals("Missing token.", ignoreCase = true)) {
+                lastResponse = json
+                return@repeat
+            }
+            return json
+        }
+        throw ParseException(
+            "Missing token after $maxRetries retries. Last response: $lastResponse",
+            url,
+        )
+    }
+
     override val filterCapabilities = MangaListFilterCapabilities(
         isMultipleTagsSupported = true,
         isTagsExclusionSupported = true,
@@ -350,7 +366,7 @@ internal abstract class MangaFireParser(
         val url = urlBuilder.build().toString()
 
         try {
-            val response = apiClient.httpGet(url).parseJson()
+            val response = apiGetJsonWithRetry(url)
             val items = response.optJSONArray("items")
                 ?: throw ParseException("Missing 'items' array in API response", url)
 
@@ -394,7 +410,7 @@ internal abstract class MangaFireParser(
         } catch (e: ParseException) {
             throw e
         } catch (e: Exception) {
-            throw ParseException("Failed to load list page: ${e.message}\nOpen Webview and then reload Page", url, e)
+            throw ParseException("Failed to load list page: ${e.message}\nOpen Webview to solve captcha / Reload Page when missing token.", url, e)
         }
     }
 
@@ -410,7 +426,7 @@ internal abstract class MangaFireParser(
         val result = try {
             coroutineScope {
                 val hid = extractHid(manga.url)
-                val detailsJson = apiClient.httpGet("https://$domain/api/titles/$hid").parseJson()
+                val detailsJson = apiGetJsonWithRetry("https://$domain/api/titles/$hid")
                 val data = detailsJson.getJSONObject("data")
                 val hasVolumes = data.optBoolean("hasVolumes", false)
 
@@ -487,7 +503,7 @@ internal abstract class MangaFireParser(
 
         try {
             val firstUrl = "$base/chapters?language=$siteLang&sort=number&order=desc&page=1&limit=200"
-            val firstJson = apiClient.httpGet(firstUrl).parseJson()
+            val firstJson = apiGetJsonWithRetry(firstUrl)
             val firstItems = firstJson.optJSONArray("items") ?: org.json.JSONArray()
             val meta = firstJson.optJSONObject("meta")
             val lastPage = meta?.optInt("lastPage", 1) ?: 1
@@ -499,9 +515,9 @@ internal abstract class MangaFireParser(
                     val deferred = (2..lastPage).map { page ->
                         async {
                             try {
-                                val json = apiClient.httpGet(
+                                val json = apiGetJsonWithRetry(
                                     "$base/chapters?language=$siteLang&sort=number&order=desc&page=$page&limit=200"
-                                ).parseJson()
+                                )
                                 json.optJSONArray("items") ?: org.json.JSONArray()
                             } catch (_: Exception) {
                                 org.json.JSONArray()
@@ -518,7 +534,7 @@ internal abstract class MangaFireParser(
 
         if (hasVolumes) {
             try {
-                val volJson = apiClient.httpGet("$base/volumes?language=$siteLang").parseJson()
+                val volJson = apiGetJsonWithRetry("$base/volumes?language=$siteLang")
                 val volItems = volJson.optJSONArray("items") ?: org.json.JSONArray()
                 for (i in 0 until volItems.length()) {
                     val vol = volItems.getJSONObject(i)
@@ -599,7 +615,7 @@ internal abstract class MangaFireParser(
         val isVolume = chapter.url.contains("/vol/")
         val endpoint = if (isVolume) "volumes" else "chapters"
 
-        val response = apiClient.httpGet("https://$domain/api/$endpoint/$chapterId").parseJson()
+        val response = apiGetJsonWithRetry("https://$domain/api/$endpoint/$chapterId")
         val data = response.optJSONObject("data") ?: return emptyList()
         val pagesArray = data.optJSONArray("pages") ?: return emptyList()
         val pages = ArrayList<MangaPage>(pagesArray.length())
