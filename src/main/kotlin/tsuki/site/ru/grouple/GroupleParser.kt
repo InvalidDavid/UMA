@@ -328,7 +328,6 @@ internal abstract class GroupleParser(
 
     protected open fun getSource(url: HttpUrl): MangaSource = when (url.host) {
         in SeiMangaParser.domains -> MangaParserSource.SEIMANGA
-        in MintMangaParser.domains -> MangaParserSource.MINTMANGA
         in ReadmangaParser.domains -> MangaParserSource.READMANGA_RU
         in SelfMangaParser.domains -> MangaParserSource.SELFMANGA
         in UsagiParser.domains -> MangaParserSource.USAGI

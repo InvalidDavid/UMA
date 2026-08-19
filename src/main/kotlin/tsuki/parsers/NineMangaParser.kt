@@ -1,4 +1,4 @@
-package tsuki.site.all
+package tsuki.parsers
 
 import androidx.collection.ArrayMap
 import kotlinx.coroutines.sync.Mutex
@@ -6,9 +6,7 @@ import kotlinx.coroutines.sync.withLock
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
 import okhttp3.Response
-import tsuki.Broken
 import tsuki.MangaLoaderContext
-import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
 import tsuki.model.*
@@ -266,13 +264,4 @@ internal abstract class NineMangaParser(
 		}
 		return 0L
 	}
-
-	@Broken
-	@MangaSourceParser("NINEMANGA_RU", "NineManga Русский", "ru")
-	class Russian(context: MangaLoaderContext) : NineMangaParser(
-		context,
-		MangaParserSource.NINEMANGA_RU,
-		"ru.ninemanga.com",
-	)
-
 }
