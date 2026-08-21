@@ -68,8 +68,8 @@ private const val DOMAIN_AUTHORIZED = "exhentai.org"
 private val TAG_PREFIXES = arrayOf("male:", "female:", "other:")
 private const val BANNED_RESPONSE_LENGTH = 256L
 
-@MangaSourceParser("EXHENTAI", "EXHentai", type = ContentType.HENTAI)
-internal class EHentai(context: MangaLoaderContext) :
+@MangaSourceParser("EXHENTAI", "EXHentai / Ehentai", type = ContentType.HENTAI)
+internal class EXHentai(context: MangaLoaderContext) :
     PagedMangaParser(context, MangaParserSource.EXHENTAI, pageSize = 25), MangaParserAuthProvider, Interceptor {
 
     override val availableSortOrders: Set<SortOrder> = setOf(SortOrder.NEWEST)
