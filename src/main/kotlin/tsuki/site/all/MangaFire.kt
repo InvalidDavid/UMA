@@ -410,7 +410,7 @@ internal abstract class MangaFireParser(
         } catch (e: ParseException) {
             throw e
         } catch (e: Exception) {
-            throw ParseException("Failed to load list page: ${e.message}\nOpen Webview to solve captcha / Reload Page when missing token.", url, e)
+            throw ParseException("Failed to load list page: ${e.message}\nSolve captcha in webview and then reload page manually.", url, e)
         }
     }
 

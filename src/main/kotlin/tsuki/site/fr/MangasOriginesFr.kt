@@ -2,7 +2,6 @@ package tsuki.site.fr
 
 import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
-import tsuki.config.ConfigKey
 import tsuki.parsers.MadaraParser
 
 import tsuki.model.Manga
@@ -33,7 +32,7 @@ internal class MangasOriginesFr(context: MangaLoaderContext) :
     override val datePattern = "dd/MM/yyyy"
     override val tagPrefix = "manga-genres/"
     override val listUrl = "oeuvre/"
-    
+
     override val availableSortOrders: Set<SortOrder> = setOf(
         SortOrder.UPDATED,
         SortOrder.POPULARITY,
@@ -134,7 +133,10 @@ internal class MangasOriginesFr(context: MangaLoaderContext) :
         val fullUrl = "https://$domain/oeuvre/${chapter.url}/"
         val doc = webClient.httpGet(fullUrl).parseHtml()
         return doc.select("div.reading-content img.wp-manga-chapter-img").mapIndexed { _, img ->
-            val url = img.attr("src").trim()
+            val url = when {
+                img.hasAttr("data-src") -> img.absUrl("data-src").trim()
+                else -> img.absUrl("src").trim()
+            }
             MangaPage(
                 id = generateUid(url),
                 url = url,
