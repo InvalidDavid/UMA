@@ -608,7 +608,7 @@ internal class HitomiLaParser(context: MangaLoaderContext) : AbstractMangaParser
 			chapters = listOf(
 				MangaChapter(
 					id = generateUid(manga.url),
-					url = json.getString("galleryurl").toAbsoluteurl(domain),
+					url = manga.url,
 					title = json.getStringOrNull("title"),
 					scanlator = json.getString("type").toTitleCase(),
 					number = 1f,
@@ -673,8 +673,7 @@ internal class HitomiLaParser(context: MangaLoaderContext) : AbstractMangaParser
 	}
 
 	override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
-		val galleryId = chapter.url.substringAfterLast("/").substringBefore(".")
-		val json = webClient.httpGet("$ltnBaseUrl/galleries/${galleryId}.js")
+		val json = webClient.httpGet("$ltnBaseUrl/galleries/${chapter.url}.js")
 			.parseRaw()
 			.substringAfter("var galleryinfo = ")
 			.let(::JSONObject)
