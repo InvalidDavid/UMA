@@ -25,6 +25,7 @@ import tsuki.util.attrAsRelativeUrl
 import tsuki.util.parseHtml
 import tsuki.util.urlEncoded
 import tsuki.util.extractChapterNumber
+import tsuki.util.mapNotNullToSet
 
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -140,8 +141,7 @@ abstract class MangaThemesia(
                 append(it.key.urlEncoded())
             }
             append("&order=")
-            append(order.toQueryParam()
-            )
+            append(order.toQueryParam())
         }
         val doc = webClient.httpGet(url).parseHtml()
         return parseMangaList(doc)
@@ -185,8 +185,9 @@ abstract class MangaThemesia(
 
         val chaptersDeferred = async { loadChapters(doc, manga.url) }
 
-        val title = doc.selectFirst("h1.entry-title, .ts-breadcrumb li:last-child span, .infomanga h1, .animefull h1")
-            ?.text() ?: manga.title
+        val title = doc.selectFirst(
+            "h1.entry-title, .ts-breadcrumb li:last-child span, .infomanga h1, .animefull h1"
+        )?.text() ?: manga.title
 
         val description = doc.selectFirst(
             ".desc, .entry-content[itemprop=description], .summary__content, .sinopsis, .entry-content p"
@@ -203,21 +204,20 @@ abstract class MangaThemesia(
             val authorCell = table.selectFirst("tr:has(td:contains(Author)) td:last-child")
             val artistCell = table.selectFirst("tr:has(td:contains(Artist)) td:last-child")
             listOfNotNull(
-                authorCell?.text()?.trim()?.takeIf { it.isNotBlank() && it != "n/a" && it != "N/A" },
-                artistCell?.text()?.trim()?.takeIf { it.isNotBlank() && it != "n/a" && it != "N/A" }
+                authorCell?.text().cleanAuthor(),
+                artistCell?.text().cleanAuthor()
             ).toSet()
         } else {
             doc.select(".author, .artist, .fmed span, .tsinfo .imptdt:contains(Author) i, .spe span:contains(Author) a")
-                .map { it.text().trim() }
-                .filter { it.isNotBlank() }
+                .mapNotNull { it.text().cleanAuthor() }
                 .toSet()
         }
 
         val tags = doc.select(".mgen a, .gnr a, .seriestugenre a, .genres-content a")
-            .mapNotNull { a ->
+            .mapNotNullToSet { a ->
                 val text = a.text().trim()
                 if (text.isNotBlank()) MangaTag(key = text.lowercase(), title = text, source = source) else null
-            }.toSet()
+            }
 
         val statusText = if (hasTable) {
             table.selectFirst("tr:has(td:contains(Status)) td:last-child")?.text()
@@ -261,7 +261,11 @@ abstract class MangaThemesia(
                         label.contains("Alt.", ignoreCase = true) ||
                         label.contains("Alt ", ignoreCase = true)
                     ) {
-                        addAll(splitAltTitles(row.selectFirst("td:last-child")?.text()))
+                        val cell = row.select("td").lastOrNull()
+                        val text = cell?.text()
+                        if (!text.isNullOrBlank()) {
+                            addAll(splitAltTitles(text))
+                        }
                     }
                 }
             } else {
@@ -275,7 +279,10 @@ abstract class MangaThemesia(
                     ".post-content_item:contains(Alt) .summary-content",
                 )
                 doc.select(selectors.joinToString(", ")).forEach { element ->
-                    addAll(splitAltTitles(element.text()))
+                    val text = element.text()
+                    if (text.isNotBlank()) {
+                        addAll(splitAltTitles(text))
+                    }
                 }
             }
         }
@@ -291,11 +298,11 @@ abstract class MangaThemesia(
 
     protected open fun parseStatus(text: String?): MangaState? {
         val status = text?.lowercase() ?: return null
-        return when (status) {
-            in ongoing -> MangaState.ONGOING
-            in finished -> MangaState.FINISHED
-            in paused -> MangaState.PAUSED
-            in abandoned -> MangaState.ABANDONED
+        return when {
+            ongoingWordSet.anyWordIn(status) -> MangaState.ONGOING
+            finishedWordSet.anyWordIn(status) -> MangaState.FINISHED
+            pausedWordSet.anyWordIn(status) -> MangaState.PAUSED
+            abandonedWordSet.anyWordIn(status) -> MangaState.ABANDONED
             else -> null
         }
     }
@@ -318,6 +325,7 @@ abstract class MangaThemesia(
         return elements.mapNotNull { element ->
             val a = element.selectFirst("a") ?: return@mapNotNull null
             val href = a.attrAsRelativeUrl("href")
+            if (href.isBlank()) return@mapNotNull null
             val name = a.selectFirst(".chapternum")?.text() ?: a.ownText()
             val dateStr = element.selectFirst(".chapterdate")?.text()
             MangaChapter(
@@ -338,11 +346,11 @@ abstract class MangaThemesia(
         if (date.isNullOrBlank()) return 0L
         val clean = date.trim()
         return when {
-            WordSet(" ago", "atrás", " hace", " назад", " önce", " trước", "مضت", "قبل").endsWith(clean) -> parseRelativeDate(clean)
-            WordSet("há ", "منذ", "il y a", "hace", "giờ", "phút").startsWith(clean) -> parseRelativeDate(clean)
-            WordSet("yesterday", "يوم واحد").startsWith(clean) -> yesterday()
-            WordSet("today").startsWith(clean) -> today()
-            WordSet("يومين").startsWith(clean) -> dayBeforeYesterday()
+            agoWordSet.endsWith(clean) -> parseRelativeDate(clean)
+            fromWordSet.startsWith(clean) -> parseRelativeDate(clean)
+            yesterdayWordSet.startsWith(clean) -> yesterday()
+            todayWordSet.startsWith(clean) -> today()
+            dayBeforeYesterdayWordSet.startsWith(clean) -> dayBeforeYesterday()
             else -> dateFormat.parseSafe(clean)
         }
     }
@@ -351,13 +359,13 @@ abstract class MangaThemesia(
         val number = Regex("""(\d+)""").find(text)?.value?.toIntOrNull() ?: return 0L
         val cal = Calendar.getInstance()
         return when {
-            WordSet("detik", "segundo", "second", "วินาที", "giây", "ثوان").anyWordIn(text) -> cal.apply { add(Calendar.SECOND, -number) }.timeInMillis
-            WordSet("menit", "dakika", "min", "minute", "minuto", "mins", "นาที", "دقائق", "phút", "минут").anyWordIn(text) -> cal.apply { add(Calendar.MINUTE, -number) }.timeInMillis
-            WordSet("jam", "saat", "heure", "hora", "hour", "hours", "ชั่วโมง", "giờ", "ore", "ساعة", "小时").anyWordIn(text) -> cal.apply { add(Calendar.HOUR, -number) }.timeInMillis
-            WordSet("hari", "gün", "jour", "día", "dia", "day", "days", "días", "วัน", "ngày", "giorni", "أيام", "天", "день").anyWordIn(text) -> cal.apply { add(Calendar.DAY_OF_MONTH, -number) }.timeInMillis
-            WordSet("week", "semana", "tuần", "أسابيع", "أسبوع").anyWordIn(text) -> cal.apply { add(Calendar.DAY_OF_MONTH, -number * 7) }.timeInMillis
-            WordSet("month", "months", "mes", "meses", "tháng", "أشهر", "mois").anyWordIn(text) -> cal.apply { add(Calendar.MONTH, -number) }.timeInMillis
-            WordSet("year", "año", "năm").anyWordIn(text) -> cal.apply { add(Calendar.YEAR, -number) }.timeInMillis
+            secondsWordSet.anyWordIn(text) -> cal.apply { add(Calendar.SECOND, -number) }.timeInMillis
+            minutesWordSet.anyWordIn(text) -> cal.apply { add(Calendar.MINUTE, -number) }.timeInMillis
+            hoursWordSet.anyWordIn(text) -> cal.apply { add(Calendar.HOUR, -number) }.timeInMillis
+            daysWordSet.anyWordIn(text) -> cal.apply { add(Calendar.DAY_OF_MONTH, -number) }.timeInMillis
+            weeksWordSet.anyWordIn(text) -> cal.apply { add(Calendar.DAY_OF_MONTH, -number * 7) }.timeInMillis
+            monthsWordSet.anyWordIn(text) -> cal.apply { add(Calendar.MONTH, -number) }.timeInMillis
+            yearsWordSet.anyWordIn(text) -> cal.apply { add(Calendar.YEAR, -number) }.timeInMillis
             else -> 0L
         }
     }
@@ -397,6 +405,7 @@ abstract class MangaThemesia(
     protected open fun parseMangaElement(element: Element): Manga? {
         val a = element.selectFirst("a") ?: return null
         val href = a.attrAsRelativeUrl("href")
+        if (href.isBlank()) return null
         val title = a.attr("title").ifBlank { a.text() }
         val coverUrl = element.selectFirst("img")?.imgAttr()
         return makeManga(href, title, coverUrl)
@@ -431,27 +440,46 @@ abstract class MangaThemesia(
         return ""
     }
 
+    private fun String?.cleanAuthor(): String? =
+        this?.trim()?.takeIf { it.isNotBlank() && it !in AUTHOR_PLACEHOLDERS }
+
     private fun SimpleDateFormat.parseSafe(date: String): Long =
         runCatching { parse(date)?.time ?: 0L }.getOrDefault(0L)
 
     companion object {
-        val ongoing = setOf(
+        private val AUTHOR_PLACEHOLDERS = setOf("n/a", "N/A", "Updating")
+
+        private val ongoingWordSet = WordSet(
             "ongoing", "on going", "publishing", "updating", "en curso", "ativo", "en cours",
             "đang tiến hành", "em lançamento", "devam ediyor", "in corso", "güncel", "berjalan",
-            "продолжается", "lançando", "in arrivo", "连载中", "devam etmekte", "مستمرة",
+            "продолжается", "lançando", "in arrivo", "连载中", "devam etmekte", "مستمرة"
         )
-        val finished = setOf(
+        private val finishedWordSet = WordSet(
             "completed", "complete", "finished", "finalizado", "terminé", "tamamlandı",
             "đã hoàn thành", "hoàn thành", "مكتملة", "завершено", "completato", "one-shot",
-            "bitti", "tamat", "concluído", "已完结", "bitmiş", "achevé",
+            "bitti", "tamat", "concluído", "已完结", "bitmiş", "achevé"
         )
-        val paused = setOf(
+        private val pausedWordSet = WordSet(
             "hiatus", "on hold", "pausado", "en espera", "en pause", "en attente",
-            "durduruldu", "beklemede", "đang chờ", "متوقف", "заморожено",
+            "durduruldu", "beklemede", "đang chờ", "متوقف", "заморожено"
         )
-        val abandoned = setOf(
+        private val abandonedWordSet = WordSet(
             "canceled", "cancelled", "cancelado", "cancellato", "dropped", "discontinued",
-            "abandonné", "iptal edildi", "đã hủy", "ملغي", "заброшено",
+            "abandonné", "iptal edildi", "đã hủy", "ملغي", "заброшено"
         )
+
+        private val agoWordSet = WordSet(" ago", "atrás", " hace", " назад", " önce", " trước", "مضت", "قبل")
+        private val fromWordSet = WordSet("há ", "منذ", "il y a", "hace", "giờ", "phút")
+        private val yesterdayWordSet = WordSet("yesterday", "يوم واحد")
+        private val todayWordSet = WordSet("today")
+        private val dayBeforeYesterdayWordSet = WordSet("يومين")
+
+        private val secondsWordSet = WordSet("detik", "segundo", "second", "วินาที", "giây", "ثوان")
+        private val minutesWordSet = WordSet("menit", "dakika", "min", "minute", "minuto", "mins", "นาที", "دقائق", "phút", "минут")
+        private val hoursWordSet = WordSet("jam", "saat", "heure", "hora", "hour", "hours", "ชั่วโมง", "giờ", "ore", "ساعة", "小时")
+        private val daysWordSet = WordSet("hari", "gün", "jour", "día", "dia", "day", "days", "días", "วัน", "ngày", "giorni", "أيام", "天", "день")
+        private val weeksWordSet = WordSet("week", "semana", "tuần", "أسابيع", "أسبوع")
+        private val monthsWordSet = WordSet("month", "months", "mes", "meses", "tháng", "أشهر", "mois")
+        private val yearsWordSet = WordSet("year", "año", "năm")
     }
 }
