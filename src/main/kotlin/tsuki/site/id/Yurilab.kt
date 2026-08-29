@@ -4,15 +4,29 @@ import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
 import tsuki.parsers.MadaraParser
 
-import tsuki.model.*
-import tsuki.util.*
+import tsuki.model.ContentType
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaTag
+
+import tsuki.util.attrAsRelativeUrl
+import tsuki.util.attrOrNull
+import tsuki.util.generateUid
+import tsuki.util.mapNotNullToSet
+import tsuki.util.parseHtml
+import tsuki.util.textOrNull
+import tsuki.util.toAbsoluteUrl
+import tsuki.util.toTitleCase
 
 import kotlinx.coroutines.async
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import java.util.*
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 @MangaSourceParser("YURILAB", "YuriLab", "id", ContentType.HENTAI)
 internal class YuriLab(context: MangaLoaderContext) :
@@ -79,16 +93,25 @@ internal class YuriLab(context: MangaLoaderContext) :
 
     override val selectChapter = "ul.version-chap li.wp-manga-chapter"
 
+    override fun transformChapterName(element: Element, name: String): String {
+        return if (element.hasClass("premium") || element.hasClass("premium-block")) {
+            "🔒 ${name.trim()}"
+        } else {
+            name.trim()
+        }
+    }
+
     override suspend fun loadChapters(mangaUrl: String, document: Document): List<MangaChapter> = kotlinx.coroutines.coroutineScope {
         val allChapters = mutableListOf<MangaChapter>()
         var t = 1
         val batchSize = 5
+        val dateFormat = SimpleDateFormat("d MMMM yyyy", sourceLocale)
 
         while (true) {
             val deferreds = (t until t + batchSize).map { page ->
                 async {
                     try {
-                        val ajaxUrl = mangaUrl.toAbsoluteUrl(domain).removeSuffix('/') + "/ajax/chapters/?t=$page"
+                        val ajaxUrl = mangaUrl.toAbsoluteUrl(domain).removeSuffix("/") + "/ajax/chapters/?t=$page"
                         val ajaxDocs = webClient.httpPost(
                             ajaxUrl.toHttpUrl(),
                             emptyMap<String, String>(),
@@ -103,21 +126,22 @@ internal class YuriLab(context: MangaLoaderContext) :
                             val baseName = a.ownText().ifEmpty { null } ?: a.selectFirst("p")?.textOrNull()
                                 ?: "Chapter"
                             
-                            val isLocked = rawHref.isBlank() || rawHref == "#" || 
-                                    li.hasClass("premium") || li.hasClass("premium-block") || 
-                                    li.selectFirst(".fa-lock, .vip-lock") != null
+                            val finalName = transformChapterName(li, baseName)
                             
-                            val finalHref = if (rawHref.isBlank() || rawHref == "#") mangaUrl else rawHref
-                            val finalName = if (isLocked && !baseName.contains("🔒")) "🔒 ${baseName.trim()}" else baseName.trim()
+                            var dateText = li.selectFirst("a.c-new-tag")?.attr("title") ?: li.selectFirst(selectDate)?.text()
+                            if (dateText != null && !dateText.contains("ago", true) && !dateText.contains(Regex("""\d{4}"""))) {
+                                val year = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
+                                dateText = "$dateText $year"
+                            }
 
                             MangaChapter(
-                                id = generateUid(finalHref + finalName),
-                                url = finalHref,
+                                id = generateUid(rawHref + finalName),
+                                url = rawHref,
                                 title = finalName,
                                 number = 0f,
                                 volume = 0,
                                 branch = null,
-                                uploadDate = 0L,
+                                uploadDate = parseChapterDate(dateFormat, dateText),
                                 scanlator = null,
                                 source = source,
                             )
