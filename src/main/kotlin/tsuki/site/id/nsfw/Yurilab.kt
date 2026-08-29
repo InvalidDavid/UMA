@@ -1,4 +1,4 @@
-package tsuki.site.id
+package tsuki.site.id.nsfw
 
 import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
@@ -21,11 +21,14 @@ import tsuki.util.toAbsoluteUrl
 import tsuki.util.toTitleCase
 
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Locale
 
 @MangaSourceParser("YURILAB", "YuriLab", "id", ContentType.HENTAI)
@@ -51,7 +54,6 @@ internal class YuriLab(context: MangaLoaderContext) :
             authors = setOfNotNull(author).ifEmpty { manga.authors }
         )
     }
-
 
     override suspend fun fetchAvailableTags(): Set<MangaTag> {
         val url = "https://$domain/?s=&post_type=wp-manga"
@@ -101,20 +103,29 @@ internal class YuriLab(context: MangaLoaderContext) :
         }
     }
 
-    override suspend fun loadChapters(mangaUrl: String, document: Document): List<MangaChapter> = kotlinx.coroutines.coroutineScope {
+    private fun String?.applyChapterNumber(index: Int): String {
+        val base = this ?: "Chapter"
+        return if (base == "Chapter" || base == "🔒 Chapter") {
+            base.replace("Chapter", "Chapter ${index + 1}")
+        } else {
+            base
+        }
+    }
+
+    override suspend fun loadChapters(mangaUrl: String, document: Document): List<MangaChapter> = coroutineScope {
         val allChapters = mutableListOf<MangaChapter>()
-        var t = 1
+        var page = 1
         val batchSize = 5
         val dateFormat = SimpleDateFormat("d MMMM yyyy", sourceLocale)
 
         while (true) {
-            val deferreds = (t until t + batchSize).map { page ->
+            val deferreds = (page until page + batchSize).map { currentPage ->
                 async {
                     try {
-                        val ajaxUrl = mangaUrl.toAbsoluteUrl(domain).removeSuffix("/") + "/ajax/chapters/?t=$page"
+                        val ajaxUrl = mangaUrl.toAbsoluteUrl(domain).removeSuffix("/") + "/ajax/chapters/?t=$currentPage"
                         val ajaxDocs = webClient.httpPost(
                             ajaxUrl.toHttpUrl(),
-                            emptyMap<String, String>(),
+                            emptyMap(),
                             Headers.Builder().add("X-Requested-With", "XMLHttpRequest").build(),
                         ).parseHtml()
 
@@ -122,15 +133,15 @@ internal class YuriLab(context: MangaLoaderContext) :
                         lis.mapNotNull { li ->
                             val a = li.selectFirst("a") ?: return@mapNotNull null
                             val rawHref = a.attrAsRelativeUrl("href")
-                            
+
                             val baseName = a.ownText().ifEmpty { null } ?: a.selectFirst("p")?.textOrNull()
-                                ?: "Chapter"
-                            
+                            ?: "Chapter"
+
                             val finalName = transformChapterName(li, baseName)
-                            
+
                             var dateText = li.selectFirst("a.c-new-tag")?.attr("title") ?: li.selectFirst(selectDate)?.text()
                             if (dateText != null && !dateText.contains("ago", true) && !dateText.contains(Regex("""\d{4}"""))) {
-                                val year = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
+                                val year = Calendar.getInstance().get(Calendar.YEAR)
                                 dateText = "$dateText $year"
                             }
 
@@ -146,32 +157,32 @@ internal class YuriLab(context: MangaLoaderContext) :
                                 source = source,
                             )
                         }
-                    } catch (e: Exception) {
-                        emptyList<MangaChapter>()
+                    } catch (_: Exception) {
+                        emptyList()
                     }
                 }
             }
 
-            val batches = deferreds.map { it.await() }
+            val batches = deferreds.awaitAll()
+            var emptyBatch = false
             for (pageChapters in batches) {
                 if (pageChapters.isEmpty()) {
-                    return@coroutineScope allChapters.reversed().mapIndexed { index, chapter ->
-                        val currentTitle = chapter.title
-                        val finalTitle = if (currentTitle == "Chapter" || currentTitle == "🔒 Chapter") {
-                            currentTitle.replace("Chapter", "Chapter ${index + 1}")
-                        } else {
-                            currentTitle
-                        }
-                        chapter.copy(
-                            title = finalTitle,
-                            number = (index + 1).toFloat()
-                        )
-                    }
+                    emptyBatch = true
+                    break
                 }
                 allChapters.addAll(pageChapters)
             }
-            t += batchSize
+
+            if (emptyBatch) {
+                break
+            }
+            page += batchSize
         }
-        return@coroutineScope emptyList()
+        allChapters.reversed().mapIndexed { index, chapter ->
+            chapter.copy(
+                title = chapter.title.applyChapterNumber(index),
+                number = (index + 1).toFloat()
+            )
+        }
     }
 }
