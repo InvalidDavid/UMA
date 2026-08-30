@@ -7,8 +7,8 @@
 
 <br />
 <div align="center">
-  <a href="https://github.com/othneildrew/Best-README-Template">
-    <img src="images/logo.gif" alt="Logo" width="80" height="80">
+  <a href="https://github.com/InvalidDavid/UMA/blob/master/images/logo.gif">
+    <img src="images/logo.gif" alt="Logo" width="333" height="333">
   </a>
 
   <h3 align="center">UMA Plugin</h3>
