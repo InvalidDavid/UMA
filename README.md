@@ -3,13 +3,23 @@
 [![Stars][stars-shield]][stars-url]
 [![Issues][issues-shield]][issues-url]
 [![License][license-shield]][license-url]
+[![Discord][discord-shield2]][discord-url]
+
+<br />
+<div align="center">
+  <a href="https://github.com/othneildrew/Best-README-Template">
+    <img src="images/logo.gif" alt="Logo" width="80" height="80">
+  </a>
+
+  <h3 align="center">UMA Plugin</h3>
+</div>
 
 > [!IMPORTANT]
 > Only for the Usagi App!
 >
 > **v0.0.31-beta1** and below use this plugin --> https://github.com/mochi-plugins/repository
 >
-> **v0.0.32-beta2** and above --> https://github.com/InvalidDavid/UMA/releases/tag/ea0f1d0 (Updates yes.)
+> **v0.0.32-beta2** and above --> https://github.com/InvalidDavid/UMA/releases/tag/f9c11fd (Updates yes.)
 >
 > Manual install is required for UMA is required.
 >
@@ -17,18 +27,6 @@
 
 ### Please give the repo a ⭐
 It motivates me. =^..^=
-
----
-
-# Contact
-
-### Support Server
-
-[![Discord][discord-shield]][discord-url]
-
-### Direct Contact
-
-[![Telegram][telegram-shield]][telegram-url]
 
 ---
 
@@ -137,6 +135,7 @@ And that's it! Select your new sources in the catalog and have fun reading.
 
 <br>
 
+---
 
 # Setup
 
@@ -190,15 +189,16 @@ chmod +x gradlew && ./gradlew buildJar
 
 ---
 
-## Star History
+# Contact
 
-<a href="https://www.star-history.com/?repos=InvalidDavid%2FUMA&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=InvalidDavid/UMA&type=date&theme=dark&legend=top-left&sealed_token=0nJj5_atMm_6ONDPzj-eyq4zkV2NPqliaF-Cp4MXUQP7f7Xv00956LXVv5Bb71c9USRogXm2ot4R_M4py5Q4g4jtXP4CWGnIkfVbPEFpfssLtKUFOKzehw" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=InvalidDavid/UMA&type=date&legend=top-left&sealed_token=0nJj5_atMm_6ONDPzj-eyq4zkV2NPqliaF-Cp4MXUQP7f7Xv00956LXVv5Bb71c9USRogXm2ot4R_M4py5Q4g4jtXP4CWGnIkfVbPEFpfssLtKUFOKzehw" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=InvalidDavid/UMA&type=date&legend=top-left&sealed_token=0nJj5_atMm_6ONDPzj-eyq4zkV2NPqliaF-Cp4MXUQP7f7Xv00956LXVv5Bb71c9USRogXm2ot4R_M4py5Q4g4jtXP4CWGnIkfVbPEFpfssLtKUFOKzehw" />
- </picture>
-</a>
+### Support Server
+
+[![Discord][discord-shield]][discord-url]
+
+### Direct Contact
+
+[![Telegram][telegram-shield]][telegram-url]
+
 
 ---
 
@@ -228,6 +228,7 @@ You may copy, distribute and modify the software as long as you track changes/da
 [issues-url]: https://github.com/InvalidDavid/UMA/issues
 [discord-shield]: https://img.shields.io/discord/1518057632064209017?label=Discord&logo=discord
 [discord-url]: https://discord.gg/CyJeVDP7Cw
+[discord-shield2]: https://img.shields.io/discord/1518057632064209017?style=for-the-badge&logo=discord&label=Discord&color=5865F2
 [telegram-shield]: https://img.shields.io/badge/-Telegram-black.svg?style=for-the-badge&logo=telegram&colorB=555
 [telegram-url]: https://t.me/invalidxdavid
 
