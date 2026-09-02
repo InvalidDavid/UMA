@@ -158,11 +158,13 @@ internal class Mangadotnet(context: MangaLoaderContext) :
                 Locale.FRENCH,
                 Locale.GERMAN,
                 Locale("id"),
-                Locale("pt", "br"),
+                Locale("pt", "BR"),
                 Locale("es"),
+                Locale("es", "419"),
                 Locale("th"),
                 Locale("vi"),
-            ),
+                Locale("zh", "Hant"),
+            )
         )
     }
 
@@ -177,7 +179,7 @@ internal class Mangadotnet(context: MangaLoaderContext) :
             if (!filter.query.isNullOrBlank()) addQueryParameter("search", filter.query!!)
             addQueryParameter("page", page.toString())
             addQueryParameter("adult", adultParam)
-
+            selectedLanguage?.let { addQueryParameter("lang", it) }
             val (sortBy, sortOrder) = when (order) {
                 SortOrder.UPDATED -> "latest" to "desc"
                 SortOrder.ALPHABETICAL -> "alphabetical" to "asc"
@@ -256,8 +258,12 @@ internal class Mangadotnet(context: MangaLoaderContext) :
 
     private var selectedLanguage: String? = null
     private fun localeToLang(locale: Locale): String {
-        if (locale.language == "pt" && locale.country == "br") return "pt-br"
-        return locale.language
+        return when (locale.language) {
+            "pt" if locale.country == "BR" -> "pt-br"
+            "es" if locale.country == "419" -> "es-la"
+            "zh" if locale.country == "Hant" -> "zh-hk"
+            else -> locale.language
+        }
     }
 
     override suspend fun getDetails(manga: Manga): Manga = coroutineScope {
