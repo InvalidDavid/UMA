@@ -3,6 +3,7 @@ package tsuki.parsers
 import tsuki.MangaLoaderContext
 import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
+import tsuki.network.CommonHeaders
 
 import tsuki.model.RATING_UNKNOWN
 import tsuki.model.ContentRating
@@ -55,7 +56,7 @@ abstract class MangaThemesia(
     }
 
     override fun getRequestHeaders() = super.getRequestHeaders().newBuilder()
-        .set("Referer", "https://$domain/")
+        .set(CommonHeaders.REFERER, "https://$domain/")
         .build()
 
     protected open val mangaDirectory = "manga"
