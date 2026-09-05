@@ -50,7 +50,6 @@ This is a living document that evolves over time. If you find issues or have sug
   - [Common Patterns & Best Practices](#common-patterns--best-practices)
     - [URL Handling](#url-handling)
     - [Error Handling](#error-handling)
-    - [Testing Your Parser](#testing-your-parser)
   - [Building & Testing](#building--testing)
   - [Submitting a Pull Request](#submitting-a-pull-request)
   - [Troubleshooting](#troubleshooting)
