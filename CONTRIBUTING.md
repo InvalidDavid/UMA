@@ -952,25 +952,6 @@ val title = doc.selectFirst("h1")?.text() ?: "Unknown"
 val count = element.attr("data-count").toIntOrNull() ?: 0
 ```
 
-### Testing Your Parser
-
-```kotlin
-// Manual testing with main function
-suspend fun main() {
-    val context = MangaLoaderContext(...)
-    val parser = MySourceParser(context)
-    
-    val mangas = parser.getListPage(0, SortOrder.UPDATED, MangaListFilter())
-    println("Found ${mangas.size} manga")
-    
-    if (mangas.isNotEmpty()) {
-        val details = parser.getDetails(mangas[0])
-        println("Title: ${details.title}")
-        println("Chapters: ${details.chapters?.size ?: 0}")
-    }
-}
-```
-
 ## Building & Testing
 
 ### Build Commands
@@ -1042,7 +1023,6 @@ suspend fun main() {
 - [ ] Parser compiles without errors
 - [ ] Tested on device/emulator
 - [ ] New parser follows existing conventions
-- [ ] DTOs use @Serializable correctly
 - [ ] No hardcoded test URLs or API keys
 - [ ] No unnecessary dependencies added
 - [ ] Comments added for complex logic
