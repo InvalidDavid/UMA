@@ -3,6 +3,18 @@
 [![Stars][stars-shield]][stars-url]
 [![Issues][issues-shield]][issues-url]
 [![License][license-shield]][license-url]
+
+> [!IMPORTANT]
+> Only for the Usagi App!
+>
+> **v0.0.31-beta1** and below use this plugin --> https://github.com/mochi-plugins/repository
+>
+> **v0.0.32-beta2** and above --> https://github.com/InvalidDavid/UMA/releases/tag/ea0f1d0 (Updates yes.)
+>
+> Manual install is required for UMA is required.
+>
+> **v0.0.32-beta2** and above --> https://github.com/Gekkoushi/plugin (No updates, 1.3k sources)
+
 ### Please give the repo a ⭐
 It motivates me. =^..^=
 
