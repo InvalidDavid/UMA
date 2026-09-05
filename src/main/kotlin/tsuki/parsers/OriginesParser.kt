@@ -21,6 +21,11 @@ import tsuki.model.SortOrder
 import tsuki.util.extractChapterNumber
 import tsuki.util.generateUid
 import tsuki.util.parseHtml
+import tsuki.util.parseFailed
+import tsuki.util.removeSuffix
+import tsuki.util.textOrNull
+import tsuki.util.toTitleCase
+import tsuki.util.mapNotNullToSet
 
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -41,17 +46,23 @@ abstract class OriginesParser(
 
     override val configKeyDomain = ConfigKey.Domain(domain)
 
-    /** Path prefix for series, e.g. "manga" or "oeuvre". */
+    /** Path prefix for series */
     protected abstract val mangaPath: String
 
     /** Legacy paths used by older URLs. */
     protected open val legacyMangaPaths: Set<String> = emptySet()
 
-    /** Genres as label to slug. */
-    protected abstract val genres: List<Pair<String, String>>
-
     /** Origins as label to slug (optional). */
     protected open val origins: List<Pair<String, String>> = emptyList()
+
+    /** Path used to scrape genres (relative to domain). */
+    protected open val listUrl = "oeuvre/"
+
+    /** Check madara. */
+    protected open val tagPrefix = "manga-genres/"
+
+    /** Hardcoded genres. */
+    protected open val genres: List<Pair<String, String>> = emptyList()
 
     override val availableSortOrders: Set<SortOrder> = EnumSet.of(
         SortOrder.UPDATED,
@@ -166,19 +177,53 @@ abstract class OriginesParser(
         )
     }
 
-    override suspend fun getFilterOptions() = MangaListFilterOptions(
-        availableTags = buildSet {
-            genres.forEach { (title, slug) ->
-                add(MangaTag(key = slug, title = title, source = source))
+    protected open suspend fun fetchAvailableTags(): Set<MangaTag> {
+        val doc = webClient.httpGet("https://$domain/$listUrl").parseHtml()
+        val body = doc.body()
+        val root1 = body.selectFirst("header")?.selectFirst("ul.second-menu")
+        val root2 = body.selectFirst("div.genres_wrap")?.selectFirst("ul.list-unstyled")
+        if (root1 == null && root2 == null) {
+            doc.parseFailed("Root not found")
+        }
+        val list = root1?.select("li").orEmpty() + root2?.select("li").orEmpty()
+        val keySet = HashSet<String>(list.size)
+        return list.mapNotNullToSet { li ->
+            val a = li.selectFirst("a") ?: return@mapNotNullToSet null
+            val href = a.attr("href").removeSuffix('/').substringAfterLast(tagPrefix, "")
+            if (href.isEmpty() || !keySet.add(href)) {
+                return@mapNotNullToSet null
             }
-        },
-        availableStates = EnumSet.of(
-            MangaState.ONGOING,
-            MangaState.FINISHED,
-        ),
-    )
+            MangaTag(
+                key = href,
+                title = a.ownText().ifEmpty {
+                    a.selectFirst(".menu-image-title")?.textOrNull()
+                }?.toTitleCase(sourceLocale) ?: return@mapNotNullToSet null,
+                source = source,
+            )
+        }
+    }
 
+    override suspend fun getFilterOptions(): MangaListFilterOptions {
+        val allTags = mutableSetOf<MangaTag>()
+        try {
+            allTags.addAll(fetchAvailableTags())
+        } catch (_: Exception) {
+        }
+        genres.forEach { (title, slug) ->
+            allTags.add(MangaTag(key = slug, title = title, source = source))
+        }
+        origins.forEach { (title, slug) ->
+            allTags.add(MangaTag(key = "$ORIGIN_PREFIX$slug", title = "Origine: $title", source = source))
+        }
 
+        return MangaListFilterOptions(
+            availableTags = allTags,
+            availableStates = EnumSet.of(
+                MangaState.ONGOING,
+                MangaState.FINISHED,
+            ),
+        )
+    }
     override suspend fun getDetails(manga: Manga): Manga = coroutineScope {
         val slug = manga.url.toMangaSlug()
         val fullUrl = "https://$domain/$mangaPath/$slug/"
@@ -261,7 +306,7 @@ abstract class OriginesParser(
             )
         }.reversed()
     }
-    
+
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
         val fullUrl = "https://$domain/$mangaPath/${chapter.url}/"
         val doc = webClient.httpGet(fullUrl).parseHtml()
@@ -278,7 +323,7 @@ abstract class OriginesParser(
             )
         }
     }
-    
+
     private fun parseChapterDate(date: String?): Long {
         if (date.isNullOrBlank()) return 0L
         val regex = Regex("""(\d{1,2})\s+(\p{L}+)\.?(?:\s+(\d{4}))?""")
@@ -317,7 +362,7 @@ abstract class OriginesParser(
             else -> null
         }
     }
-    
+
     private fun okhttp3.Response.parseJson(): JSONObject {
         val body = body?.string() ?: throw ParseException("Empty response body", request.url.toString())
         return JSONObject(body)
