@@ -18,6 +18,8 @@ import tsuki.model.MangaState
 import tsuki.model.MangaTag
 import tsuki.model.RATING_UNKNOWN
 import tsuki.model.SortOrder
+import tsuki.model.Favicon
+import tsuki.model.Favicons
 
 import tsuki.util.generateUid
 import tsuki.util.nullIfEmpty
@@ -51,6 +53,15 @@ internal class RoliaScan(context: MangaLoaderContext) :
     private val numberRegex = Regex("""(\d+(?:\.\d+)?)""")
     private val relativeDateRegex = Regex("""(\d+)\s+(second|minute|hour|day|week|month|year)s?\s+ago""")
     private val tokenFormatter = DateTimeFormatter.ofPattern("yyyyMMddHH", Locale.US)
+
+    override suspend fun getFavicons(): Favicons {
+        return Favicons(
+            listOf(
+                Favicon("https://$domain/content/themes/mangapeak/assets/img/favicon-32x32.png", 32, null),
+            ),
+            domain,
+        )
+    }
 
     override fun getRequestHeaders() = super.getRequestHeaders().newBuilder()
         .set("Referer", "https://$domain/")

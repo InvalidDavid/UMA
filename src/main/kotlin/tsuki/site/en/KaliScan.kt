@@ -15,6 +15,8 @@ import tsuki.model.MangaState
 import tsuki.model.MangaTag
 import tsuki.model.RATING_UNKNOWN
 import tsuki.model.SortOrder
+import tsuki.model.Favicon
+import tsuki.model.Favicons
 
 import tsuki.util.attrAsRelativeUrl
 import tsuki.util.generateUid
@@ -43,6 +45,15 @@ internal class KaliScan(context: MangaLoaderContext) :
     override val selectTag = ".detail .meta > p > strong:contains(Genres) ~ a"
     override val selectDate = ".chapter-update"
     override val selectChapter = "#chapter-list > li, #chapter-list-inner .chapter-list > li"
+
+    override suspend fun getFavicons(): Favicons {
+        return Favicons(
+            listOf(
+                Favicon("https://$domain/static/sites/icons/favicon-32x32.png", 32, null),
+            ),
+            domain,
+        )
+    }
 
     override val filterCapabilities: MangaListFilterCapabilities
         get() = super.filterCapabilities.copy(

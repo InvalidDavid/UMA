@@ -25,15 +25,16 @@ import tsuki.util.attrAsRelativeUrl
 import tsuki.util.generateUid
 import tsuki.util.parseHtml
 import tsuki.util.toAbsoluteUrl
-import tsuki.util.urlEncoded
 
 import okhttp3.FormBody
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.json.JSONObject
+import org.jsoup.Jsoup
 import java.text.SimpleDateFormat
 import java.util.EnumSet
 import java.util.Locale
@@ -56,6 +57,13 @@ internal class Batcave(context: MangaLoaderContext) :
             .addInterceptor(::dleGuardInterceptor)
             .build()
     }
+
+    override fun getRequestHeaders() = super.getRequestHeaders().newBuilder()
+        .set("Sec-Fetch-Dest", "document")
+        .set("Sec-Fetch-Mode", "navigate")
+        .set("Sec-Fetch-Site", "none")
+        .set("Sec-Fetch-User", "?1")
+        .build()
 
     private val apiClient: OkHttpWebClient by lazy {
         OkHttpWebClient(rawHttpClient, source)
@@ -147,8 +155,9 @@ internal class Batcave(context: MangaLoaderContext) :
     }
 
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
-        val query = filter.query?.trim()?.takeIf { it.isNotEmpty() }
-        if (query != null) return searchManga(query, page)
+        if (!filter.query.isNullOrBlank()) {
+            return searchManga(page, filter.query!!)
+        }
 
         val urlBuilder = StringBuilder().apply {
             append("https://$domain/ComicList/")
@@ -180,11 +189,37 @@ internal class Batcave(context: MangaLoaderContext) :
         }
     }
 
-    private suspend fun searchManga(query: String, page: Int): List<Manga> {
-        val encoded = query.urlEncoded()
-        val url = if (page == 1) "https://$domain/search/$encoded/"
-        else "https://$domain/search/$encoded/page/$page/"
-        return parseMangaList(apiClient.httpGet(url).parseHtml())
+    private suspend fun searchManga(page: Int, query: String): List<Manga> {
+        val url = "https://$domain".toHttpUrl().newBuilder()
+            .addPathSegment("search")
+            .addPathSegment(query)
+            .apply {
+                if (page > 1) {
+                    addPathSegment("page")
+                    addPathSegment(page.toString())
+                    addPathSegment("")
+                }
+            }
+            .build()
+        val html = apiClient.httpGet(url.toString()).body?.string() ?: return emptyList()
+        val doc = Jsoup.parse(html, "https://$domain")
+        return doc.select("#dle-content > .readed").map { element ->
+            val a = element.selectFirst(".readed__title > a") ?: return@map null
+            Manga(
+                id = generateUid(a.attrAsRelativeUrl("href")),
+                url = a.attrAsRelativeUrl("href"),
+                publicUrl = a.absUrl("href"),
+                title = a.ownText(),
+                altTitles = emptySet(),
+                rating = RATING_UNKNOWN,
+                contentRating = null,
+                coverUrl = element.selectFirst(".readed__img img")?.attrAsAbsoluteUrl("data-src"),
+                tags = emptySet(),
+                state = null,
+                authors = emptySet(),
+                source = source,
+            )
+        }.filterNotNull()
     }
 
     private fun parseMangaList(doc: org.jsoup.nodes.Document): List<Manga> {

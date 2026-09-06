@@ -1,4 +1,4 @@
-package tsuki.site.ru.chan
+package tsuki.parsers
 
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl

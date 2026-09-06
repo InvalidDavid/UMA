@@ -1,5 +1,6 @@
-package tsuki.site.ru.libsocial
+package tsuki.site.ru
 
+import tsuki.parsers.LibSocialParser
 import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
 import tsuki.model.MangaParserSource

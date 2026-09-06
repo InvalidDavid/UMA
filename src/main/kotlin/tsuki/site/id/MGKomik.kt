@@ -52,11 +52,7 @@ internal class MGKomik(context: MangaLoaderContext) :
         return chain.proceed(builder.build())
     }
 
-    override suspend fun getListPage(
-        page: Int,
-        order: SortOrder,
-        filter: MangaListFilter,
-    ): List<Manga> {
+    override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
         if (order == SortOrder.POPULARITY) {
             val p = page + 1
             val url = buildString {
@@ -77,13 +73,11 @@ internal class MGKomik(context: MangaLoaderContext) :
     override suspend fun fetchAvailableTags(): Set<MangaTag> {
         return super.fetchAvailableTags()
     }
-
-
+    
     override suspend fun getFilterOptions() = MangaListFilterOptions(
         availableTags = availableTags(),
     )
-
-
+    
     private fun availableTags() = arraySetOf(
         MangaTag("2 hours ago", "2-hours-ago", source),
         MangaTag("7 hours ago", "7-hours-ago", source),

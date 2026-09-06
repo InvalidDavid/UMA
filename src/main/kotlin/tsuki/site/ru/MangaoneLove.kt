@@ -1,4 +1,4 @@
-package tsuki.site.ru.madara
+package tsuki.site.ru
 
 import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser

@@ -1,4 +1,4 @@
-package tsuki.site.ru.libsocial
+package tsuki.parsers
 
 import androidx.collection.*
 import kotlinx.coroutines.async

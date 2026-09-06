@@ -1,5 +1,6 @@
-package tsuki.site.ru.grouple
+package tsuki.site.ru
 
+import tsuki.parsers.GroupleParser
 import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey

@@ -1,5 +1,6 @@
-package tsuki.site.ru.chan
+package tsuki.site.ru
 
+import tsuki.parsers.ChanParser
 import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey

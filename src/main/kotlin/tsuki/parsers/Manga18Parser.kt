@@ -128,34 +128,37 @@ internal abstract class Manga18Parser(
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
         val tag = filter.tags.firstOrNull()
 
-        val url = buildString(120) {
+        val url = buildString {
             append("https://")
             append(domain)
             append('/')
 
             when {
-                tag != null && filter.query!!.isNotEmpty() -> {
+                tag != null && !filter.query.isNullOrBlank() ->
                     throw IllegalArgumentException("Search is not supported with tags")
-                }
+
                 tag != null -> {
                     append(tagUrl)
                     append(tag.key)
                     append('/')
                     append(page)
                 }
-                filter.query!!.isNotEmpty() -> {
+
+                !filter.query.isNullOrBlank() -> {
                     append(listUrl)
                     append(page)
                     append("?search=")
-                    append(filter.query.urlEncoded())
+                    append(filter.query.orEmpty().urlEncoded())
                     append("&order_by=latest")
                 }
+
                 else -> {
                     append(listUrl)
                     append(page)
                 }
             }
-            if (filter.query!!.isEmpty()) {
+
+            if (filter.query.isNullOrBlank()) {
                 append("?order_by=")
                 when (order) {
                     SortOrder.POPULARITY -> append("views")

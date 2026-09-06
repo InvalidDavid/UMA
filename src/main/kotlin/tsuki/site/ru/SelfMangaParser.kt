@@ -1,14 +1,16 @@
-package tsuki.site.ru.grouple
+package tsuki.site.ru
 
+import tsuki.parsers.GroupleParser
 import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
+import tsuki.model.ContentType
 import tsuki.model.MangaParserSource
 
-@MangaSourceParser("SEIMANGA", "SeiManga", "ru")
-internal class SeiMangaParser(
+@MangaSourceParser("SELFMANGA", "SelfManga", "ru", type = ContentType.OTHER)
+internal class SelfMangaParser(
 	context: MangaLoaderContext,
-) : GroupleParser(context, MangaParserSource.SEIMANGA, 21) {
+) : GroupleParser(context, MangaParserSource.SELFMANGA, 3) {
 
 	override val configKeyDomain = ConfigKey.Domain(*domains)
 
@@ -19,8 +21,7 @@ internal class SeiMangaParser(
 	companion object {
 
 		val domains = arrayOf(
-			"1.seimanga.me",
-			"seimanga.me",
+			"1.selfmanga.live",
 		)
 	}
 }

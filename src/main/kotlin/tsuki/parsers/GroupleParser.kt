@@ -1,5 +1,9 @@
-package tsuki.site.ru.grouple
+package tsuki.parsers
 
+import tsuki.site.ru.SeiMangaParser
+import tsuki.site.ru.ReadmangaParser
+import tsuki.site.ru.SelfMangaParser
+import tsuki.site.ru.UsagiParser
 import androidx.collection.MutableScatterMap
 import androidx.collection.ScatterMap
 import kotlinx.coroutines.flow.channelFlow
