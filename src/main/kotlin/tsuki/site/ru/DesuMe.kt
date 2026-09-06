@@ -139,7 +139,7 @@ internal class DesuMe(context: MangaLoaderContext) :
                 ?.toFloatOrNull()
                 ?.div(10f)
                 ?: RATING_UNKNOWN,
-            chapters = chapters,
+            chapters = chapters.reversed(),
         )
     }
 
