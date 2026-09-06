@@ -10,7 +10,6 @@ import tsuki.model.ContentType
 import tsuki.model.MangaParserSource
 import tsuki.util.*
 
-@Broken
 @MangaSourceParser("ALLHENTAI", "AllHentai", "ru", type = ContentType.HENTAI)
 internal class AllHentaiParser(
 	context: MangaLoaderContext,

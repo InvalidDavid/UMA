@@ -157,8 +157,8 @@ internal abstract class GroupleParser(
             largeCoverUrl = coverImg?.attrAsAbsoluteUrlOrNull("src"),
             coverUrl = manga.coverUrl
                 ?: coverImg?.attrAsAbsoluteUrlOrNull("src"),
-            tags = root.selectFirstOrThrow("div.creation-element-tags")
-                .getElementsByAttributeValueContaining("href", "/list/genre/").mapTo(manga.tags.toMutableSet()) { a ->
+            tags = root.select("a[href*='/list/genre/']")
+                .mapTo(manga.tags.toMutableSet()) { a ->
                     MangaTag(
                         title = a.text().toTitleCase(),
                         key = a.attr("href").removeSuffix('/').substringAfterLast('/'),
