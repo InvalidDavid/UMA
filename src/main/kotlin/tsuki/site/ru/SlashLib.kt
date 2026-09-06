@@ -6,6 +6,6 @@ import tsuki.MangaSourceParser
 
 import tsuki.model.MangaParserSource
 
-@MangaSourceParser("YAOILIB", "SlashLib", "ru")
-internal class SlashLibParser(context: MangaLoaderContext) : 
-    LibSocialParser(context, MangaParserSource.YAOILIB, 2, "v2.slashlib.me")
+@MangaSourceParser("SLASHLIB", "SlashLib", "ru")
+internal class SlashLib(context: MangaLoaderContext) :
+    LibSocialParser(context, MangaParserSource.SLASHLIB, 2, "v2.slashlib.me")
