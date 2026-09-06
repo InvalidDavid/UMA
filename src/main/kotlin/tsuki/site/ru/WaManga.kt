@@ -32,7 +32,7 @@ import java.util.EnumSet
 import java.util.Locale
 
 @MangaSourceParser("WAMANGA", "WaManga", "ru")
-internal class WaManga(context: MangaLoaderContext) : 
+internal class WaManga(context: MangaLoaderContext) :
     SinglePageMangaParser(context, MangaParserSource.WAMANGA) {
 
     override val configKeyDomain = ConfigKey.Domain("wamanga.ru")
@@ -158,7 +158,7 @@ internal fun JSONObject.parseWaMangaSearchText(): Set<String> = buildSet {
 }
 
 private fun JSONObject.parseWaMangaTags(): Set<MangaTag> = parseWaMangaGenres().mapTo(linkedSetOf()) { genre ->
-    MangaTag(genre, genre, source)
+    MangaTag(genre, genre, MangaParserSource.WAMANGA)
 }
 
 private fun String.toWaMangaState(): MangaState = when (this) {
