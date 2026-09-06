@@ -79,7 +79,7 @@ internal class WaManga(context: MangaLoaderContext) :
         return parseManga(details).copy(
             id = manga.id,
             url = manga.url,
-            chapters = chapters,
+            chapters = chapters.reversed(),
         )
     }
 
