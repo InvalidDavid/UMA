@@ -265,7 +265,7 @@ internal class MangaOni(context: MangaLoaderContext) :
             val name = element.text()
             val chNum = element.select("span").attr("data-num").toFloatOrNull() ?: -1f
             val dateStr = element.select("span").attr("datetime")
-            val uploadDate = dateStr?.let { dateFormat.parseSafe(it) } ?: 0L
+            val uploadDate = dateFormat.parseSafe(dateStr) ?: 0L
             MangaChapter(
                 id = generateUid(chHref),
                 url = chHref,
