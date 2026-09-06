@@ -18,9 +18,11 @@ import tsuki.model.MangaState
 import tsuki.model.MangaTag
 import tsuki.model.RATING_UNKNOWN
 import tsuki.model.SortOrder
+import tsuki.model.YEAR_UNKNOWN
 
 import tsuki.util.generateUid
 import tsuki.util.parseJson
+import tsuki.util.oneOrThrowIfMany
 
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -49,6 +51,7 @@ class Chikari(context: MangaLoaderContext) :
         isMultipleTagsSupported = true,
         isTagsExclusionSupported = true,
         isSearchWithFiltersSupported = true,
+        isYearSupported = true,
     )
 
     private val tags by lazy {
@@ -71,6 +74,7 @@ class Chikari(context: MangaLoaderContext) :
             ContentType.MANHUA,
             ContentType.OTHER, // OEL
         ),
+        availableContentRating = EnumSet.of(ContentRating.SAFE, ContentRating.ADULT),
     )
 
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
@@ -94,6 +98,7 @@ class Chikari(context: MangaLoaderContext) :
             addQueryParameter("sort", sortParam)
             addQueryParameter("limit", pageSize.toString())
             addQueryParameter("offset", offset.toString())
+            addQueryParameter("adult", (filter.contentRating.oneOrThrowIfMany() == ContentRating.ADULT).toString())
 
             filter.query?.takeIf { it.isNotBlank() }?.let {
                 addQueryParameter("q", it)
@@ -113,6 +118,10 @@ class Chikari(context: MangaLoaderContext) :
 
             filter.states.firstOrNull()?.let { state ->
                 addQueryParameter("status", state.toQueryParam())
+            }
+
+            if (filter.year != YEAR_UNKNOWN) {
+                addQueryParameter("year", filter.year.toString())
             }
         }.build().toString()
     }

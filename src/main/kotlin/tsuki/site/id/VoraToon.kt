@@ -1,6 +1,5 @@
 package tsuki.site.id
 
-import org.json.JSONArray
 import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
@@ -26,8 +25,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import java.net.URLEncoder
-import java.text.DecimalFormat
-import java.text.DecimalFormatSymbols
 import java.text.SimpleDateFormat
 import java.util.EnumSet
 import java.util.Locale
@@ -38,7 +35,7 @@ internal class VoraToon(context: MangaLoaderContext) :
 
     override val configKeyDomain = ConfigKey.Domain("v1.voratoon.com")
 
-    private val apiBase = "https://api.voratoon.com"
+    private val apiBase = "https://$domain/backend"
 
     override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
         super.onCreateConfig(keys)
@@ -186,30 +183,31 @@ internal class VoraToon(context: MangaLoaderContext) :
 
     override suspend fun getDetails(manga: Manga): Manga {
         val slug = manga.url.removeSuffix("/").substringAfterLast("/")
-        val url = "$apiBase/series?includeMeta=true&take=1&page=1&takeChapter=9999&filter=slug%3D%3D$slug"
-        val json = webClient.httpGet(url).body?.string().orEmpty()
+
+        val seriesUrl = "$apiBase/series/$slug"
+        val json = webClient.httpGet(seriesUrl).body?.string().orEmpty()
 
         return try {
             val root = JSONObject(json)
-            val dataArray = root.getJSONArray("data")
-            if (dataArray.length() == 0) return manga
+            val data = root.getJSONObject("data")
+            val seriesData = data.getJSONObject("data")
 
-            val seriesItem = dataArray.getJSONObject(0)
-            val data = seriesItem.getJSONObject("data")
+            val title = seriesData.getString("title")
+            val nativeTitle = seriesData.nonNullString("nativeTitle")
+            val synopsis = seriesData.optString("synopsis", "")
+            val author = seriesData.nonNullString("author")
+            val coverImage = seriesData.optString("coverImage", "")
+            val backgroundImage = seriesData.nonNullString("backgroundImage")
+            val format = seriesData.nonNullString("format")?.lowercase(Locale.ROOT)
 
-            val title = data.getString("title")
-            val nativeTitle = data.nonNullString("nativeTitle")
-            val synopsis = data.optString("synopsis", "")
-            val author = data.nonNullString("author")
-            val coverImage = data.optString("coverImage", "")
-            val backgroundImage = data.nonNullString("backgroundImage")
-            val format = data.nonNullString("format")?.lowercase(Locale.ROOT)
+            val genres = mutableSetOf<MangaTag>()
+            seriesData.optJSONArray("genres")?.let { arr ->
+                for (i in 0 until arr.length()) {
+                    arr.optJSONObject(i)?.toGenreTagOrNull()?.let(genres::add)
+                }
+            }
 
-            val genres = parseGenres(data)
-            val chapters = parseChapters(seriesItem, slug)
-
-            val releaseYear = data.nonNullString("releaseDate")
-
+            val releaseYear = seriesData.nonNullString("releaseDate")
             val extraTags = buildSet {
                 releaseYear?.let { add(MangaTag(it, it, source)) }
                 format?.let {
@@ -217,16 +215,20 @@ internal class VoraToon(context: MangaLoaderContext) :
                 }
             }
 
+            val chaptersUrl = "$apiBase/series/$slug/chapters"
+            val chaptersJson = webClient.httpGet(chaptersUrl).body?.string().orEmpty()
+            val chapters = parseChapters(chaptersJson, slug)
+
             manga.copy(
                 title = title,
                 altTitles = setOfNotNull(nativeTitle),
                 description = synopsis,
-                state = data.toMangaState(),
+                state = seriesData.toMangaState(),
                 authors = setOfNotNull(author),
                 tags = genres + extraTags,
                 coverUrl = coverImage,
                 largeCoverUrl = backgroundImage ?: coverImage,
-                rating = data.toRating(),
+                rating = seriesData.toRating(),
                 chapters = chapters,
             )
         } catch (_: Exception) {
@@ -234,46 +236,48 @@ internal class VoraToon(context: MangaLoaderContext) :
         }
     }
 
-    private fun parseGenres(data: JSONObject): Set<MangaTag> {
-        val genres = mutableSetOf<MangaTag>()
-        data.optJSONArray("genres")?.let { arr ->
-            for (i in 0 until arr.length()) {
-                arr.optJSONObject(i)?.toGenreTagOrNull()?.let(genres::add)
-            }
-        }
-        return genres
-    }
-
-    private fun parseChapters(seriesItem: JSONObject, slug: String): List<MangaChapter> {
+    private fun parseChapters(json: String, slug: String): List<MangaChapter> {
         val chapters = mutableListOf<MangaChapter>()
-        val chaptersArray = seriesItem.optJSONArray("chapters") ?: JSONArray()
+        try {
+            val root = JSONObject(json)
+            val chaptersArray = root.getJSONArray("data") ?: return emptyList()
 
-        for (i in 0 until chaptersArray.length()) {
-            val ch = chaptersArray.getJSONObject(i)
-            val chapterIndex = ch.getInt("chapterIndex")
-            val formattedIndex = chapterNumberFormatter.format(chapterIndex.toDouble())
-            val chapterUrl = "/series/$slug/chapter/$formattedIndex"
-            val titleText = ch.optJSONObject("data")?.nonNullString("title")
-                ?: "Chapter $formattedIndex"
-            val uploadDate = parseChapterDate(ch.optString("createdAt", ""))
+            for (i in 0 until chaptersArray.length()) {
+                val ch = chaptersArray.getJSONObject(i)
+                val chapterData = ch.optJSONObject("data")
 
-            chapters.add(
-                MangaChapter(
-                    id = generateUid(chapterUrl),
-                    title = titleText,
-                    url = chapterUrl,
-                    number = chapterIndex.toFloat(),
-                    volume = 0,
-                    scanlator = null,
-                    uploadDate = uploadDate,
-                    branch = null,
-                    source = source,
-                ),
-            )
+                val chapterIndex = chapterData?.optDouble("index", 0.0) ?: 0.0
+                val formattedIndex = chapterIndex.toString().removeSuffix(".0")
+
+                val chapterUrl = "/series/$slug/chapter/$formattedIndex"
+
+                val title = chapterData?.nonNullString("title")
+                val titleText = if (title != null) {
+                    "Chapter $formattedIndex: $title"
+                } else {
+                    "Chapter $formattedIndex"
+                }
+
+                val uploadDate = parseChapterDate(ch.optString("createdAt", ""))
+
+                chapters.add(
+                    MangaChapter(
+                        id = generateUid(chapterUrl),
+                        title = titleText,
+                        url = chapterUrl,
+                        number = chapterIndex.toFloat(),
+                        volume = 0,
+                        scanlator = null,
+                        uploadDate = uploadDate,
+                        branch = null,
+                        source = source,
+                    )
+                )
+            }
+        } catch (index: Exception) {
+            throw Exception("Error parsing chapters.", index)
         }
-
-        chapters.sortBy { it.number }
-        return chapters
+        return chapters.reversed()
     }
 
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
@@ -398,9 +402,5 @@ internal class VoraToon(context: MangaLoaderContext) :
 
     companion object {
         private val isoDateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", Locale.ROOT)
-        private val chapterNumberFormatter = DecimalFormat(
-            "#.##",
-            DecimalFormatSymbols.getInstance(Locale.US),
-        )
     }
 }
