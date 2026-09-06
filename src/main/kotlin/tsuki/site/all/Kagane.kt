@@ -91,7 +91,7 @@ internal class Kagane(context: MangaLoaderContext) :
         isSearchSupported = true,
         isSearchWithFiltersSupported = true,
         isMultipleTagsSupported = true,
-        isTagsExclusionSupported = true,
+        isTagsExclusionSupported = false,
     )
 
     private fun Locale.toKaganeLangCode(): String {
@@ -134,33 +134,10 @@ internal class Kagane(context: MangaLoaderContext) :
     private var genresCache: Set<MangaTag>? = null
     private val genresMutex = Mutex()
 
-    private suspend fun fetchGenres(): Set<MangaTag> {
-        val headers = getRequestHeaders().newBuilder()
-            .add("Origin", "https://$domain")
-            .add("Referer", "https://$domain/")
-            .build()
-        return try {
-            val raw = webClient.httpGet("$apiUrl/api/v2/genres/list", headers).parseRaw()
-            val genres = runCatching { JSONArray(raw) }.getOrElse {
-                val wrapper = runCatching { JSONObject(raw) }.getOrNull()
-                wrapper?.optJSONArray("content")
-                    ?: wrapper?.optJSONArray("genres")
-                    ?: JSONArray()
-            }
-            buildSet {
-                for (i in 0 until genres.length()) {
-                    val item = genres.optJSONObject(i) ?: continue
-                    val id = item.optGenreId()
-                    val title = item.optGenreName()
-                    if (id.isNotBlank() && title.isNotBlank() && UUID_REGEX.matches(id)) {
-                        add(MangaTag(title, id, source))
-                    }
-                }
-            }
-        } catch (_: Exception) {
-            emptySet()
-        }
-    }
+    private fun fetchGenres(): Set<MangaTag> = GENRES
+        .filter { UUID_REGEX.matches(it.first) }
+        .map { MangaTag(it.second, it.first, source) }
+        .toSet()
 
     private fun parseContentRating(value: String?): ContentRating? {
         return when (value?.lowercase(Locale.ROOT)) {
@@ -223,17 +200,6 @@ internal class Kagane(context: MangaLoaderContext) :
             genresObj.put("values", genresArr)
             genresObj.put("match_all", false)
             jsonBody.put("genres", genresObj)
-        }
-        if (filter.tagsExclude.isNotEmpty()) {
-            val excludedGenreIds = filter.tagsExclude.map { it.key }.filter { UUID_REGEX.matches(it) }
-            if (excludedGenreIds.isNotEmpty()) {
-                val genresObj = jsonBody.optJSONObject("genres") ?: JSONObject().also {
-                    jsonBody.put("genres", it)
-                }
-                genresObj.put("exclude", JSONArray().apply {
-                    excludedGenreIds.forEach(::put)
-                })
-            }
         }
         jsonBody.put("content_rating", JSONArray().apply {
             val ratings = filter.contentRating.ifEmpty {
@@ -908,5 +874,74 @@ internal class Kagane(context: MangaLoaderContext) :
                 .ifBlank { optString("genreName") }
                 .ifBlank { optString("name") }
                 .ifBlank { optString("title") }
+
+         private val GENRES = listOf(
+             "019bef86-56a6-71a1-af75-c1e43f48fba4" to "4-koma",
+             "019c3a02-5288-777a-b5d8-1bf9f79163ae" to "AI",
+             "019c1fe4-fabf-7242-a0a8-7866f98f705e" to "Action",
+             "019c1b6f-b682-7fee-9a9b-86e648b77e9e" to "Adventure",
+             "019c1fea-1b14-72d5-b2f8-c3194c4e1efe" to "Award Winning",
+             "019c1fe5-51fe-7f26-aee3-f057ac50f81d" to "Comedy",
+             "019c3a02-b00d-731d-884c-41460acc81e4" to "Coming of Age",
+             "019c2043-f726-7f78-9c58-7caf4662bf1f" to "Cooking",
+             "019c2043-d238-744b-8d5a-21bbc5166bd7" to "Crime",
+             "019c1fe8-cad1-7842-82a7-db5a87fc0a5a" to "Demons",
+             "019c1fea-2ddc-7e74-9935-a8b1b7782dd2" to "Doujinshi",
+             "019c1b6f-3d3b-7528-a3e2-a791cfdcc4f7" to "Drama",
+             "019c200d-6238-7364-9422-c50bd75e4e0d" to "Ecchi",
+             "019c1fe9-da2f-7938-a795-2b862b221cb3" to "Fan Colored",
+             "019c1b6f-51ed-7991-a796-a8ca26e86666" to "Fantasy",
+             "019c1fe9-9527-7f47-bf28-36ab2d6d4acd" to "Full Color",
+             "019c1fe7-5189-7619-9094-6e4b85c139ec" to "Gender Bender",
+             "019c1fe6-6717-77fa-8205-85d8e8a8755c" to "Gore",
+             "019c1fe8-74eb-73e6-840e-7916f145012e" to "Harem",
+             "019c3a01-d241-7d44-836d-095b98d4dc1e" to "Hentai",
+             "019c1fe6-7ea3-7741-9191-5ba94f6e9552" to "Historical",
+             "019c1b6f-c2e3-7909-93cf-0a48a2f2278f" to "Horror",
+             "019c1fe6-3ba5-7e76-aa0d-8756c314e2fa" to "Isekai",
+             "019c1b70-101d-7c9c-a28c-cc2439104443" to "Josei",
+             "019c1feb-8388-7c89-8c2d-ddfb530065e6" to "LGBTQIA+",
+             "019c1fe8-2221-7d69-9cd2-b67d64924994" to "Magic",
+             "019c1fe7-13fa-7019-a5a6-e7bbceb200f2" to "Magical Girls",
+             "019c1fe8-4c93-7f12-a6f0-e805fe4ade21" to "Martial Arts",
+             "019c2044-1fd9-7e84-b9c9-cbf20945a664" to "Mecha",
+             "019c1fe7-2c1e-730c-af33-ca3bef3a161d" to "Medical",
+             "019c1fe8-e822-7938-a04c-dee0a24f022c" to "Military",
+             "019c1fe8-3261-7c3d-9103-428f9a54eb41" to "Monsters",
+             "019c200f-1825-738c-b7c1-67266b9520b1" to "Music",
+             "019c1b6f-7991-7edb-8c7f-df6876f09a94" to "Mystery",
+             "019c1fe8-a048-7453-a06d-212678bf777a" to "Office Workers",
+             "019c1fe9-f0a1-71c6-bbe0-6afc3822647a" to "Official Colored",
+             "019c22cd-bb85-7541-9db6-7e6ea3394d0b" to "Omegaverse",
+             "019c1fe9-ae8d-7294-bcc8-9bd4269b94d7" to "Oneshot",
+             "019c1fe7-380c-72a5-8668-930c5e90ec44" to "Philosophical",
+             "019c1fe9-4fe3-776a-b11c-a14d76a52e7d" to "Police",
+             "019c1fe9-0e7c-7782-8265-c29ee6c19e79" to "Post-Apocalyptic",
+             "019c1ee5-dfa9-7b69-86a8-16831c1d81fe" to "Psychological",
+             "019c1fe8-5a6d-73bd-835d-16ae059bce6e" to "Reincarnation",
+             "019c1fe8-8837-78de-a911-f54754c2e713" to "Reverse Harem",
+             "019beb9a-a36a-718c-b551-d917a0818cc7" to "Romance",
+             "019c1fe7-db44-77a1-acc2-28c2bbb49ae1" to "School Life",
+             "019c1fe5-b704-72a6-a676-a8ad87ebcdd8" to "Sci-Fi",
+             "019c1fea-983f-7279-944e-8fb6e2cccdbc" to "Seinen",
+             "019c1b6f-fe1c-7eed-b93b-e1bf6dff63fd" to "Shoujo",
+             "019c1ee5-626f-7284-b5e8-8f3df5c5f76b" to "Shoujo Ai",
+             "019c1fea-85c7-76a7-996a-b41ce0cb05f8" to "Shounen",
+             "019c1ee5-4be9-766d-b545-5b87d7cdff96" to "Shounen Ai",
+             "019c1fe5-84d9-7a67-9240-1f303dc231bc" to "Slice of Life",
+             "019c2042-2a6f-7bcb-9c29-6098b8426aee" to "Smut",
+             "019c1fe6-bc40-7aa4-bac6-29a6cc29b559" to "Sports",
+             "019c1b6f-9c7b-77a0-8b54-e62925422b91" to "Supernatural",
+             "019c1fe8-b2ab-7e15-a55b-9fb28901cc9d" to "Survival",
+             "019c1fe6-0228-7052-98a2-fe6df7994d93" to "Thriller",
+             "019c1fe8-f932-7a19-a502-4ad6a2adfae4" to "Time Travel",
+             "019c1fe6-211d-7e73-927d-3c54b66a9055" to "Tragedy",
+             "019c1fe9-78cc-7d2e-be56-cc3f8442ccf0" to "Vampires",
+             "019c1fe9-21a7-7bbd-9763-10a5855a8e5c" to "Video Games",
+             "019c1fe9-3609-73d2-b4bf-8420cc15c5b2" to "Villainess",
+             "019c1fe7-0344-755b-b4df-c019f4cdbc21" to "Wuxia",
+             "019c1ee5-38f9-7324-9f7d-07a01dbf88a6" to "Yaoi",
+             "019c1ee5-7e79-7fd2-8fcc-de739858c851" to "Yuri",
+         )
     }
 }
