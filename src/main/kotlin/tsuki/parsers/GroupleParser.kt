@@ -1,16 +1,66 @@
 package tsuki.parsers
 
-import tsuki.site.ru.SeiMangaParser
-import tsuki.site.ru.ReadmangaParser
-import tsuki.site.ru.SelfMangaParser
-import tsuki.site.ru.UsagiParser
+import tsuki.MangaLoaderContext
+import tsuki.MangaParserAuthProvider
+import tsuki.config.ConfigKey
+import tsuki.core.AbstractMangaParser
+import tsuki.exception.AuthRequiredException
+import tsuki.exception.ParseException
+import tsuki.network.CommonHeaders
+
+import tsuki.model.ContentRating
+import tsuki.model.Manga
+import tsuki.model.MangaChapter
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaListFilterCapabilities
+import tsuki.model.MangaListFilterOptions
+import tsuki.model.MangaPage
+import tsuki.model.MangaParserSource
+import tsuki.model.MangaState
+import tsuki.model.MangaTag
+import tsuki.model.RATING_UNKNOWN
+import tsuki.model.SortOrder
+import tsuki.model.YEAR_MAX
+import tsuki.model.YEAR_MIN
+
+import tsuki.util.attrAsAbsoluteUrlOrNull
+import tsuki.util.attrAsRelativeUrl
+import tsuki.util.concatUrl
+import tsuki.util.findGroupValue
+import tsuki.util.flatMapChapters
+import tsuki.util.generateUid
+import tsuki.util.getCookies
+import tsuki.util.headersContentLength
+import tsuki.util.ifZero
+import tsuki.util.json.getStringOrNull
+import tsuki.util.json.mapJSON
+import tsuki.util.mapToSet
+import tsuki.util.metaValue
+import tsuki.util.nullIfEmpty
+import tsuki.util.parseFailed
+import tsuki.util.parseHtml
+import tsuki.util.parseSafe
+import tsuki.util.removeSuffix
+import tsuki.util.requireElementById
+import tsuki.util.runCatchingCancellable
+import tsuki.util.selectFirstOrThrow
+import tsuki.util.selectFirstParent
+import tsuki.util.substringBetween
+import tsuki.util.suspendlazy.suspendLazy
+import tsuki.util.textOrNull
+import tsuki.util.toAbsoluteUrl
+import tsuki.util.toRelativeUrl
+import tsuki.util.toTitleCase
+import tsuki.util.upBy
+import tsuki.util.urlBuilder
+import tsuki.util.urlEncoded
+
 import androidx.collection.MutableScatterMap
 import androidx.collection.ScatterMap
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import okhttp3.Headers
-import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Interceptor
@@ -19,20 +69,10 @@ import okhttp3.internal.closeQuietly
 import okio.IOException
 import org.json.JSONArray
 import org.jsoup.nodes.Element
-import tsuki.MangaLoaderContext
-import tsuki.MangaParserAuthProvider
-import tsuki.config.ConfigKey
-import tsuki.core.AbstractMangaParser
-import tsuki.exception.AuthRequiredException
-import tsuki.exception.ParseException
-import tsuki.model.*
-import tsuki.util.*
-import tsuki.util.json.getStringOrNull
-import tsuki.util.json.mapJSON
-import tsuki.util.suspendlazy.suspendLazy
 import java.net.HttpURLConnection
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.EnumSet
+import java.util.Locale
 
 private const val PAGE_SIZE = 70
 private const val NSFW_ALERT = "сексуальные сцены"
@@ -59,8 +99,9 @@ internal abstract class GroupleParser(
     private val tagsIndex = suspendLazy(initializer = ::fetchTagsMap)
 
     override fun getRequestHeaders(): Headers = Headers.Builder()
-        .add("User-Agent", config[userAgentKey])
-        .add("Accept-Language", "ru,en-US;q=0.7,en;q=0.3")
+        .add(CommonHeaders.REFERER, "https://$domain/")
+        .add(CommonHeaders.USER_AGENT, config[userAgentKey])
+        .add(CommonHeaders.ACCEPT_LANGUAGE, "ru,en-US;q=0.7,en;q=0.3")
         .build()
 
     override val availableSortOrders: Set<SortOrder> = EnumSet.of(
@@ -131,7 +172,7 @@ internal abstract class GroupleParser(
         } else {
             null
         }
-        val newSource = getSource(response.request.url)
+        val newSource = source
         val chaptersList = root.getElementById("chapters-list")
         var isRestricted = false
         if (chaptersList == null && root.getElementsContainingOwnText(NO_CHAPTERS).isEmpty()) {
@@ -328,14 +369,6 @@ internal abstract class GroupleParser(
         val root = doc.body().requireElementById("mangaBox").select("h4").first { it.ownText() == RELATED_TITLE }
             .nextElementSibling() ?: doc.parseFailed("Cannot find root")
         return root.select("div.tile").mapNotNull(::parseManga)
-    }
-
-    protected open fun getSource(url: HttpUrl): MangaSource = when (url.host) {
-        in SeiMangaParser.domains -> MangaParserSource.SEIMANGA
-        in ReadmangaParser.domains -> MangaParserSource.READMANGA_RU
-        in SelfMangaParser.domains -> MangaParserSource.SELFMANGA
-        in UsagiParser.domains -> MangaParserSource.USAGI
-        else -> source
     }
 
     private fun getSortKey(sortOrder: SortOrder) = when (sortOrder) {
