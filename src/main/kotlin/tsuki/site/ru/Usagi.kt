@@ -8,7 +8,7 @@ import tsuki.config.ConfigKey
 import tsuki.model.MangaParserSource
 
 @MangaSourceParser("USAGI", "Usagi", "ru")
-internal class UsagiParser(context: MangaLoaderContext) : 
+internal class Usagi(context: MangaLoaderContext) :
     GroupleParser(context, MangaParserSource.USAGI, 1) {
     override val configKeyDomain = ConfigKey.Domain("web.usagi.one")
 }
