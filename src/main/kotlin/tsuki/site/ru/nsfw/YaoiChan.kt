@@ -1,10 +1,11 @@
-package tsuki.site.ru
+package tsuki.site.ru.nsfw
 
-import tsuki.parsers.ChanParser
 import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
 import tsuki.config.ConfigKey
+import tsuki.parsers.ChanParser
 
+import tsuki.model.ContentType
 import tsuki.model.Manga
 import tsuki.model.MangaChapter
 import tsuki.model.MangaParserSource
@@ -17,7 +18,7 @@ import tsuki.util.parseHtml
 import tsuki.util.requireElementById
 import tsuki.util.toAbsoluteUrl
 
-@MangaSourceParser("YAOICHAN", "Яой-тян", "ru")
+@MangaSourceParser("YAOICHAN", "Яой-тян", "ru", ContentType.HENTAI)
 internal class YaoiChan(context: MangaLoaderContext) : ChanParser(context, MangaParserSource.YAOICHAN) {
 
     override val configKeyDomain = ConfigKey.Domain(
