@@ -109,8 +109,7 @@ internal class VoraToon(context: MangaLoaderContext) :
             }
 
             if (!filter.query.isNullOrEmpty()) {
-                val q = URLEncoder.encode(filter.query, "UTF-8")
-                append("&filter=title=like=\"$q\",nativeTitle=like=\"$q\"")
+                append("&title=").append(URLEncoder.encode(filter.query, "UTF-8"))
             }
 
             filter.states.oneOrThrowIfMany()?.let { state ->
