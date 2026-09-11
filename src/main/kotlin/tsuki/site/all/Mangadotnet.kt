@@ -145,6 +145,7 @@ internal class Mangadotnet(context: MangaLoaderContext) :
                 ContentType.MANGA,
                 ContentType.MANHWA,
                 ContentType.MANHUA,
+                ContentType.ONE_SHOT,
                 ContentType.OTHER,
             ),
             availableDemographics = EnumSet.of(
@@ -201,7 +202,8 @@ internal class Mangadotnet(context: MangaLoaderContext) :
                     ContentType.MANGA -> addQueryParameter("origin", "JP")
                     ContentType.MANHWA -> addQueryParameter("origin", "KR")
                     ContentType.MANHUA -> addQueryParameter("origin", "CN")
-                    ContentType.OTHER -> addQueryParameter("origin", "ONESHOT")
+                    ContentType.ONE_SHOT -> addQueryParameter("origin", "ONESHOT")
+                    ContentType.OTHER -> addQueryParameter("origin", "EN")
                     else -> {}
                 }
             }
