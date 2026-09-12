@@ -45,16 +45,22 @@ internal class Softkomik(context: MangaLoaderContext) :
     PagedMangaParser(context, MangaParserSource.SOFTKOMIK, pageSize = 24), MangaParserAuthProvider {
 
     override val authUrl: String get() = "https://$domain/akun/login"
+
     override suspend fun isAuthorized(): Boolean {
         val cookies = context.cookieJar.getCookies(domain)
         return cookies.any { it.name == "tokkey" }
     }
+
     override suspend fun getUsername(): String = ""
 
     override val configKeyDomain = ConfigKey.Domain("softkomik.co")
 
-    private val apiUrl = "https://v2.softdevices.my.id"
+    private val apiUrl = "https://api.softkomik.org"
     private val coverUrl = "https://cover.softdevices.my.id/softkomik-cover"
+
+    // Inlined in the site's chapter chunk as `String("...").trim()` and appended to every image URL.
+    private val imageIdParam = "T4Kmwztku"
+    private val trapImagePath = "/baca-image.jpeg"
 
     private val cdnUrls = listOf(
         "https://psy1.komik.im",
@@ -69,8 +75,11 @@ internal class Softkomik(context: MangaLoaderContext) :
     private val loginRequiredGenres = setOf("ecchi", "mature")
     private val requiredLoginSuffix = "login-required"
     private val requiredLoginFragment = "#$requiredLoginSuffix"
+    private val sessionKeyChapterList = "chapter-list"
+    private val sessionKeyChapterImage = "chapter-image"
 
     override val availableSortOrders = setOf(SortOrder.NEWEST, SortOrder.POPULARITY)
+
     override val filterCapabilities = MangaListFilterCapabilities(
         isSearchSupported = true,
         isSearchWithFiltersSupported = true,
@@ -103,30 +112,58 @@ internal class Softkomik(context: MangaLoaderContext) :
         } else {
             builder.add("Authorization", "Bearer ${session.token}")
         }
+        session.contentAccess?.let {
+            builder.add("X-Content-Token", it.token)
+            builder.add("X-Content-Sign", it.sign)
+        }
         return builder.build()
     }
 
-    private data class SessionDto(val ex: Long, val token: String, val sign: String)
+    private data class SessionDto(
+        val ex: Long,
+        val token: String,
+        val sign: String,
+        val contentAccess: ContentAccessDto? = null,
+    )
+
+    private data class ContentAccessDto(
+        val token: String,
+        val sign: String,
+    )
+
     private val sessionsByKey = ConcurrentHashMap<String, SessionDto>()
-    private val sessionKeyChapterList = "chapter-list"
-    private val sessionKeyChapterImage = "chapter-image"
 
     private suspend fun getSessionAsync(route: SessionRoute): SessionDto {
         sessionsByKey[route.key]?.takeIf { it.ex > System.currentTimeMillis() + 30_000L }?.let { return it }
 
         try {
-            val apiHeaders = Headers.Builder()
+            val sessionHeaders = Headers.Builder()
                 .add("Accept", "application/json")
                 .add("Referer", "https://$domain/")
                 .add("Origin", "https://$domain")
                 .add("X-Requested-With", "XMLHttpRequest")
                 .build()
-            val res = webClient.httpGet(route.sessionApiUrl, apiHeaders).parseJson()
-            val rawSign = res.optString("sign", "")
+
+            // Initialize cookies if missing (some endpoints require zEm9be / AhyyL cookies)
+            val hasCookies = context.cookieJar.getCookies(domain)
+                .any { it.name == "zEm9be" || it.name == "AhyyL" }
+            if (!hasCookies) {
+                runCatching { webClient.httpGet("https://$domain/").close() }
+                runCatching { webClient.httpGet("https://$domain/api/me", sessionHeaders).close() }
+            }
+
+            val res = webClient.httpGet(route.sessionApiUrl, sessionHeaders).parseJson()
+            val contentAccess = res.optJSONObject("contentAccess")?.let {
+                ContentAccessDto(
+                    token = it.optString("token", ""),
+                    sign = it.optString("sign", ""),
+                )
+            }
             val session = SessionDto(
                 ex = res.optLong("ex", System.currentTimeMillis() + 60_000L),
                 token = res.optString("token", ""),
-                sign = rawSign.substringBefore('|'),
+                sign = res.optString("sign", ""),
+                contentAccess = contentAccess,
             )
             sessionsByKey[route.key] = session
             return session
@@ -174,6 +211,10 @@ internal class Softkomik(context: MangaLoaderContext) :
                 } else {
                     header("Authorization", "Bearer ${session.token}")
                 }
+                session.contentAccess?.let {
+                    header("X-Content-Token", it.token)
+                    header("X-Content-Sign", it.sign)
+                }
             }
             .build()
         return chain.proceed(newRequest)
@@ -197,24 +238,37 @@ internal class Softkomik(context: MangaLoaderContext) :
             null
         }
 
-        if (response?.isSuccessful == true) return response
+        // Trap image detection: site returns a placeholder when the chapter is blocked
+        if (response?.isSuccessful == true && !response.isTrapImage()) return response
 
         val currentHost = cdnUrls.firstOrNull { request.url.toString().startsWith(it) }
         if (currentHost == null) return response ?: throw java.net.UnknownHostException(request.url.host)
 
         response?.close()
         val imagePath = request.url.toString().removePrefix(currentHost).removePrefix("/")
+        var latestResponse: Response? = null
         for (newHost in cdnUrls) {
             if (newHost == currentHost) continue
+            latestResponse?.close()
             val newUrl = "$newHost/$imagePath".toHttpUrl()
-            try {
-                val newResp = chain.proceed(request.newBuilder().url(newUrl).build())
-                if (newResp.isSuccessful) return newResp
-                newResp.close()
-            } catch (_: Exception) {}
+            latestResponse = try {
+                chain.proceed(request.newBuilder().url(newUrl).build())
+            } catch (_: Exception) {
+                null
+            }
+            if (latestResponse?.isSuccessful == true && !latestResponse.isTrapImage()) return latestResponse
         }
-        throw java.net.UnknownHostException("All CDN hosts failed for $imagePath")
+
+        if (latestResponse?.isTrapImage() == true) {
+            latestResponse.close()
+            throw Exception("Gambar diblokir oleh situs, extension perlu diperbarui")
+        }
+
+        return latestResponse ?: throw java.net.UnknownHostException("All CDN hosts failed for $imagePath")
     }
+
+    private fun Response.isTrapImage(): Boolean =
+        request.url.encodedPath.endsWith(trapImagePath)
 
     private data class SessionRoute(
         val key: String,
@@ -233,9 +287,9 @@ internal class Softkomik(context: MangaLoaderContext) :
 
         val key = if (isChapterImageRequest) sessionKeyChapterImage else sessionKeyChapterList
         val sessionApiUrl = if (isChapterImageRequest) {
-            "https://$domain/api/session/chapter/oioa"
+            "https://$domain/api/session/chapter/oaisos"
         } else {
-            "https://$domain/api/session/iuiuiwqw"
+            "https://$domain/api/session/aksjkas"
         }
         return SessionRoute(
             key = key,
@@ -413,33 +467,43 @@ internal class Softkomik(context: MangaLoaderContext) :
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
         val isLoginRequired = chapter.url.contains(requiredLoginFragment)
         val cleanUrl = chapter.url.substringBefore('#')
+        val segments = cleanUrl.trim('/').split("/")
+        val slug = segments.getOrNull(0) ?: return emptyList()
+        val chapterNum = segments.getOrNull(2) ?: return emptyList()
 
         val doc = webClient.httpGet(cleanUrl.toAbsoluteUrl(domain), pageHeaders()).parseHtml()
-        val pageProps = extractNextJs(doc)
-        val data = pageProps?.optJSONObject("data")
-        val komik = data?.optJSONObject("komik")
-        val chapterData = data?.optJSONObject("data")
+        val pageProps = extractNextJs(doc) ?: return emptyList()
 
-        val slug = cleanUrl.trim('/').substringBefore("/chapter/")
-        val chNum = cleanUrl.substringAfterLast("/chapter/").trim('/')
+        // Fields are at the top level of pageProps (not nested under "data")
+        val chapterData = pageProps.optJSONObject("data")?.optJSONObject("data")
+            ?: pageProps.optJSONObject("data")
+            ?: pageProps
 
-        var imageSrc = chapterData?.optJSONArray("imageSrc") ?: JSONArray()
-        val storageInter2 = chapterData?.optBoolean("storageInter2", false) ?: false
+        var imageSrc = chapterData.optJSONArray("imageSrc") ?: JSONArray()
+        val storageInter2 = chapterData.optBoolean("storageInter2", false)
+        val backBS3 = chapterData.optBoolean("backBS3", false)
 
         if (imageSrc.length() == 0) {
-            val id = chapterData?.optString("_id") ?: komik?.optString("_id") ?: return emptyList()
-            imageSrc = fetchChapterImages(slug, chNum, id, isLoginRequired)
+            val id = chapterData.optString("_id")
+                .ifEmpty { chapterData.optJSONObject("komik")?.optString("_id") ?: "" }
+            if (id.isEmpty()) return emptyList()
+            imageSrc = fetchChapterImages(slug, chapterNum, id, isLoginRequired)
         }
 
         if (imageSrc.length() == 0) return emptyList()
 
-        val imageBaseUrl = if (storageInter2) cdnUrls[2] else cdnUrls[0]
+        val imageBaseUrl = when {
+            backBS3 -> cdnUrls[0]
+            storageInter2 -> cdnUrls[1]
+            else -> cdnUrls[0]
+        }
+
         return (0 until imageSrc.length()).mapNotNull { i ->
             val path = imageSrc.optString(i, "").removePrefix("/")
             if (path.isEmpty()) return@mapNotNull null
             MangaPage(
                 id = generateUid(path),
-                url = "$imageBaseUrl/$path",
+                url = "$imageBaseUrl/$path?id=$imageIdParam",
                 preview = null,
                 source = source,
             )
