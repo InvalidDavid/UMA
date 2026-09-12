@@ -347,11 +347,11 @@ internal class MgreadIo(context: MangaLoaderContext) :
 
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
         val doc = webClient.httpGet(chapter.url.toAbsoluteUrl(domain)).parseHtml()
-        return doc.select("#chapter-content img[src]").mapIndexed { _, img ->
-            val src = img.absUrl("src")
+        return doc.select("#chapter-content img[data-original-src], #chapter-content img[src]").mapIndexed { _, img ->
+            val url = img.absUrl("data-original-src").ifEmpty { img.absUrl("src") }
             MangaPage(
-                id = generateUid(src),
-                url = src,
+                id = generateUid(url),
+                url = url,
                 preview = null,
                 source = source,
             )

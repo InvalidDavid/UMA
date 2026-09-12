@@ -33,7 +33,7 @@ import java.util.Locale
 internal class VoraToon(context: MangaLoaderContext) :
     PagedMangaParser(context, MangaParserSource.VORATOON, pageSize = 30) {
 
-    override val configKeyDomain = ConfigKey.Domain("v1.voratoon.com")
+    override val configKeyDomain = ConfigKey.Domain("v2.voratoon.com")
 
     private val apiBase = "https://$domain/backend"
 
@@ -109,8 +109,7 @@ internal class VoraToon(context: MangaLoaderContext) :
             }
 
             if (!filter.query.isNullOrEmpty()) {
-                val q = URLEncoder.encode(filter.query, "UTF-8")
-                append("&filter=title=like=\"$q\",nativeTitle=like=\"$q\"")
+                append("&title=").append(URLEncoder.encode(filter.query, "UTF-8"))
             }
 
             filter.states.oneOrThrowIfMany()?.let { state ->
