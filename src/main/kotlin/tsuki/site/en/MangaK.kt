@@ -2,13 +2,10 @@ package tsuki.site.en
 
 import tsuki.MangaLoaderContext
 import tsuki.MangaSourceParser
-import tsuki.config.ConfigKey
 import tsuki.parsers.MangaKParser
 
 import tsuki.model.MangaParserSource
 
 @MangaSourceParser("MANGAK", "MangaK", "en")
 internal class MangaK(context: MangaLoaderContext) :
-    MangaKParser(context, MangaParserSource.MANGAK) {
-    override val configKeyDomain = ConfigKey.Domain("mangak.io")
-}
+    MangaKParser(context, MangaParserSource.MANGAK, "mangak.io")
