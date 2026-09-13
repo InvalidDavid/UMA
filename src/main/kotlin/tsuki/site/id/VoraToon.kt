@@ -35,7 +35,7 @@ internal class VoraToon(context: MangaLoaderContext) :
 
     override val configKeyDomain = ConfigKey.Domain("v2.voratoon.com")
 
-    private val apiBase = "https://$domain/backend"
+    private val apiBase = "https://api.voratoon.com"
 
     override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
         super.onCreateConfig(keys)
