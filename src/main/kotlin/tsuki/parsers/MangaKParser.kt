@@ -44,7 +44,10 @@ import okhttp3.Response
 internal abstract class MangaKParser(
     context: MangaLoaderContext,
     source: MangaParserSource,
+    domain: String
 ) : PagedMangaParser(context, source, pageSize = 24) {
+
+    override val configKeyDomain = ConfigKey.Domain(domain)
 
     private val apiUrl: String get() = "https://api.$domain"
 
