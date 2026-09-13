@@ -25,6 +25,7 @@ import tsuki.util.parseJson
 import tsuki.util.oneOrThrowIfMany
 
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.json.JSONArray
@@ -258,16 +259,44 @@ class Chikari(context: MangaLoaderContext) :
 
     private suspend fun fetchChapters(slug: String, detailsJson: JSONObject? = null): List<MangaChapter> {
         try {
-            val url = "https://$domain/api/series/$slug/chapters".toHttpUrl().newBuilder()
-                .addQueryParameter("order", "desc")
-                .addQueryParameter("limit", "9999")
-                .addQueryParameter("offset", "0")
-                .build()
-                .toString()
+            val limit = 200 // server-enforced max page size
 
-            val response = webClient.httpGet(url).parseJson()
-            response.optJSONArray("items")?.let { items ->
-                return parseChapterArray(items, slug)
+            fun buildUrl(offset: Int) =
+                "https://$domain/api/series/$slug/chapters".toHttpUrl().newBuilder()
+                    .addQueryParameter("order", "desc")
+                    .addQueryParameter("limit", limit.toString())
+                    .addQueryParameter("offset", offset.toString())
+                    .build()
+                    .toString()
+
+            val firstResponse = webClient.httpGet(buildUrl(0)).parseJson()
+            val total = firstResponse.optInt("total", 0)
+            val allChapters = mutableListOf<MangaChapter>()
+
+            firstResponse.optJSONArray("items")?.let { items ->
+                allChapters.addAll(parseChapterArray(items, slug))
+            }
+
+            val remainingOffsets = (allChapters.size until total step limit).toList()
+
+            if (remainingOffsets.isNotEmpty()) {
+                val pages = coroutineScope {
+                    remainingOffsets.map { offset ->
+                        async {
+                            runCatching {
+                                val response = webClient.httpGet(buildUrl(offset)).parseJson()
+                                response.optJSONArray("items")
+                                    ?.let { parseChapterArray(it, slug) }
+                                    ?: emptyList()
+                            }.getOrDefault(emptyList())
+                        }
+                    }.awaitAll()
+                }
+                pages.forEach { allChapters.addAll(it) }
+            }
+
+            if (allChapters.isNotEmpty()) {
+                return allChapters.distinctBy { it.number }.sortedBy { it.number }
             }
         } catch (_: Exception) {
         }
@@ -300,7 +329,7 @@ class Chikari(context: MangaLoaderContext) :
                 branch = null,
                 source = source,
             )
-        }.sortedBy { it.number }
+        }
     }
 
     private fun parseDate(dateStr: String): Long =
