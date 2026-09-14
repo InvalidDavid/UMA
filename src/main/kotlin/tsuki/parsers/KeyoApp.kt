@@ -290,22 +290,13 @@ abstract class KeyoApp(
             .map { it.text() }
             .filter { it.isNotEmpty() && it != "No alternative titles." }
 
-        val description = buildString {
-            append(synopsis)
-            if (altNames.isNotEmpty()) {
-                if (isNotEmpty()) append("\n\n")
-                append(altNamePrefix.trim())
-                append("\n")
-                altNames.joinTo(this, "\n") { "- $it" }
-            }
-        }.takeIf { it.isNotEmpty() }
-
         val chapters = parseChapterList(doc)
 
         return manga.copy(
             title = title,
+            altTitles = altNames.toSet(),
             coverUrl = thumbnail,
-            description = description,
+            description = synopsis,
             authors = setOfNotNull(author, artist).ifEmpty { null } ?: emptySet(),
             tags = genres.map { MangaTag(it, it.lowercase(), source) }.toSet(),
             state = state,
