@@ -201,7 +201,9 @@ internal class Atsumaru(context: MangaLoaderContext) :
             if (!showAdult && isAdult) return@mapNotNull null
             val id = obj.getString("id")
             val title = obj.getString("title")
-            val image = obj.optString("mediumImage").takeIf { it.isNotEmpty() } ?: obj.optString("image")
+            val image = obj.optString("largeImage").takeIf { it.isNotEmpty() }
+                ?: obj.optString("mediumImage").takeIf { it.isNotEmpty() }
+                ?: obj.optString("image")
             val coverUrl = if (image.isNotEmpty()) {
                 if (image.startsWith("http") || image.startsWith("//")) image
                 else "$cdnUrl/static/$image"
@@ -356,7 +358,8 @@ internal class Atsumaru(context: MangaLoaderContext) :
                 val rating = if (rawRating >= 0.0) (rawRating / 10.0).toFloat() else RATING_UNKNOWN
 
                 val posterObj = mangaPage.optJSONObject("poster")
-                val posterImage = posterObj?.optString("mediumImage")
+                val posterImage = posterObj?.optString("largeImage")?.takeIf { it.isNotEmpty() }
+                    ?: posterObj?.optString("mediumImage")
                 val coverUrl = if (!posterImage.isNullOrEmpty()) {
                     "$cdnUrl/static/$posterImage"
                 } else manga.coverUrl
@@ -504,9 +507,10 @@ internal class Atsumaru(context: MangaLoaderContext) :
         val imagePath: String? = when (imageRaw) {
             is String -> imageRaw.takeIf { it.isNotBlank() }
             is JSONObject -> {
-                imageRaw.optString("image").nullIfEmpty()
+                imageRaw.optString("largeImage").nullIfEmpty()
                     ?: imageRaw.optString("mediumImage").nullIfEmpty()
                     ?: imageRaw.optString("smallImage").nullIfEmpty()
+                    ?: imageRaw.optString("image").nullIfEmpty()
             }
             else -> null
         }?.removePrefix("/")?.removePrefix("static/")
