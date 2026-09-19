@@ -423,10 +423,13 @@ internal abstract class MangaFireParser(
         synchronized(detailsCacheLock) {
             detailsCache[manga.url]?.let { return it }
         }
+
+        val hid = extractHid(manga.url)
+        val detailsUrl = "https://$domain/api/titles/$hid"
+
         val result = try {
             coroutineScope {
-                val hid = extractHid(manga.url)
-                val detailsJson = apiGetJsonWithRetry("https://$domain/api/titles/$hid")
+                val detailsJson = apiGetJsonWithRetry(detailsUrl)
                 val data = detailsJson.getJSONObject("data")
                 val hasVolumes = data.optBoolean("hasVolumes", false)
 
@@ -488,9 +491,16 @@ internal abstract class MangaFireParser(
                     chapters = chapters,
                 )
             }
-        } catch (_: Exception) {
-            manga
+        } catch (e: ParseException) {
+            throw e
+        } catch (e: Exception) {
+            throw ParseException(
+                "Failed to load details: ${e.message}\nSolve captcha in webview and then reload page manually.",
+                detailsUrl,
+                e,
+            )
         }
+
         synchronized(detailsCacheLock) {
             detailsCache[manga.url] = result
         }
