@@ -169,7 +169,7 @@ class RimuScans(context: MangaLoaderContext) :
         val details = parseDetailsFromLd(doc, manga)
         val chapters = extractChapters(doc, manga.url.substringAfterLast("/"))
         details.copy(
-            chapters = chapters,
+            chapters = chapters.sortedBy { it.number },
         )
     }
 
