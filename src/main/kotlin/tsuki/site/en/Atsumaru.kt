@@ -36,13 +36,13 @@ internal class Atsumaru(context: MangaLoaderContext) :
     PagedMangaParser(context, MangaParserSource.ATSUMARU, pageSize = 40) {
 
     override val configKeyDomain = ConfigKey.Domain("atsu.moe")
-    private val baseUrl = "https://atsu.moe"
+    private val cdnUrl = "https://cdn.$domain"
     private val showAdultKey = ConfigKey.ShowSuspiciousContent(false)
 
     private val apiHeaders: Headers by lazy {
         Headers.Builder()
             .add("Accept", "*/*")
-            .add("Referer", baseUrl)
+            .add("Referer", "https://$domain")
             .add("Content-Type", "application/json")
             .build()
     }
@@ -187,7 +187,7 @@ internal class Atsumaru(context: MangaLoaderContext) :
 
     private suspend fun fetchList(path: String, page: Int): List<Manga> {
         val offset = (page - 1) * pageSize
-        val url = "$baseUrl/api/home2/$path".toHttpUrl().newBuilder()
+        val url = "https://$domain/api/home2/$path".toHttpUrl().newBuilder()
             .addQueryParameter("offset", offset.toString())
             .addQueryParameter("limit", pageSize.toString())
             .build()
@@ -201,10 +201,12 @@ internal class Atsumaru(context: MangaLoaderContext) :
             if (!showAdult && isAdult) return@mapNotNull null
             val id = obj.getString("id")
             val title = obj.getString("title")
-            val image = obj.optString("mediumImage").takeIf { it.isNotEmpty() } ?: obj.optString("image")
+            val image = obj.optString("largeImage").takeIf { it.isNotEmpty() }
+                ?: obj.optString("mediumImage").takeIf { it.isNotEmpty() }
+                ?: obj.optString("image")
             val coverUrl = if (image.isNotEmpty()) {
                 if (image.startsWith("http") || image.startsWith("//")) image
-                else "https://$domain/static/$image"
+                else "$cdnUrl/static/$image"
             } else null
             val type = obj.optString("type")
             val rating = obj.optDouble("mbRating", -1.0).takeIf { it >= 0 }?.let { (it / 10.0).toFloat() } ?: RATING_UNKNOWN
@@ -213,7 +215,7 @@ internal class Atsumaru(context: MangaLoaderContext) :
                 title = title,
                 altTitles = emptySet(),
                 url = "/manga/$id",
-                publicUrl = "$baseUrl/manga/$id",
+                publicUrl = "https://$domain/manga/$id",
                 rating = rating,
                 coverUrl = coverUrl,
                 tags = setOfNotNull(type.takeIf { it.isNotEmpty() }?.let { MangaTag(it, "type:$it", source) }),
@@ -226,7 +228,7 @@ internal class Atsumaru(context: MangaLoaderContext) :
     }
 
     private suspend fun getSearchPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
-        val url = "$baseUrl/collections/manga/documents/search".toHttpUrl().newBuilder().apply {
+        val url = "https://$domain/collections/manga/documents/search".toHttpUrl().newBuilder().apply {
             addQueryParameter("q", filter.query)
             if (filter.query != "*") {
                 addQueryParameter("query_by", "title,englishTitle,otherNames,authors")
@@ -345,7 +347,7 @@ internal class Atsumaru(context: MangaLoaderContext) :
             coroutineScope {
                 val mangaId = manga.url.substringAfterLast("/")
 
-                val pageDeferred = async { webClient.httpGet("$baseUrl/api/manga/page?id=$mangaId", apiHeaders).parseJson() }
+                val pageDeferred = async { webClient.httpGet("https://$domain/api/manga/page?id=$mangaId", apiHeaders).parseJson() }
                 val pageJson = pageDeferred.await()
                 val mangaPage = pageJson.optJSONObject("mangaPage") ?: return@coroutineScope manga
 
@@ -356,9 +358,10 @@ internal class Atsumaru(context: MangaLoaderContext) :
                 val rating = if (rawRating >= 0.0) (rawRating / 10.0).toFloat() else RATING_UNKNOWN
 
                 val posterObj = mangaPage.optJSONObject("poster")
-                val posterImage = posterObj?.optString("mediumImage")
+                val posterImage = posterObj?.optString("largeImage")?.takeIf { it.isNotEmpty() }
+                    ?: posterObj?.optString("mediumImage")
                 val coverUrl = if (!posterImage.isNullOrEmpty()) {
-                    "https://$domain/static/$posterImage"
+                    "$cdnUrl/static/$posterImage"
                 } else manga.coverUrl
 
                 val authors = mangaPage.optJSONArray("authors")?.let { arr ->
@@ -428,7 +431,7 @@ internal class Atsumaru(context: MangaLoaderContext) :
     }
 
     private suspend fun loadChapters(mangaId: String, scanlators: Map<String, String>): List<MangaChapter> {
-        val chaptersJson = webClient.httpGet("$baseUrl/api/manga/allChapters?mangaId=$mangaId", apiHeaders).parseJson()
+        val chaptersJson = webClient.httpGet("https://$domain/api/manga/allChapters?mangaId=$mangaId", apiHeaders).parseJson()
         val chaptersArray = chaptersJson.optJSONArray("chapters") ?: JSONArray()
 
         val chapters = (0 until chaptersArray.length()).map { i ->
@@ -463,7 +466,7 @@ internal class Atsumaru(context: MangaLoaderContext) :
 
     override suspend fun getRelatedManga(seed: Manga): List<Manga> {
         val mangaId = seed.url.substringAfterLast("/")
-        val pageJson = webClient.httpGet("$baseUrl/api/manga/page?id=$mangaId", apiHeaders).parseJson()
+        val pageJson = webClient.httpGet("https://$domain/api/manga/page?id=$mangaId", apiHeaders).parseJson()
         val mangaPage = pageJson.optJSONObject("mangaPage") ?: return emptyList()
         val similar = mangaPage.optJSONArray("similarManga") ?: return emptyList()
         return (0 until similar.length()).map { i ->
@@ -473,7 +476,7 @@ internal class Atsumaru(context: MangaLoaderContext) :
 
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
         val (mangaId, chapterId) = chapter.url.split("/")
-        val url = "$baseUrl/api/read/chapter".toHttpUrl().newBuilder()
+        val url = "https://$domain/api/read/chapter".toHttpUrl().newBuilder()
             .addQueryParameter("mangaId", mangaId)
             .addQueryParameter("chapterId", chapterId)
             .build()
@@ -485,7 +488,7 @@ internal class Atsumaru(context: MangaLoaderContext) :
             val fullUrl = when {
                 imagePath.startsWith("http") -> imagePath
                 imagePath.startsWith("//") -> "https:$imagePath"
-                else -> "https://$domain/static/${imagePath.removePrefix("/").removePrefix("static/")}"
+                else -> "$cdnUrl/static/${imagePath.removePrefix("/").removePrefix("static/")}"
             }
             MangaPage(id = generateUid(fullUrl), url = fullUrl, preview = null, source = source)
         }
@@ -504,9 +507,10 @@ internal class Atsumaru(context: MangaLoaderContext) :
         val imagePath: String? = when (imageRaw) {
             is String -> imageRaw.takeIf { it.isNotBlank() }
             is JSONObject -> {
-                imageRaw.optString("image").nullIfEmpty()
+                imageRaw.optString("largeImage").nullIfEmpty()
                     ?: imageRaw.optString("mediumImage").nullIfEmpty()
                     ?: imageRaw.optString("smallImage").nullIfEmpty()
+                    ?: imageRaw.optString("image").nullIfEmpty()
             }
             else -> null
         }?.removePrefix("/")?.removePrefix("static/")
@@ -515,7 +519,7 @@ internal class Atsumaru(context: MangaLoaderContext) :
             when {
                 imagePath.startsWith("http") -> imagePath
                 imagePath.startsWith("//") -> "https:$imagePath"
-                else -> "https://$domain/static/$imagePath"
+                else -> "$cdnUrl/static/$imagePath"
             }
         } else null
 
@@ -524,7 +528,7 @@ internal class Atsumaru(context: MangaLoaderContext) :
             title = title,
             altTitles = emptySet(),
             url = "/manga/$id",
-            publicUrl = "$baseUrl/manga/$id",
+            publicUrl = "https://$domain/manga/$id",
             rating = RATING_UNKNOWN,
             contentRating = null,
             coverUrl = coverUrl,
