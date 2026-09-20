@@ -51,10 +51,6 @@ internal class Karh(context: MangaLoaderContext) :
 
     override suspend fun getFilterOptions() = MangaListFilterOptions(
         availableTags = emptySet(),
-        availableStates = EnumSet.of(
-            MangaState.ONGOING,
-            MangaState.FINISHED,
-        ),
     )
 
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
@@ -112,7 +108,7 @@ internal class Karh(context: MangaLoaderContext) :
             source = source,
         )
     }
-    
+
     override suspend fun getDetails(manga: Manga): Manga {
         val url = "$baseUrl/${manga.url}"
         val body = webClient.httpGet(url).body?.string()
@@ -173,7 +169,7 @@ internal class Karh(context: MangaLoaderContext) :
             SimpleDateFormat("d/M/yyyy", Locale.US).parse(text)?.time ?: 0L
         }.getOrDefault(0L)
     }
-    
+
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
         val url = absolutize(chapter.url)
         val body = webClient.httpGet(url).body?.string()
@@ -197,7 +193,7 @@ internal class Karh(context: MangaLoaderContext) :
     }
 
     override suspend fun getPageUrl(page: MangaPage): String = page.url
-    
+
     private fun absolutize(url: String): String = when {
         url.startsWith("http://") || url.startsWith("https://") -> url
         url.startsWith("//") -> "https:$url"
