@@ -18,6 +18,8 @@ import tsuki.model.MangaTag
 import tsuki.model.MangaState
 import tsuki.model.RATING_UNKNOWN
 import tsuki.model.SortOrder
+import tsuki.model.Favicon
+import tsuki.model.Favicons
 
 import tsuki.util.generateUid
 import tsuki.util.parseJson
@@ -38,6 +40,15 @@ internal class CosmicScans(context: MangaLoaderContext) :
 
     override val configKeyDomain = ConfigKey.Domain("02.cosmicscans.to")
     private val apiUrl = "https://cdncid.csmcscns.id/v1/manga"
+
+    override suspend fun getFavicons(): Favicons {
+        return Favicons(
+            listOf(
+                Favicon("https://cdncid.csmcscns.id/uploads/2024/01/logo_cosmic.png", 192, null),
+            ),
+            domain,
+        )
+    }
 
     override val availableSortOrders: Set<SortOrder> = EnumSet.of(
         SortOrder.UPDATED,
