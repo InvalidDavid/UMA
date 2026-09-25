@@ -76,6 +76,11 @@ fabric.properties
 build/
 bin/
 
+# Local agent and specification workspaces
+/.codex/
+/openspec/
+/.worktrees/
+
 .idea/**/misc.xml
 .idea/**/vcs.xml
 .idea/**/ktlint.xml

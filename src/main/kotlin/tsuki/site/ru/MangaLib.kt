@@ -15,6 +15,8 @@ import tsuki.model.MangaParserSource
 internal class MangaLib(context: MangaLoaderContext, ) :
     LibSocialParser(context, MangaParserSource.MANGALIB, 1, "mangalib.org") {
 
+    override val apiHost = "api2.mangalib.me"
+
     override val configKeyDomain = ConfigKey.Domain("mangalib.org", "mangalib.me")
 
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> = try {
