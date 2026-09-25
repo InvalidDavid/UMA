@@ -35,6 +35,7 @@ import tsuki.util.urlBuilder
 import androidx.collection.ArrayMap
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.EnumSet
@@ -185,7 +186,11 @@ internal class MangaWtf(context: MangaLoaderContext) :
         return json.getJSONArray("pages").mapJSON { jo ->
             MangaPage(
                 id = generateUid(jo.getString("id")),
-                url = jo.getString("image"),
+                url = jo.getString("image").toHttpUrl().newBuilder()
+                    .setQueryParameter("format", "webp")
+                    .setQueryParameter("width", "1600")
+                    .build()
+                    .toString(),
                 preview = null,
                 source = source,
             )

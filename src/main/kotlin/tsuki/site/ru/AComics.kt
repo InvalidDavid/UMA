@@ -190,9 +190,8 @@ internal class AComics(context: MangaLoaderContext) :
 
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
         val doc = webClient.httpGet(chapter.url + "1").parseHtml()
-        val totalPages = doc.selectFirstOrThrow("h1.reader-issue-title span.number")
-            .text()
-            .substringAfterLast('/')
+        val totalPages = doc.selectFirstOrThrow("nav.reader-navigator[data-issue-count]")
+            .attr("data-issue-count")
             .toInt()
         return (1..totalPages).map {
             val url = chapter.url + it

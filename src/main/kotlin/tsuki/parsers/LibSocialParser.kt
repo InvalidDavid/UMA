@@ -69,7 +69,7 @@ internal abstract class LibSocialParser(
     siteDomains: String,
 ) : PagedMangaParser(context, source, pageSize = 60), MangaParserAuthProvider {
 
-    protected val apiHost = "api.cdnlibs.org"
+    protected open val apiHost = "api.cdnlibs.org"
 
     override val userAgentKey = ConfigKey.UserAgent(UserAgents.CHROME_MOBILE)
 
@@ -257,7 +257,7 @@ internal abstract class LibSocialParser(
         val json = pages.await()
         val primaryServer = getPrimaryImageServer(servers)
         json.getJSONArray("pages").mapJSON { jo ->
-            val url = jo.getString("url")
+            val url = "/" + jo.getString("url").trimStart('/')
             MangaPage(
                 id = generateUid(jo.getLong("id")),
                 url = concatUrl(primaryServer, url),
