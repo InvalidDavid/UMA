@@ -48,6 +48,11 @@ internal class Manga18fx(context: MangaLoaderContext) :
         isMultipleTagsSupported = false,
     )
 
+    init {
+        paginator.firstPage = 1
+        searchPaginator.firstPage = 1
+    }
+
     override suspend fun fetchAvailableTags(): Set<MangaTag> {
         val doc = webClient.httpGet("https://$domain/").parseHtml()
         val scraped = doc.select(".header-bottom li a").mapNotNull { a ->
