@@ -93,7 +93,7 @@ internal class Manga18fx(context: MangaLoaderContext) :
                 parsePopular(doc)
             }
             else -> {
-                val url = if (page > 1) "https://$domain/page/$page" else "https://$domain/"
+                val url = "https://$domain/page/$page"
                 val doc = webClient.httpGet(url).parseHtml()
                 parseLatestOrSearch(doc)
             }
