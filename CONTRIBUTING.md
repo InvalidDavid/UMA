@@ -1,6 +1,6 @@
 # Contributing to UMA
 
-This guide provides comprehensive instructions and best practices for contributing to the UMA (Usagi Manga Archive) plugin repository. Please **read it carefully** if you are a new contributor or lack experience with the required languages and technologies.
+This guide provides comprehensive instructions and best practices for contributing to the UMA (Universal Manga Archive) plugin repository. Please **read it carefully** if you are a new contributor or lack experience with the required languages and technologies.
 
 This is a living document that evolves over time. If you find issues or have suggestions, feel free to open an [Issue](https://github.com/InvalidDavid/UMA/issues) or submit a Pull Request.
 
