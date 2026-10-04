@@ -60,7 +60,7 @@ internal class HentaiRead(context: MangaLoaderContext) :
 
     override suspend fun getFilterOptions(): MangaListFilterOptions = MangaListFilterOptions(
         availableTags = tagCache().values.toSet(),
-        availableContentTypes = setOf(
+        availableContentTypes = EnumSet.of(
             ContentType.DOUJINSHI,
             ContentType.HENTAI,
             ContentType.COMICS,
@@ -78,7 +78,7 @@ internal class HentaiRead(context: MangaLoaderContext) :
         SortOrder.RATING,
         SortOrder.RATING_ASC,
     )
-    
+
     override val selectGallery = ".manga-item"
     override val selectGalleryLink = "a.manga-item__link"
     override val selectGalleryTitle = "a.manga-item__link"
@@ -141,7 +141,7 @@ internal class HentaiRead(context: MangaLoaderContext) :
         tagCacheRef = tags
         tags
     }
-    
+
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
         val hasFilters = filter.query != null ||
                 filter.tags.isNotEmpty() ||
@@ -288,7 +288,7 @@ internal class HentaiRead(context: MangaLoaderContext) :
                 source = source,
             )
         }
-    
+
     override suspend fun getDetails(manga: Manga): Manga {
         val doc = webClient.httpGet(manga.url.toAbsoluteUrl(domain)).parseHtml()
         val tags = tagCache()
@@ -382,7 +382,7 @@ internal class HentaiRead(context: MangaLoaderContext) :
 
         private const val PREVIEW_PREFIX = "https://hencover.xyz/preview/"
         private const val CDN_PREFIX = "https://henread.xyz/"
-        
+
         private val DATE_FORMAT = SimpleDateFormat("MMMM d, yyyy h:mm a", Locale.ENGLISH)
     }
 }
