@@ -9,10 +9,7 @@ import tsuki.model.MangaParserSource
 @MangaSourceParser("TIMELESSTOONS", "TimelessToons", "en")
 internal class TimelessToons(context: MangaLoaderContext) :
     KeyoApp(context, MangaParserSource.TIMELESSTOONS, "timelesstoons.org") {
-
-    override fun popularMangaSelector() =
-        "div:has(> h2:contains(Trending)) + div .group"
-
-    override fun latestUpdatesSelector() =
-        "div.grid > div.group.latest-poster"
+    override fun popularMangaSelector() = "div:has(> h2:contains(Trending)) + div .group"
+    override fun latestUpdatesSelector() = "div.grid > div.group.latest-poster"
+    override val dateSelector: String = "div.text-xs"
 }
