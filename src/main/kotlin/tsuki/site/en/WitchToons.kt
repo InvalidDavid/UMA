@@ -8,4 +8,4 @@ import tsuki.model.MangaParserSource
 
 @MangaSourceParser("WITCHTOONS", "WitchToons", "en")
 internal class WitchToons(context: MangaLoaderContext) :
-    VineTheme(context,MangaParserSource.WITCHTOONS, "witchtoons.net",)
+    VineTheme(context,MangaParserSource.WITCHTOONS, "witchtoons.net")
