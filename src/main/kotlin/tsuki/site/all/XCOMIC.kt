@@ -6,6 +6,8 @@ import tsuki.config.ConfigKey
 import tsuki.core.PagedMangaParser
 
 import tsuki.model.ContentRating
+import tsuki.model.ContentType
+import tsuki.model.Demographic
 import tsuki.model.Manga
 import tsuki.model.MangaChapter
 import tsuki.model.MangaListFilter
@@ -21,24 +23,43 @@ import tsuki.model.SortOrder
 import tsuki.util.generateUid
 import tsuki.util.parseRaw
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import okhttp3.Headers.Companion.toHeaders
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.Interceptor
+import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
-import org.jsoup.parser.Parser
 import java.util.EnumSet
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * BETA
- * idk
- * its slow but works, need to rework graph queries
+ * Works: langauge filter not, refractor code TODO
  */
 
+
+private const val BROWSE_PAGE_SIZE = 24
+private const val CHAPTER_PAGE_SIZE = 100
+private const val COMIC_PROBES_PER_TITLE = 5
+
+private val ID_QUERY by lazy {
+    Regex("^id\\s*:?\\s*([a-zA-Z0-9\\-_]+)\\s*$", RegexOption.IGNORE_CASE)
+}
+private val URL_REGEX by lazy {
+    Regex("(?<![\\[(])(https?://[^\\s<\"]+)")
+}
+private val TITLE_REGEX by lazy {
+    Regex(
+        "\\([^()]*\\)|\\{[^{}]*\\}|\\[(?:(?!\\]).)*\\]|«[^»]*»|〘[^〙]*〙|「[^」]*」|『[^』]*』" +
+                "|≪[^≫]*≫|﹛[^﹜]*﹜|〖[^〖〗]*〗|《[^》]*》|/Official|/ Official",
+        RegexOption.IGNORE_CASE,
+    )
+}
 private object XComicQueries {
     const val TITLE_BROWSE = $$"""
         query get_title_browse($select: Title_Browse_Select) {
@@ -147,10 +168,17 @@ private fun JSONObject.arrOrNull(k: String): JSONArray? =
     if (has(k) && !isNull(k)) optJSONArray(k) else null
 
 private fun JSONObject.stringList(k: String): List<String> {
-    val arr = arrOrNull(k) ?: return emptyList()
-    return (0 until arr.length()).mapNotNull { i ->
-        if (arr.isNull(i)) null else arr.optString(i).takeIf { it.isNotEmpty() }
+    val arr = arrOrNull(k)
+    if (arr != null) {
+        return (0 until arr.length()).mapNotNull { i ->
+            if (arr.isNull(i)) null else arr.optString(i).takeIf { it.isNotEmpty() }
+        }
     }
+    val str = strOrNull(k)
+    if (str != null) {
+        return str.split(" ").filter { it.isNotBlank() }
+    }
+    return emptyList()
 }
 
 private fun JSONArray.objects(): List<JSONObject> =
@@ -161,30 +189,66 @@ private fun JSONArray.strings(): List<String> =
         if (isNull(i)) null else optString(i).takeIf { it.isNotEmpty() }
     }
 
-// =====================================================================
-// Locale → XCOMIC language code
-// =====================================================================
+private fun HttpUrl.csv(name: String): List<String> =
+    queryParameter(name)?.split(",")?.filter { it.isNotBlank() }.orEmpty()
 
-private fun Locale.toXComicLangCode(): String? {
-    if (this == Locale.ROOT) return null
-    return when {
-        language == "pt" && country.equals("BR", true) -> "pt_br"
-        language == "es" && country == "419" -> "es_419"
-        language == "zh" && country.equals("TW", true) -> "zh_hk"
-        language == "zh" -> "zh"
-        language == "other" -> "_t"
-        language.isBlank() -> null
-        else -> language
-    }
+private fun String?.toContentRating(): ContentRating = when (this) {
+    "suggestive" -> ContentRating.SUGGESTIVE
+    "erotica", "pornographic", "adult" -> ContentRating.ADULT
+    else -> ContentRating.SAFE
 }
 
-private fun xComicLangDisplayName(code: String): String =
-    XCOMIC_LANGS.firstOrNull { it.second == code }?.first ?: code.uppercase(Locale.ROOT)
+private interface Liveable {
+    val dbStatus: String?
+    val isPublic: Boolean?
+
+    fun isLive() = isPublic != false && (dbStatus == null || dbStatus == "normal")
+}
+
+private data class BrowseQuery(
+    val word: String,
+    val sort: String,
+    val types: List<String>,
+    val demographics: List<String>,
+    val contentRatings: List<String>,
+    val langs: List<String>,
+    val genres: List<String>,
+    val excludedGenres: List<String>,
+    val statuses: List<String>,
+    val yearMin: Int?,
+    val yearMax: Int?,
+) {
+    fun toVariables(apiPage: Int): JSONObject = JSONObject().apply {
+        put("word", word)
+        put("page", apiPage)
+        put("size", BROWSE_PAGE_SIZE)
+        put("init", (apiPage - 1) * BROWSE_PAGE_SIZE)
+        put("sortby", sort)
+        put("where", "browse")
+        put("releaseYearMin", yearMin ?: JSONObject.NULL)
+        put("releaseYearMax", yearMax ?: JSONObject.NULL)
+        put("incTypes", JSONArray(types))
+        put("incDemographics", JSONArray(demographics))
+        put("incContentRatings", JSONArray(contentRatings))
+        put("incOLangs", JSONArray())
+        put("incTLangs", JSONArray(langs))
+        put("incGenres", JSONArray(genres))
+        put("excGenres", JSONArray(excludedGenres))
+        put("incGenresMode", JSONObject.NULL)
+        put("excGenresMode", JSONObject.NULL)
+        put("origStatus", JSONArray(statuses))
+        put("chapCount", JSONObject.NULL)
+        put("ignoreGlobalGenres", false)
+        put("ignoreGlobalULangs", false)
+        put("ignoreGlobalBlocks", false)
+    }
+}
 
 // =====================================================================
 // Parser
 // =====================================================================
 
+@Suppress("unused")
 @MangaSourceParser("XCOMIC", "XCOMIC")
 internal class XComic(context: MangaLoaderContext) :
     PagedMangaParser(context, MangaParserSource.XCOMIC, pageSize = BROWSE_PAGE_SIZE) {
@@ -197,8 +261,6 @@ internal class XComic(context: MangaLoaderContext) :
     }
 
     private val probeCache = ConcurrentHashMap<String, ComicProbe>()
-    private val titleFreshness = ConcurrentHashMap<String, Long>()
-
 
     override val availableSortOrders: Set<SortOrder> = EnumSet.of(
         SortOrder.UPDATED,
@@ -206,6 +268,8 @@ internal class XComic(context: MangaLoaderContext) :
         SortOrder.RATING,
         SortOrder.NEWEST,
         SortOrder.ALPHABETICAL,
+        SortOrder.ALPHABETICAL_DESC,
+        SortOrder.RELEVANCE,
     )
 
     override val filterCapabilities: MangaListFilterCapabilities
@@ -214,6 +278,7 @@ internal class XComic(context: MangaLoaderContext) :
             isSearchWithFiltersSupported = true,
             isMultipleTagsSupported = true,
             isTagsExclusionSupported = true,
+            isYearRangeSupported = true,
         )
 
     override suspend fun getFilterOptions() = MangaListFilterOptions(
@@ -225,149 +290,120 @@ internal class XComic(context: MangaLoaderContext) :
             MangaState.FINISHED,
             MangaState.PAUSED,
             MangaState.ABANDONED,
+            MangaState.UPCOMING,
+        ),
+        availableContentRating = EnumSet.of(
+            ContentRating.SAFE,
+            ContentRating.SUGGESTIVE,
+            ContentRating.ADULT,
+        ),
+        availableContentTypes = EnumSet.of(
+            ContentType.MANGA,
+            ContentType.MANHWA,
+            ContentType.MANHUA,
+            ContentType.COMICS,
+            ContentType.IMAGE_SET,
+            ContentType.OTHER,
+        ),
+        availableDemographics = EnumSet.of(
+            Demographic.SHOUNEN,
+            Demographic.SHOUJO,
+            Demographic.SEINEN,
+            Demographic.JOSEI,
+            Demographic.KODOMO,
         ),
         availableLocales = XCOMIC_LOCALES,
     )
 
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
-        val apiPage = page + 1
+        val rawQuery = filter.query?.trim().orEmpty()
 
-        val filterApiLang = filter.locale?.toXComicLangCode()
-        val allLanguages = filterApiLang == null
-
-        val idMatch = ID_QUERY.matchEntire(filter.query?.trim().orEmpty())
-        if (idMatch != null) {
-            val id = idMatch.groupValues[1].substringBefore("-")
-            val node = fetchTitleNode(id) ?: return emptyList()
-            val browseNode: TitleBrowseNode = node.toBrowseNode()
-            val rows = flattenTitle(browseNode, filterApiLang, forceFresh = true)
-            return rows.map { (tid, cid, p) ->
-                p.toBrowseManga(domain, tid, cid, browseNode, allLanguages)
-            }
+        ID_QUERY.matchEntire(rawQuery)?.let { match ->
+            val id = match.groupValues[1].substringBefore("-")
+            return listOfNotNull(fetchTitleNode(id)?.toManga(id))
         }
 
-        val variables = JSONObject().apply {
-            put("word", filter.query.orEmpty())
-            put("page", apiPage)
-            put("size", BROWSE_PAGE_SIZE)
-            put("init", (apiPage - 1) * BROWSE_PAGE_SIZE)
-            put("sortby", sortFor(order))
-            put("where", "browse")
-
-            if (filter.year > 0) {
-                put("releaseYearMin", filter.year)
-                put("releaseYearMax", filter.year)
-            } else {
-                put("releaseYearMin", JSONObject.NULL)
-                put("releaseYearMax", JSONObject.NULL)
-            }
-
-            put("incTypes", JSONArray())
-            put("incDemographics", JSONArray())
-            put("incContentRatings", JSONArray(filter.contentRating.mapNotNull { it.toApiRating() }))
-            put("incOLangs", JSONArray())
-            put("incTLangs", if (allLanguages) JSONArray() else JSONArray(listOf(filterApiLang)))
-            put("incGenres", JSONArray(filter.tags.map { it.key }))
-            put("excGenres", JSONArray(filter.tagsExclude.map { it.key }))
-            put("incGenresMode", JSONObject.NULL)
-            put("excGenresMode", JSONObject.NULL)
-            put("origStatus", JSONArray(filter.states.mapNotNull { it.toApiStatus() }))
-            put("chapCount", JSONObject.NULL)
-            put("ignoreGlobalGenres", false)
-            put("ignoreGlobalULangs", false)
-            put("ignoreGlobalBlocks", false)
+        val searchUrl = rawQuery
+            .takeIf { "/search" in it || "genres_in=" in it || "types=" in it }
+            ?.toHttpUrlOrNull()
+        val query = if (searchUrl != null) {
+            queryFromUrl(searchUrl, order)
+        } else {
+            queryFromFilter(rawQuery, filter, order)
         }
 
         val data = postGraphQL(
             XComicQueries.TITLE_BROWSE,
-            JSONObject().apply { put("select", variables) },
+            JSONObject().put("select", query.toVariables(page + 1)),
         )
+        val items = data.objOrNull("data")?.arrOrNull("get_title_browse_items") ?: return emptyList()
 
-        val root = data.objOrNull("data") ?: return emptyList()
-        val titleItems = root.arrOrNull("get_title_browse_items") ?: return emptyList()
+        return items.objects().mapNotNull { item ->
+            val id = item.strOrNull("id") ?: return@mapNotNull null
+            val d = item.objOrNull("data") ?: return@mapNotNull null
+            val cover = (d.strOrNull("cover_local_url") ?: d.strOrNull("cover_url"))?.toAbsolute()
 
-        val titles: List<TitleBrowseNode> =
-            titleItems.objects().mapNotNull { it.toTitleBrowseNode() }
-        if (titles.isEmpty()) return emptyList()
-
-        val flattened: List<Triple<String, String, ComicProbe>> = coroutineScope {
-            titles.chunked(TITLES_IN_FLIGHT).flatMap { batch ->
-                batch.map { t -> async { flattenTitle(t, filterApiLang) } }.awaitAll()
-            }
-        }.flatten()
-
-        return flattened.mapNotNull { (tid, cid, p) ->
-            val t = titles.firstOrNull { it.id == tid } ?: return@mapNotNull null
-            p.toBrowseManga(domain, tid, cid, t, allLanguages)
+            Manga(
+                id = generateUid(id),
+                url = id,
+                publicUrl = "https://$domain/title/$id",
+                title = cleanTitle(d.strOrNull("title") ?: id).ifBlank { id },
+                altTitles = emptySet(),
+                rating = RATING_UNKNOWN,
+                contentRating = null,
+                coverUrl = cover,
+                tags = emptySet(),
+                state = null,
+                authors = emptySet(),
+                source = source,
+            )
         }
     }
 
-    private suspend fun flattenTitle(
-        t: TitleBrowseNode,
-        filterApiLang: String?,
-        forceFresh: Boolean = false,
-    ): List<Triple<String, String, ComicProbe>> {
-        val titleId = t.id.takeIf { it.isNotBlank() } ?: return emptyList()
-        val ids = t.comicIds.filter { it.isNotBlank() }
-        if (ids.isEmpty()) return emptyList()
+    private fun queryFromUrl(url: HttpUrl, order: SortOrder) = BrowseQuery(
+        word = url.queryParameter("word") ?: url.queryParameter("q").orEmpty(),
+        sort = url.queryParameter("sortby")?.takeIf { it.isNotBlank() } ?: sortFor(order),
+        types = url.csv("types"),
+        demographics = url.csv("demographic"),
+        contentRatings = url.csv("content_ratings"),
+        langs = url.csv("lang"),
+        genres = url.csv("genres_in"),
+        excludedGenres = url.csv("genres_ex"),
+        statuses = url.csv("status"),
+        yearMin = url.queryParameter("year_min")?.toIntOrNull(),
+        yearMax = url.queryParameter("year_max")?.toIntOrNull(),
+    )
 
-        val nowPublic = t.chapLastPublicAt ?: 0L
-        val unchanged = !forceFresh && nowPublic in 1..(titleFreshness[titleId] ?: 0L)
+    private fun queryFromFilter(word: String, filter: MangaListFilter, order: SortOrder) = BrowseQuery(
+        word = word,
+        sort = sortFor(order),
+        types = filter.types.mapNotNull { it.toApiType() },
+        demographics = filter.demographics.mapNotNull { it.toApiDemo() },
+        contentRatings = filter.contentRating.flatMap { it.toApiRatings() },
+        langs = listOfNotNull(filter.locale?.toXComicLangCode()),
+        genres = filter.tags.map { it.key },
+        excludedGenres = filter.tagsExclude.map { it.key },
+        statuses = filter.states.mapNotNull { it.toApiStatus() },
+        yearMin = filter.yearFrom.takeIf { it > 0 } ?: filter.year.takeIf { it > 0 },
+        yearMax = filter.yearTo.takeIf { it > 0 } ?: filter.year.takeIf { it > 0 },
+    )
 
-        if (unchanged && ids.all { probeCache.containsKey(it) }) {
-            return ids.mapNotNull { cid ->
-                probeCache[cid]?.takeIf {
-                    it.isLive() && (filterApiLang == null || it.translatedLanguage == filterApiLang)
-                }?.let { Triple(titleId, cid, it) }
-            }.sortedByDescending { it.third.chapsNormal ?: 0 }
-        }
+    private fun TitleNodeData.toManga(titleId: String) = Manga(
+        id = generateUid(titleId),
+        url = titleId,
+        publicUrl = "https://$domain/title/$titleId",
+        title = cleanTitle(title.orEmpty()).ifBlank { titleId },
+        altTitles = altTitles.toSet(),
+        rating = voteAvg?.div(10f)?.coerceIn(0f, 1f) ?: RATING_UNKNOWN,
+        contentRating = contentRating.toContentRating(),
+        coverUrl = (coverLocalUrl ?: coverUrl)?.toAbsolute(),
+        tags = genreIds.mapTo(mutableSetOf()) { MangaTag(key = it, title = it.toTagCase(), source = source) },
+        state = status.toMangaState(),
+        authors = authors.toSet(),
+        source = source,
+    )
 
-        val probes = mutableMapOf<String, ComicProbe>()
-        coroutineScope {
-            ids.chunked(COMIC_PROBES_PER_TITLE).flatMap { chunk ->
-                chunk.map { cid -> async { fetchComicProbe(cid)?.let { probes[cid] = it } } }
-                    .awaitAll()
-            }
-        }
-        if (nowPublic > 0) titleFreshness[titleId] = nowPublic
-        return probes.entries
-            .filter { it.value.isLive() && (filterApiLang == null || it.value.translatedLanguage == filterApiLang) }
-            .map { (cid, p) -> Triple(titleId, cid, p) }
-            .sortedByDescending { it.third.chapsNormal ?: 0 }
-    }
-
-    private fun ComicProbe.toBrowseManga(
-        domain: String,
-        titleId: String,
-        comicId: String,
-        t: TitleBrowseNode,
-        allLanguages: Boolean,
-    ): Manga {
-        val url = "$titleId:$comicId"
-        val displayTitle = cleanTitle(t.title.orEmpty()).ifBlank { titleId }
-        val titleText = buildString {
-            append(displayTitle)
-            subName?.takeIf { it.isNotBlank() }?.let { append(" · ", it.unescapeHtml()) }
-            if (allLanguages) translatedLanguage?.let { append(" [", xComicLangDisplayName(it), "]") }
-        }
-        val cover = (t.coverLocalUrl ?: t.coverUrl ?: urlCover)
-            ?.let { if (it.startsWith("http")) it else "https://$domain$it" }
-
-        return Manga(
-            id = generateUid(url),
-            url = url,
-            publicUrl = "https://$domain/title/$titleId",
-            title = titleText,
-            altTitles = emptySet(),
-            rating = RATING_UNKNOWN,
-            contentRating = null,
-            coverUrl = cover,
-            tags = emptySet(),
-            state = null,
-            authors = emptySet(),
-            source = source,
-        )
-    }
+    private fun String.toAbsolute(): String = if (startsWith("http")) this else "https://$domain$this"
 
     override suspend fun getDetails(manga: Manga): Manga = coroutineScope {
         val (titleId, pinned) = splitMangaUrl(manga.url)
@@ -381,101 +417,42 @@ internal class XComic(context: MangaLoaderContext) :
             fetchTitleNode(title.mergedTo) ?: title
         } else title
 
+        val preferredLang = context.getPreferredLocales().firstNotNullOfOrNull { it.toXComicLangCode() }
         val pair = pinned?.let { pid ->
             fetchComicNode(pid)?.takeIf { it.isLive() }?.let { pid to it }
-        } ?: pickComic(resolved.comicIds.filter { it.isNotBlank() }, null)
+        } ?: pickComic(resolved.comicIds.filter { it.isNotBlank() }, preferredLang)
         ?: return@coroutineScope manga.copy(chapters = emptyList())
 
         val (comicId, comic) = pair
         val chapters = fetchChapters(comicId)
 
-        val base = comic.toManga(domain, comicId)
-
-        val isAdult = listOfNotNull(
-            resolved.contentRating,
-            comic.contentRating,
-        ).any { it.contains("explicit", true) || it.contains("adult", true) }
-
-        base.copy(
-            title = resolved.title?.let { cleanTitle(it) } ?: base.title,
+        manga.copy(
+            title = resolved.title?.let { cleanTitle(it) } ?: manga.title,
             altTitles = resolved.altTitles.toSet(),
-            description = buildDescription(resolved, comic),
+            description = buildDescription(comic),
             authors = (resolved.authors + comic.authorNames).toSet(),
             tags = (resolved.genreIds + comic.genres).mapTo(mutableSetOf()) {
                 MangaTag(key = it, title = it.toTagCase(), source = source)
             },
             state = comic.status().toMangaState(),
-            rating = resolved.voteAvg?.div(5f)?.coerceIn(0f, 1f) ?: RATING_UNKNOWN,
-            contentRating = if (isAdult) ContentRating.ADULT else ContentRating.SAFE,
-            coverUrl = resolved.coverLocalUrl?.let {
-                if (it.startsWith("http")) it else "https://$domain$it"
-            } ?: base.coverUrl,
+            rating = resolved.voteAvg?.div(10f)?.coerceIn(0f, 1f) ?: RATING_UNKNOWN,
+            contentRating = (resolved.contentRating ?: comic.contentRating).toContentRating(),
+            coverUrl = (resolved.coverLocalUrl ?: comic.urlCover)?.toAbsolute() ?: manga.coverUrl,
             chapters = chapters,
         )
     }
 
-    private fun ComicNode.toManga(domain: String, comicId: String): Manga = Manga(
-        id = generateUid(comicId),
-        url = comicId,
-        publicUrl = "https://$domain/source/$comicId",
-        title = cleanTitle(name),
-        altTitles = emptySet(),
-        rating = scoreVal?.div(5f)?.coerceIn(0f, 1f) ?: RATING_UNKNOWN,
-        contentRating = if (contentRating?.contains("explicit", true) == true ||
-            contentRating?.contains("adult", true) == true
-        ) ContentRating.ADULT else ContentRating.SAFE,
-        coverUrl = urlCover?.let { if (it.startsWith("http")) it else "https://$domain$it" },
-        tags = emptySet(),
-        state = status().toMangaState(),
-        authors = authorNames.toSet(),
-        source = source,
-    )
-
-    private fun buildDescription(t: TitleNodeData, c: ComicNode): String = buildString {
-        if (c.isHot == true) append("🔥 HOT ")
-        if (c.isNew == true) append("✨ NEW")
-        if (c.isHot == true || c.isNew == true) append("\n\n")
-
-        val meta = buildList {
-            t.originalLanguage?.let { add("**Original**: ${xComicLangDisplayName(it)}") }
-            t.translatedLanguages.takeIf { it.isNotEmpty() }?.let {
-                add("**Translated**: ${it.joinToString { l -> xComicLangDisplayName(l) }}")
-            }
-            t.year?.takeIf { it > 0 }?.let { add("**Released**: $it") }
-            c.type?.let { add("**Type**: ${it.toTagCase()}") }
-        }
-        if (meta.isNotEmpty()) {
-            append(meta.joinToString("\n"))
-            append("\n\n")
-        }
-
-        c.summary?.takeIf { it.isNotBlank() }?.let { append(it.toMarkdownUrls()) }
-
-        val stats = buildList {
-            t.voteAvg?.takeIf { it > 0 }?.let { add("**Score**: %.1f".format(it)) }
-            t.totalFollows?.takeIf { it > 0 }?.let { add("**Follows**: $it") }
-            t.totalReviews?.takeIf { it > 0 }?.let { add("**Reviews**: $it") }
-            t.totalComments?.takeIf { it > 0 }?.let { add("**Comments**: $it") }
-        }
-        if (stats.isNotEmpty()) {
-            append("\n\n**Statistics**\n${stats.joinToString(" · ")}")
-        }
-
-        t.altTitles.filter { it.isNotBlank() && it != t.title }.takeIf { it.isNotEmpty() }?.let {
-            append("\n\n**Alternative Titles**:\n")
-            append(it.joinToString("\n") { a -> "- $a" })
-        }
-    }
+    private fun buildDescription(c: ComicNode): String =
+        c.summary?.takeIf { it.isNotBlank() }?.trim()?.toMarkdownUrls().orEmpty()
 
     private suspend fun fetchChapters(comicId: String): List<MangaChapter> = coroutineScope {
-        val pageSize = 100
-        val first = fetchChapterPage(comicId, 1, pageSize)
+        val first = fetchChapterPage(comicId, 1)
         val all = first.chapters.toMutableList()
         val total = first.total ?: 0
-        if (total > pageSize && first.hasNext) {
-            val totalPages = (total + pageSize - 1) / pageSize
+        if (total > CHAPTER_PAGE_SIZE && first.hasNext) {
+            val totalPages = (total + CHAPTER_PAGE_SIZE - 1) / CHAPTER_PAGE_SIZE
             (2..totalPages).chunked(3).forEach { batch ->
-                val pages = batch.map { p -> async { fetchChapterPage(comicId, p, pageSize).chapters } }
+                val pages = batch.map { p -> async { fetchChapterPage(comicId, p).chapters } }
                 all.addAll(pages.awaitAll().flatten())
             }
         }
@@ -484,14 +461,14 @@ internal class XComic(context: MangaLoaderContext) :
 
     private data class ChapterPage(val chapters: List<MangaChapter>, val total: Int?, val hasNext: Boolean)
 
-    private suspend fun fetchChapterPage(comicId: String, page: Int, size: Int): ChapterPage {
+    private suspend fun fetchChapterPage(comicId: String, page: Int): ChapterPage {
         val variables = JSONObject().apply {
             put(
                 "select",
                 JSONObject().apply {
                     put("comic_id", comicId)
                     put("page", page)
-                    put("size", size)
+                    put("size", CHAPTER_PAGE_SIZE)
                     put("sortby", "chapter_desc")
                 },
             )
@@ -504,13 +481,13 @@ internal class XComic(context: MangaLoaderContext) :
         val items = root.arrOrNull("items") ?: return ChapterPage(emptyList(), 0, false)
 
         return ChapterPage(
-            chapters = items.objects().mapNotNull { it.toChapter() },
+            chapters = items.objects().mapNotNull { it.toChapter(comicId) },
             total = paging?.intOrNull("total"),
             hasNext = (paging?.intOrNull("next") ?: 0) != 0,
         )
     }
 
-    private fun JSONObject.toChapter(): MangaChapter? {
+    private fun JSONObject.toChapter(comicId: String): MangaChapter? {
         val wrapperData = objOrNull("data") ?: return null
         val chapterId = wrapperData.strOrNull("id") ?: return null
         val number = wrapperData.floatOrNull("chaNum") ?: wrapperData.floatOrNull("serial") ?: 0f
@@ -540,12 +517,14 @@ internal class XComic(context: MangaLoaderContext) :
             }
         }
 
+        val chapterUrl = "$chapterId:$comicId"
+
         return MangaChapter(
-            id = generateUid(chapterId),
+            id = generateUid(chapterUrl),
             title = name,
             number = number,
             volume = 0,
-            url = chapterId,
+            url = chapterUrl,
             scanlator = srcName ?: profileNames,
             uploadDate = date,
             branch = null,
@@ -567,8 +546,21 @@ internal class XComic(context: MangaLoaderContext) :
             ?: return emptyList()
 
         return urls.map { url ->
-            val abs = if (url.startsWith("http")) url else "https://$domain$url"
+            val abs = url.toAbsolute()
             MangaPage(id = generateUid(abs), url = abs, preview = null, source = source)
+        }
+    }
+
+    override fun intercept(chain: Interceptor.Chain): Response {
+        val request = chain.request()
+        val host = request.url.host
+        return if (host.contains("img") || host.contains("xcomic")) {
+            val newRequest = request.newBuilder()
+                .header("Referer", "https://$domain/")
+                .build()
+            chain.proceed(newRequest)
+        } else {
+            chain.proceed(request)
         }
     }
 
@@ -577,95 +569,80 @@ internal class XComic(context: MangaLoaderContext) :
             put("query", query)
             put("variables", variables)
         }
-
-        val headers = mapOf(
-            "Origin" to "https://$domain",
-            "Referer" to "https://$domain/",
-        ).toHeaders()
-
-        val response = webClient.httpPost(
-            "https://$domain/query/".toHttpUrl(),
-            payload,
-            headers,
-        )
-
-        val text = response.parseRaw()
-        return runCatching { JSONObject(text) }.getOrElse { JSONObject() }
+        val headers = getRequestHeaders().newBuilder()
+            .set("Origin", "https://$domain")
+            .set("Referer", "https://$domain/")
+            .build()
+        val response = webClient.httpPost("https://$domain/query/".toHttpUrl(), payload, headers)
+        return JSONObject(response.parseRaw())
     }
 
-    private suspend fun fetchTitleNode(id: String): TitleNodeData? {
-        return try {
-            val data = postGraphQL(
-                XComicQueries.TITLE_NODE,
-                JSONObject().apply { put("id", id) },
-            )
-            data.objOrNull("data")
-                ?.objOrNull("get_title_titleNode")
+    private suspend fun <T> fetchNode(query: String, id: String, field: String, map: JSONObject.() -> T): T? =
+        try {
+            postGraphQL(query, JSONObject().put("id", id))
+                .objOrNull("data")
+                ?.objOrNull(field)
                 ?.objOrNull("data")
-                ?.toTitleNodeData()
+                ?.map()
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
             null
         }
-    }
 
-    private suspend fun fetchComicNode(id: String): ComicNode? {
-        return try {
-            val data = postGraphQL(
-                XComicQueries.COMIC_NODE,
-                JSONObject().apply { put("id", id) },
-            )
-            data.objOrNull("data")
-                ?.objOrNull("get_comicNode")
-                ?.objOrNull("data")
-                ?.toComicNode(id)
-        } catch (_: Exception) {
-            null
-        }
-    }
+    private suspend fun fetchTitleNode(id: String): TitleNodeData? =
+        fetchNode(XComicQueries.TITLE_NODE, id, "get_title_titleNode") { toTitleNodeData() }
+
+    private suspend fun fetchComicNode(id: String): ComicNode? =
+        fetchNode(XComicQueries.COMIC_NODE, id, "get_comicNode") { toComicNode(id) }
 
     private suspend fun fetchComicProbe(id: String): ComicProbe? {
         probeCache[id]?.let { return it }
-        val fetched = try {
-            val data = postGraphQL(
-                XComicQueries.COMIC_PROBE,
-                JSONObject().apply { put("id", id) },
-            )
-            data.objOrNull("data")
-                ?.objOrNull("get_comicNode")
-                ?.objOrNull("data")
-                ?.toComicProbe()
-        } catch (_: Exception) {
-            null
-        }
+        val fetched = fetchNode(XComicQueries.COMIC_PROBE, id, "get_comicNode") { toComicProbe(id) }
         if (fetched != null) probeCache[id] = fetched
         return fetched
     }
 
     private suspend fun pickComic(ids: List<String>, filterApiLang: String?): Pair<String, ComicNode>? {
         if (ids.isEmpty()) return null
-        val nodes = coroutineScope {
-            ids.chunked(COMIC_PROBES_PER_TITLE).flatMap { chunk ->
-                chunk.map { cid -> async { fetchComicNode(cid)?.let { cid to it } } }
-                    .awaitAll().filterNotNull()
+
+        val preferredLangs = buildList {
+            if (!filterApiLang.isNullOrBlank()) add(filterApiLang)
+            context.getPreferredLocales().mapNotNullTo(this) { it.toXComicLangCode() }
+            if ("en" !in this) add("en")
+        }.distinct()
+
+        val candidates = mutableListOf<Pair<String, ComicProbe>>()
+        val candidateChunks = ids.take(20).chunked(COMIC_PROBES_PER_TITLE)
+
+        for (chunk in candidateChunks) {
+            val probes = coroutineScope {
+                chunk.map { cid ->
+                    async {
+                        fetchComicProbe(cid)?.let { cid to it }
+                    }
+                }.awaitAll().filterNotNull()
             }
-        }.filter { it.second.isLive() }
+            candidates.addAll(probes.filter { (_, probe) -> probe.isLive() })
 
-        return nodes.filter { filterApiLang == null || it.second.translatedLanguage == filterApiLang }
-            .maxByOrNull { it.second.chapsNormal ?: 0 }
-            ?: nodes.firstOrNull()?.takeIf { filterApiLang == null }
-    }
+            if (preferredLangs.isNotEmpty() && candidates.any { (_, probe) -> probe.translatedLanguage == preferredLangs.first() }) {
+                break
+            }
+        }
 
-    private fun JSONObject.toTitleBrowseNode(): TitleBrowseNode? {
-        val id = strOrNull("id") ?: return null
-        val d = objOrNull("data") ?: return null
-        return TitleBrowseNode(
-            id = id,
-            title = d.strOrNull("title"),
-            coverLocalUrl = d.strOrNull("cover_local_url"),
-            coverUrl = d.strOrNull("cover_url"),
-            chapLastPublicAt = d.longOrNull("chap_last_public_at"),
-            comicIds = d.stringList("comic_ids"),
-        )
+        if (candidates.isEmpty()) {
+            val firstId = ids.first()
+            val node = fetchComicNode(firstId)?.takeIf { it.isLive() }
+            return node?.let { firstId to it }
+        }
+
+        val bestCid = preferredLangs.firstNotNullOfOrNull { lang ->
+            candidates.filter { (_, probe) -> probe.translatedLanguage == lang }
+                .maxByOrNull { (_, probe) -> probe.chapsNormal ?: 0 }
+        }?.first ?: candidates.maxByOrNull { (_, probe) -> probe.chapsNormal ?: 0 }?.first ?: candidates.first().first
+
+        val bestNode = fetchComicNode(bestCid) ?: return null
+        return bestCid to bestNode
     }
 
     private fun JSONObject.toTitleNodeData(): TitleNodeData = TitleNodeData(
@@ -675,20 +652,16 @@ internal class XComic(context: MangaLoaderContext) :
         originalLanguage = strOrNull("original_language"),
         translatedLanguages = stringList("translated_languages"),
         authors = stringList("authors"),
-        artists = stringList("artists"),
         contentRating = strOrNull("content_rating_id"),
         genreIds = stringList("genre_ids"),
         year = intOrNull("year"),
-        type = strOrNull("type"),
         status = strOrNull("status"),
-        description = strOrNull("description"),
         coverLocalUrl = strOrNull("cover_local_url"),
         coverUrl = strOrNull("cover_url"),
         voteAvg = floatOrNull("vote_avg"),
         totalFollows = intOrNull("total_follows"),
         totalReviews = intOrNull("total_reviews"),
         totalComments = intOrNull("total_comments"),
-        chapLastPublicAt = longOrNull("chap_last_public_at"),
         isMerged = boolOrNull("is_merged"),
         mergedTo = strOrNull("merged_to"),
         comicIds = stringList("comic_ids"),
@@ -713,28 +686,20 @@ internal class XComic(context: MangaLoaderContext) :
         isPublic = boolOrNull("isPublic"),
         isHot = boolOrNull("is_hot"),
         isNew = boolOrNull("is_new"),
-        scoreVal = floatOrNull("score_val"),
         chapsNormal = intOrNull("chaps_normal"),
         urlCover = strOrNull("urlCover"),
     )
 
-    private fun JSONObject.toComicProbe(): ComicProbe = ComicProbe(
+    private fun JSONObject.toComicProbe(id: String): ComicProbe = ComicProbe(
+        id = id,
         name = strOrNull("name"),
         subName = strOrNull("subName"),
         dbStatus = strOrNull("dbStatus"),
         isPublic = boolOrNull("isPublic"),
         translatedLanguage = strOrNull("translatedLanguage"),
         chapsNormal = intOrNull("chaps_normal"),
+        urlPath = strOrNull("urlPath"),
         urlCover = strOrNull("urlCover"),
-    )
-
-    private data class TitleBrowseNode(
-        val id: String,
-        val title: String?,
-        val coverLocalUrl: String?,
-        val coverUrl: String?,
-        val chapLastPublicAt: Long?,
-        val comicIds: List<String>,
     )
 
     private data class TitleNodeData(
@@ -744,33 +709,20 @@ internal class XComic(context: MangaLoaderContext) :
         val originalLanguage: String?,
         val translatedLanguages: List<String>,
         val authors: List<String>,
-        val artists: List<String>,
         val contentRating: String?,
         val genreIds: List<String>,
         val year: Int?,
-        val type: String?,
         val status: String?,
-        val description: String?,
         val coverLocalUrl: String?,
         val coverUrl: String?,
         val voteAvg: Float?,
         val totalFollows: Int?,
         val totalReviews: Int?,
         val totalComments: Int?,
-        val chapLastPublicAt: Long?,
         val isMerged: Boolean?,
         val mergedTo: String?,
         val comicIds: List<String>,
-    ) {
-        fun toBrowseNode() = TitleBrowseNode(
-            id = id.orEmpty(),
-            title = title,
-            coverLocalUrl = coverLocalUrl,
-            coverUrl = coverUrl,
-            chapLastPublicAt = chapLastPublicAt,
-            comicIds = comicIds,
-        )
-    }
+    )
 
     private data class ComicNode(
         val id: String,
@@ -784,29 +736,27 @@ internal class XComic(context: MangaLoaderContext) :
         val genres: List<String>,
         val authorNames: List<String>,
         val summary: String?,
-        val dbStatus: String?,
-        val isPublic: Boolean?,
+        override val dbStatus: String?,
+        override val isPublic: Boolean?,
         val isHot: Boolean?,
         val isNew: Boolean?,
-        val scoreVal: Float?,
         val chapsNormal: Int?,
         val urlCover: String?,
-    ) {
-        fun isLive() = isPublic != false && (dbStatus == null || dbStatus == "normal")
+    ) : Liveable {
         fun status(): String? = originalStatus ?: uploadStatus
     }
 
     private data class ComicProbe(
+        val id: String,
         val name: String?,
         val subName: String?,
-        val dbStatus: String?,
-        val isPublic: Boolean?,
+        override val dbStatus: String?,
+        override val isPublic: Boolean?,
         val translatedLanguage: String?,
         val chapsNormal: Int?,
+        val urlPath: String?,
         val urlCover: String?,
-    ) {
-        fun isLive() = isPublic != false && (dbStatus == null || dbStatus == "normal")
-    }
+    ) : Liveable
 
     private fun splitMangaUrl(url: String): Pair<String, String?> {
         val i = url.indexOf(':')
@@ -814,10 +764,13 @@ internal class XComic(context: MangaLoaderContext) :
     }
 
     private fun sortFor(order: SortOrder): String = when (order) {
-        SortOrder.POPULARITY -> "field_score"
-        SortOrder.UPDATED, SortOrder.NEWEST -> "field_update"
+        SortOrder.POPULARITY -> "field_follow"
         SortOrder.RATING -> "field_score"
+        SortOrder.NEWEST -> "field_create"
+        SortOrder.UPDATED -> "field_update"
         SortOrder.ALPHABETICAL -> "field_name_asc"
+        SortOrder.ALPHABETICAL_DESC -> "field_name_desc"
+        SortOrder.RELEVANCE -> "field_chapter"
         else -> "field_update"
     }
 
@@ -826,12 +779,32 @@ internal class XComic(context: MangaLoaderContext) :
         MangaState.FINISHED -> "completed"
         MangaState.PAUSED -> "hiatus"
         MangaState.ABANDONED -> "cancelled"
+        MangaState.UPCOMING -> "upcoming"
         else -> null
     }
 
-    private fun ContentRating.toApiRating(): String? = when (this) {
-        ContentRating.ADULT -> "explicit"
-        ContentRating.SAFE -> "safe"
+    private fun ContentRating.toApiRatings(): List<String> = when (this) {
+        ContentRating.SAFE -> listOf("safe")
+        ContentRating.SUGGESTIVE -> listOf("suggestive")
+        ContentRating.ADULT -> listOf("erotica", "pornographic")
+    }
+
+    private fun ContentType.toApiType(): String? = when (this) {
+        ContentType.MANGA -> "manga"
+        ContentType.MANHWA -> "manhwa"
+        ContentType.MANHUA -> "manhua"
+        ContentType.COMICS -> "cartoon"
+        ContentType.IMAGE_SET -> "imageset"
+        ContentType.OTHER -> "other"
+        else -> null
+    }
+
+    private fun Demographic.toApiDemo(): String? = when (this) {
+        Demographic.SHOUNEN -> "shounen"
+        Demographic.SHOUJO -> "shoujo"
+        Demographic.SEINEN -> "seinen"
+        Demographic.JOSEI -> "josei"
+        Demographic.KODOMO -> "kodomo"
         else -> null
     }
 
@@ -842,6 +815,7 @@ internal class XComic(context: MangaLoaderContext) :
         contains("cancelled") -> MangaState.ABANDONED
         contains("hiatus") -> MangaState.PAUSED
         contains("completed") -> MangaState.FINISHED
+        contains("upcoming") -> MangaState.UPCOMING
         else -> null
     }
 
@@ -851,8 +825,6 @@ internal class XComic(context: MangaLoaderContext) :
                 .replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }
         }
 
-    private fun String.unescapeHtml(): String = Parser.unescapeEntities(this, false)
-
     private fun cleanTitle(title: String): String = title
         .replace(TITLE_REGEX, "")
         .trim()
@@ -861,188 +833,304 @@ internal class XComic(context: MangaLoaderContext) :
         replace(URL_REGEX) { "[${it.value}](${it.value})" }
 }
 
-private const val BROWSE_PAGE_SIZE = 12
-private const val TITLES_IN_FLIGHT = 3
-private const val COMIC_PROBES_PER_TITLE = 5
 
-private val ID_QUERY = Regex("^id\\s*:?\\s*([a-zA-Z0-9-_]+)\\s*$", RegexOption.IGNORE_CASE)
-
-private val URL_REGEX = Regex("""(?<![\[(])(https?://[^\s<"]+)""")
-
-private val TITLE_REGEX = Regex(
-    "\\([^()]*\\)|\\{[^{}]*}|\\[(?:(?!]).)*]|«[^»]*»|〘[^〙]*〙|「[^」]*」|『[^』]*』" +
-            "|≪[^≫]*≫|﹛[^﹜]*﹜|〖[^〖〗]*〗|《[^》]*》|/Official|/ Official",
-    RegexOption.IGNORE_CASE,
-)
-
-private val XCOMIC_LANGS: List<Pair<String, String>> = listOf(
-    "English" to "en",
-    "French" to "fr",
-    "Portuguese" to "pt",
-    "Portuguese (BR)" to "pt_br",
-    "Spanish" to "es",
-    "Spanish (LA)" to "es_419",
-    "Korean" to "ko",
-    "Japanese" to "ja",
-    "Indonesian" to "id",
-    "Chinese" to "zh",
-    "Chinese (Traditional)" to "zh_hk",
-    "Russian" to "ru",
-    "German" to "de",
-    "Italian" to "it",
-    "Arabic" to "ar",
-    "Thai" to "th",
-    "Vietnamese" to "vi",
-    "Turkish" to "tr",
-    "Polish" to "pl",
-    "Ukrainian" to "uk",
-    "Filipino" to "fil",
-    "Abkhazian" to "ab",
-    "Afrikaans" to "af",
-    "Albanian" to "sq",
-    "Amharic" to "am",
-    "Armenian" to "hy",
-    "Azerbaijani" to "az",
-    "Belarusian" to "be",
-    "Bengali" to "bn",
-    "Bosnian" to "bs",
-    "Bulgarian" to "bg",
-    "Burmese" to "my",
-    "Cambodian" to "km",
-    "Catalan" to "ca",
-    "Cebuano" to "ceb",
-    "Croatian" to "hr",
-    "Czech" to "cs",
-    "Chuvash" to "cv",
-    "Danish" to "da",
-    "Dutch" to "nl",
-    "Estonian" to "et",
-    "Esperanto" to "eo",
-    "Basque" to "eu",
-    "Faroese" to "fo",
-    "Finnish" to "fi",
-    "Georgian" to "ka",
-    "Greek" to "el",
-    "Guarani" to "gn",
-    "Gujarati" to "gu",
-    "Haitian Creole" to "ht",
-    "Hausa" to "ha",
-    "Hebrew" to "he",
-    "Hindi" to "hi",
-    "Hungarian" to "hu",
-    "Icelandic" to "is",
-    "Igbo" to "ig",
-    "Irish" to "ga",
-    "Galician" to "gl",
-    "Javanese" to "jv",
-    "Kannada" to "kn",
-    "Kazakh" to "kk",
-    "Kurdish" to "ku",
-    "Kyrgyz" to "ky",
-    "Latin" to "la",
-    "Laothian" to "lo",
-    "Latvian" to "lv",
-    "Lithuanian" to "lt",
-    "Luxembourgish" to "lb",
-    "Macedonian" to "mk",
-    "Malagasy" to "mg",
-    "Malay" to "ms",
-    "Malayalam" to "ml",
-    "Maltese" to "mt",
-    "Maori" to "mi",
-    "Marathi" to "mr",
-    "Moldavian" to "mo",
-    "Mongolian" to "mn",
-    "Nepali" to "ne",
-    "Norwegian" to "no",
-    "Nyanja" to "ny",
-    "Pashto" to "ps",
-    "Persian" to "fa",
-    "Romanian" to "ro",
-    "Romansh" to "rm",
-    "Samoan" to "sm",
-    "Serbian" to "sr",
-    "Serbo-Croatian" to "sh",
-    "Siswati" to "ss",
-    "Sesotho" to "st",
-    "Shona" to "sn",
-    "Sindhi" to "sd",
-    "Sinhalese" to "si",
-    "Slovak" to "sk",
-    "Slovenian" to "sl",
-    "Somali" to "so",
-    "Swahili" to "sw",
-    "Swedish" to "sv",
-    "Tajik" to "tg",
-    "Tamil" to "ta",
-    "Telugu" to "te",
-    "Tigrinya" to "ti",
-    "Tonga" to "to",
-    "Turkmen" to "tk",
-    "Urdu" to "ur",
-    "Uzbek" to "uz",
-    "Yoruba" to "yo",
-    "Zulu" to "zu",
-    "Other" to "_t",
-)
-
-private val XCOMIC_LOCALES: Set<Locale> = mutableSetOf<Locale>().apply {
-    add(Locale.ENGLISH)
-    add(Locale.FRENCH)
-    add(Locale.GERMAN)
-    add(Locale.ITALIAN)
-    add(Locale.JAPANESE)
-    add(Locale.KOREAN)
-    add(Locale("es"))
-    add(Locale("es", "419"))
-    add(Locale("pt"))
-    add(Locale("pt", "BR"))
-    add(Locale.SIMPLIFIED_CHINESE)
-    add(Locale.TRADITIONAL_CHINESE)
-    add(Locale("ru"))
-    add(Locale("id"))
-    add(Locale("ar"))
-    add(Locale("th"))
-    add(Locale("vi"))
-    add(Locale("tr"))
-    add(Locale("pl"))
-    add(Locale("uk"))
-    add(Locale("fil"))
-    add(Locale("other"))
-
-    val alreadyAdded = setOf(
-        "en", "fr", "de", "it", "ja", "ko",
-        "es", "pt", "zh", "ru", "id", "ar", "th",
-        "vi", "tr", "pl", "uk", "fil",
+private val GENRE_TAGS: List<Pair<String, String>> by lazy {
+    listOf(
+        "1-Koma" to "1_koma",
+        "2-Koma" to "2_koma",
+        "3-Koma" to "3_koma",
+        "4-Koma" to "4_koma",
+        "Action" to "action",
+        "Adaptation" to "adaptation",
+        "Adult" to "adult",
+        "Adventure" to "adventure",
+        "Age Gap" to "age_gap",
+        "Aliens" to "aliens",
+        "Animals" to "animals",
+        "Anthology" to "anthology",
+        "Art-by-AI" to "art_by_ai",
+        "Artbook" to "artbook",
+        "Award Winning" to "award_winning",
+        "Bara" to "bara",
+        "Beasts" to "beasts",
+        "Blackmail" to "blackmail",
+        "Bloody" to "bloody",
+        "Bodyswap" to "bodyswap",
+        "Boys" to "boys",
+        "Boys Love" to "boys_love",
+        "Brocon Siscon" to "brocon_siscon",
+        "Cars" to "cars",
+        "Cheating/Infidelity" to "cheating_infidelity",
+        "Childhood Friends" to "childhood_friends",
+        "College life" to "college_life",
+        "Comedy" to "comedy",
+        "Comic" to "comic",
+        "Contest winning" to "contest_winning",
+        "Cooking" to "cooking",
+        "Crime" to "crime",
+        "Crossdressing" to "crossdressing",
+        "Cultivation" to "cultivation",
+        "Death Game" to "death_game",
+        "Degeneratemc" to "degeneratemc",
+        "Delinquents" to "delinquents",
+        "Dementia" to "dementia",
+        "Demons" to "demons",
+        "Doujinshi" to "doujinshi",
+        "Drama" to "drama",
+        "Dungeons" to "dungeons",
+        "Ecchi" to "ecchi",
+        "Emperor's Daughter" to "emperors_daughter",
+        "Fan Colored" to "fan_colored",
+        "Fanbook" to "fanbook",
+        "Fanwork" to "fanwork",
+        "Fantasy" to "fantasy",
+        "Female-protagonists" to "female_protagonists",
+        "Fetish" to "fetish",
+        "Full Color" to "full_color",
+        "Futa" to "futa",
+        "Game" to "game",
+        "Genderswap" to "genderswap",
+        "Ghosts" to "ghosts",
+        "Girls" to "girls",
+        "Girls Love" to "girls_love",
+        "Gore" to "gore",
+        "Guidebook" to "guidebook",
+        "Gyaru" to "gyaru",
+        "Harem" to "harem",
+        "Harlequin" to "harlequin",
+        "Hentai" to "hentai",
+        "Historical" to "historical",
+        "Horror" to "horror",
+        "Illustbook" to "illustbook",
+        "Illustration Book" to "illustration_book",
+        "Incest" to "incest",
+        "Isekai" to "isekai",
+        "Japanese Novel" to "japanese_novel",
+        "Kids" to "kids",
+        "Light Novel" to "light_novel",
+        "Loli" to "loli",
+        "Long Strip" to "long_strip",
+        "Longstrip" to "longstrip",
+        "Mafia" to "mafia",
+        "Magic" to "magic",
+        "Magical Girls" to "magical_girls",
+        "Mahjong" to "mahjong",
+        "Male-protagonists" to "male_protagonists",
+        "Martial Arts" to "martial_arts",
+        "Master-Servant" to "master_servant",
+        "Mature" to "mature",
+        "Mecha" to "mecha",
+        "Medical" to "medical",
+        "Milf" to "milf",
+        "Military" to "military",
+        "Monster Girls" to "monster_girls",
+        "Monsters" to "monsters",
+        "Music" to "music",
+        "Mystery" to "mystery",
+        "Netorare/NTR" to "netorare_ntr",
+        "Netori" to "netori",
+        "Ninja" to "ninja",
+        "Novels" to "novels",
+        "Office Workers" to "office_workers",
+        "Official Colored" to "official_colored",
+        "Omegaverse" to "omegaverse",
+        "Oneshot" to "oneshot",
+        "Original Doujinshi" to "original_doujinshi",
+        "Parody" to "parody",
+        "Partially Colored" to "partially_colored",
+        "Partially Colored Webtoon" to "partially_colored_webtoon",
+        "Philosophical" to "philosophical",
+        "Police" to "police",
+        "Post-Apocalyptic" to "post_apocalyptic",
+        "Psychological" to "psychological",
+        "Regression" to "regression",
+        "Reincarnation" to "reincarnation",
+        "Revenge" to "revenge",
+        "Reverse Harem" to "reverse_harem",
+        "Reverse Isekai" to "reverse_isekai",
+        "Romance" to "romance",
+        "Royal family" to "royal_family",
+        "Royalty" to "royalty",
+        "Samurai" to "samurai",
+        "School Life" to "school_life",
+        "Sci-Fi" to "sci_fi",
+        "Sexual Violence" to "sexual_violence",
+        "Shota" to "shota",
+        "Shoujo ai" to "shoujo_ai",
+        "Shounen ai" to "shounen_ai",
+        "Showbiz" to "showbiz",
+        "Slice of Life" to "slice_of_life",
+        "SM/BDSM/SUB-DOM" to "sm_bdsm_sub_dom",
+        "Smut" to "smut",
+        "Space" to "space",
+        "Sports" to "sports",
+        "Spy" to "spy",
+        "Step-family" to "step_family",
+        "Story-by-AI" to "story_by_ai",
+        "Super Power" to "super_power",
+        "Superhero" to "superhero",
+        "Supernatural" to "supernatural",
+        "Survival" to "survival",
+        "Suspense" to "suspense",
+        "Teacher-Student" to "teacher_student",
+        "Thriller" to "thriller",
+        "Time Travel" to "time_travel",
+        "Tower Climbing" to "tower_climbing",
+        "Traditional Games" to "traditional_games",
+        "Tragedy" to "tragedy",
+        "Transmigration" to "transmigration",
+        "Vampires" to "vampires",
+        "Video Games" to "video_games",
+        "Villainess" to "villainess",
+        "Violence" to "violence",
+        "Virtual Reality" to "virtual_reality",
+        "Web Comic" to "web_comic",
+        "Web Novel" to "web_novel",
+        "Webtoon" to "webtoon",
+        "Wuxia" to "wuxia",
+        "Xianxia" to "xianxia",
+        "Xuanhuan" to "xuanhuan",
+        "Yakuzas" to "yakuzas",
+        "Youkai" to "youkai",
+        "Zombies" to "zombies",
     )
-    XCOMIC_LANGS
-        .map { it.second }
-        .filter { it.length == 2 && it !in alreadyAdded }
-        .forEach { add(Locale(it)) }
-}.toSet()
+}
 
-private val GENRE_TAGS: List<Pair<String, String>> = listOf(
-    "Action" to "action",
-    "Adult" to "adult",
-    "Adventure" to "adventure",
-    "Comedy" to "comedy",
-    "Cooking" to "cooking",
-    "Crime" to "crime",
-    "Drama" to "drama",
-    "Fantasy" to "fantasy",
-    "Harem" to "harem",
-    "Historical" to "historical",
-    "Isekai" to "isekai",
-    "Magic" to "magic",
-    "Mature" to "mature",
-    "Mystery" to "mystery",
-    "Romance" to "romance",
-    "School Life" to "school_life",
-    "Sci-fi" to "sci_fi",
-    "Shounen" to "shounen",
-    "Shounen Ai" to "shounen_ai",
-    "Slice of Life" to "slice_of_life",
-    "Supernatural" to "supernatural",
-    "Thriller" to "thriller",
-    "Uncensored" to "uncensored",
-)
+private val XCOMIC_LANGS: List<Pair<String, String>> by lazy {
+    listOf(
+        "English" to "en",
+        "French" to "fr",
+        "Portuguese" to "pt",
+        "Portuguese (BR)" to "pt_br",
+        "Spanish" to "es",
+        "Spanish (LA)" to "es_419",
+        "Korean" to "ko",
+        "Japanese" to "ja",
+        "Indonesian" to "id",
+        "Chinese" to "zh",
+        "Chinese (Traditional)" to "zh_hk",
+        "Russian" to "ru",
+        "German" to "de",
+        "Italian" to "it",
+        "Arabic" to "ar",
+        "Thai" to "th",
+        "Vietnamese" to "vi",
+        "Turkish" to "tr",
+        "Polish" to "pl",
+        "Ukrainian" to "uk",
+        "Filipino" to "fil",
+        "Abkhazian" to "ab",
+        "Afrikaans" to "af",
+        "Albanian" to "sq",
+        "Amharic" to "am",
+        "Armenian" to "hy",
+        "Azerbaijani" to "az",
+        "Belarusian" to "be",
+        "Bengali" to "bn",
+        "Bosnian" to "bs",
+        "Bulgarian" to "bg",
+        "Burmese" to "my",
+        "Cambodian" to "km",
+        "Catalan" to "ca",
+        "Cebuano" to "ceb",
+        "Croatian" to "hr",
+        "Czech" to "cs",
+        "Chuvash" to "cv",
+        "Danish" to "da",
+        "Dutch" to "nl",
+        "Estonian" to "et",
+        "Esperanto" to "eo",
+        "Basque" to "eu",
+        "Faroese" to "fo",
+        "Finnish" to "fi",
+        "Georgian" to "ka",
+        "Greek" to "el",
+        "Guarani" to "gn",
+        "Gujarati" to "gu",
+        "Haitian Creole" to "ht",
+        "Hausa" to "ha",
+        "Hebrew" to "he",
+        "Hindi" to "hi",
+        "Hungarian" to "hu",
+        "Icelandic" to "is",
+        "Igbo" to "ig",
+        "Irish" to "ga",
+        "Galician" to "gl",
+        "Javanese" to "jv",
+        "Kannada" to "kn",
+        "Kazakh" to "kk",
+        "Kurdish" to "ku",
+        "Kyrgyz" to "ky",
+        "Latin" to "la",
+        "Laothian" to "lo",
+        "Latvian" to "lv",
+        "Lithuanian" to "lt",
+        "Luxembourgish" to "lb",
+        "Macedonian" to "mk",
+        "Malagasy" to "mg",
+        "Malay" to "ms",
+        "Malayalam" to "ml",
+        "Maltese" to "mt",
+        "Maori" to "mi",
+        "Marathi" to "mr",
+        "Moldavian" to "mo",
+        "Mongolian" to "mn",
+        "Nepali" to "ne",
+        "Norwegian" to "no",
+        "Nyanja" to "ny",
+        "Pashto" to "ps",
+        "Persian" to "fa",
+        "Romanian" to "ro",
+        "Romansh" to "rm",
+        "Samoan" to "sm",
+        "Serbian" to "sr",
+        "Serbo-Croatian" to "sh",
+        "Siswati" to "ss",
+        "Sesotho" to "st",
+        "Shona" to "sn",
+        "Sindhi" to "sd",
+        "Sinhalese" to "si",
+        "Slovak" to "sk",
+        "Slovenian" to "sl",
+        "Somali" to "so",
+        "Swahili" to "sw",
+        "Swedish" to "sv",
+        "Tajik" to "tg",
+        "Tamil" to "ta",
+        "Telugu" to "te",
+        "Tigrinya" to "ti",
+        "Tonga" to "to",
+        "Turkmen" to "tk",
+        "Urdu" to "ur",
+        "Uzbek" to "uz",
+        "Yoruba" to "yo",
+        "Zulu" to "zu",
+        "Other" to "_t",
+    )
+}
+
+private val XCOMIC_LOCALES: Set<Locale> by lazy {
+    XCOMIC_LANGS
+        .map { (_, code) -> code.toXComicLocale() }
+        .toCollection(linkedSetOf())
+}
+
+private fun String.toXComicLocale(): Locale = when (this) {
+    "pt_br" -> Locale("pt", "BR")
+    "es_419" -> Locale("es", "419")
+    "zh_hk" -> Locale("zh", "HK")
+    "_t" -> Locale("other")
+    else -> Locale(this)
+}
+
+private fun Locale.toXComicLangCode(): String? {
+    if (this == Locale.ROOT) return null
+    return when {
+        language == "pt" && country.equals("BR", true) -> "pt_br"
+        language == "es" && country == "419" -> "es_419"
+        language == "zh" && (country.equals("HK", true) || country.equals("TW", true)) -> "zh_hk"
+        language == "other" -> "_t"
+        language.isBlank() -> null
+        else -> language
+    }
+}
