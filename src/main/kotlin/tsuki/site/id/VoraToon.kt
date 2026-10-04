@@ -33,7 +33,7 @@ import java.util.Locale
 internal class VoraToon(context: MangaLoaderContext) :
     PagedMangaParser(context, MangaParserSource.VORATOON, pageSize = 30) {
 
-    override val configKeyDomain = ConfigKey.Domain("v4.voratoon.com")
+    override val configKeyDomain = ConfigKey.Domain("v6.voratoon.com")
 
     private val apiBase = "https://api.voratoon.com"
 
