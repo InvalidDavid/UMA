@@ -38,11 +38,6 @@ import java.util.EnumSet
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
-/**
- * Works: langauge filter not, refractor code TODO
- */
-
-
 private const val BROWSE_PAGE_SIZE = 24
 private const val CHAPTER_PAGE_SIZE = 100
 private const val COMIC_PROBES_PER_TITLE = 5
@@ -60,6 +55,7 @@ private val TITLE_REGEX by lazy {
         RegexOption.IGNORE_CASE,
     )
 }
+
 private object XComicQueries {
     const val TITLE_BROWSE = $$"""
         query get_title_browse($select: Title_Browse_Select) {
@@ -192,6 +188,12 @@ private fun JSONArray.strings(): List<String> =
 private fun HttpUrl.csv(name: String): List<String> =
     queryParameter(name)?.split(",")?.filter { it.isNotBlank() }.orEmpty()
 
+/** Reads `tl`, `translated_langs`, `incTLangs`, or `translated_languages` from a URL, whichever is present. */
+private fun HttpUrl.translatedLangs(): List<String> {
+    val candidates = listOf("tl", "translated_langs", "incTLangs", "translated_languages")
+    return candidates.flatMap { csv(it) }.distinct()
+}
+
 private fun String?.toContentRating(): ContentRating = when (this) {
     "suggestive" -> ContentRating.SUGGESTIVE
     "erotica", "pornographic", "adult" -> ContentRating.ADULT
@@ -211,7 +213,7 @@ private data class BrowseQuery(
     val types: List<String>,
     val demographics: List<String>,
     val contentRatings: List<String>,
-    val langs: List<String>,
+    val translatedLanguages: List<String>,
     val genres: List<String>,
     val excludedGenres: List<String>,
     val statuses: List<String>,
@@ -231,7 +233,7 @@ private data class BrowseQuery(
         put("incDemographics", JSONArray(demographics))
         put("incContentRatings", JSONArray(contentRatings))
         put("incOLangs", JSONArray())
-        put("incTLangs", JSONArray(langs))
+        put("incTLangs", JSONArray(translatedLanguages))
         put("incGenres", JSONArray(genres))
         put("excGenres", JSONArray(excludedGenres))
         put("incGenresMode", JSONObject.NULL)
@@ -244,11 +246,6 @@ private data class BrowseQuery(
     }
 }
 
-// =====================================================================
-// Parser
-// =====================================================================
-
-@Suppress("unused")
 @MangaSourceParser("XCOMIC", "XCOMIC")
 internal class XComic(context: MangaLoaderContext) :
     PagedMangaParser(context, MangaParserSource.XCOMIC, pageSize = BROWSE_PAGE_SIZE) {
@@ -312,7 +309,9 @@ internal class XComic(context: MangaLoaderContext) :
             Demographic.JOSEI,
             Demographic.KODOMO,
         ),
-        availableLocales = XCOMIC_LOCALES,
+        availableLocales = XCOMIC_LANGS.mapTo(mutableSetOf()) { (_, code) ->
+            xcomicCodeToLocale(code)
+        },
     )
 
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
@@ -332,6 +331,9 @@ internal class XComic(context: MangaLoaderContext) :
             queryFromFilter(rawQuery, filter, order)
         }
 
+        val activeLangs = query.translatedLanguages.filter { it.isNotBlank() }.distinct()
+        val langParam = if (activeLangs.isEmpty()) "" else "?lang=" + activeLangs.joinToString(",")
+
         val data = postGraphQL(
             XComicQueries.TITLE_BROWSE,
             JSONObject().put("select", query.toVariables(page + 1)),
@@ -339,15 +341,16 @@ internal class XComic(context: MangaLoaderContext) :
         val items = data.objOrNull("data")?.arrOrNull("get_title_browse_items") ?: return emptyList()
 
         return items.objects().mapNotNull { item ->
-            val id = item.strOrNull("id") ?: return@mapNotNull null
+            val titleId = item.strOrNull("id") ?: return@mapNotNull null
             val d = item.objOrNull("data") ?: return@mapNotNull null
+            val title = cleanTitle(d.strOrNull("title") ?: titleId).ifBlank { titleId }
             val cover = (d.strOrNull("cover_local_url") ?: d.strOrNull("cover_url"))?.toAbsolute()
 
             Manga(
-                id = generateUid(id),
-                url = id,
-                publicUrl = "https://$domain/title/$id",
-                title = cleanTitle(d.strOrNull("title") ?: id).ifBlank { id },
+                id = generateUid(titleId),
+                url = titleId + langParam,
+                publicUrl = "https://$domain/title/$titleId",
+                title = title,
                 altTitles = emptySet(),
                 rating = RATING_UNKNOWN,
                 contentRating = null,
@@ -366,7 +369,7 @@ internal class XComic(context: MangaLoaderContext) :
         types = url.csv("types"),
         demographics = url.csv("demographic"),
         contentRatings = url.csv("content_ratings"),
-        langs = url.csv("lang"),
+        translatedLanguages = url.translatedLangs(),
         genres = url.csv("genres_in"),
         excludedGenres = url.csv("genres_ex"),
         statuses = url.csv("status"),
@@ -380,7 +383,7 @@ internal class XComic(context: MangaLoaderContext) :
         types = filter.types.mapNotNull { it.toApiType() },
         demographics = filter.demographics.mapNotNull { it.toApiDemo() },
         contentRatings = filter.contentRating.flatMap { it.toApiRatings() },
-        langs = listOfNotNull(filter.locale?.toXComicLangCode()),
+        translatedLanguages = listOfNotNull(filter.locale?.toXComicLangCode()),
         genres = filter.tags.map { it.key },
         excludedGenres = filter.tagsExclude.map { it.key },
         statuses = filter.states.mapNotNull { it.toApiStatus() },
@@ -405,8 +408,21 @@ internal class XComic(context: MangaLoaderContext) :
 
     private fun String.toAbsolute(): String = if (startsWith("http")) this else "https://$domain$this"
 
+    /** Splits `titleId?lang=en,de` into `(titleId, [en, de])`. */
+    private fun splitMangaUrl(url: String): Pair<String, List<String>> {
+        val idx = url.indexOf("?lang=")
+        if (idx < 0) return url to emptyList()
+        val titleId = url.substring(0, idx)
+        val langs = url.substring(idx + "?lang=".length)
+            .split(",")
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+        return titleId to langs
+    }
+
     override suspend fun getDetails(manga: Manga): Manga = coroutineScope {
-        val (titleId, pinned) = splitMangaUrl(manga.url)
+        val (titleId, langFilter) = splitMangaUrl(manga.url)
+
         val title = fetchTitleNode(titleId)
             ?: return@coroutineScope manga.copy(chapters = emptyList())
 
@@ -417,28 +433,89 @@ internal class XComic(context: MangaLoaderContext) :
             fetchTitleNode(title.mergedTo) ?: title
         } else title
 
-        val preferredLang = context.getPreferredLocales().firstNotNullOfOrNull { it.toXComicLangCode() }
-        val pair = pinned?.let { pid ->
-            fetchComicNode(pid)?.takeIf { it.isLive() }?.let { pid to it }
-        } ?: pickComic(resolved.comicIds.filter { it.isNotBlank() }, preferredLang)
-        ?: return@coroutineScope manga.copy(chapters = emptyList())
+        val comicIds = resolved.comicIds.filter { it.isNotBlank() }
+        val probes = mutableMapOf<String, ComicProbe>()
+        coroutineScope {
+            comicIds.chunked(COMIC_PROBES_PER_TITLE).forEach { chunk ->
+                chunk.map { cid ->
+                    async {
+                        fetchComicProbe(cid)?.let { probes[cid] = it }
+                    }
+                }.awaitAll()
+            }
+        }
 
-        val (comicId, comic) = pair
-        val chapters = fetchChapters(comicId)
+        val allLive = probes
+            .filterValues { it.isLive() }
+            .entries
+            .sortedByDescending { it.value.chapsNormal ?: 0 }
+
+        if (allLive.isEmpty()) {
+            return@coroutineScope manga.copy(chapters = emptyList())
+        }
+
+        val liveComics = if (langFilter.isEmpty()) {
+            allLive
+        } else {
+            allLive.filter { (_, probe) ->
+                val lang = probe.translatedLanguage?.takeIf { it.isNotBlank() } ?: "_t"
+                lang in langFilter
+            }.ifEmpty { allLive }
+        }
+
+        val chaptersByComic: List<Triple<String, ComicProbe, List<MangaChapter>>> =
+            liveComics.map { (comicId, probe) ->
+                async { Triple(comicId, probe, fetchChapters(comicId)) }
+            }.awaitAll()
+
+        val candidateLabels: Map<String, String> = chaptersByComic.associate { (comicId, probe, chapters) ->
+            val langCode = probe.translatedLanguage?.takeIf { it.isNotBlank() } ?: "_t"
+            val langLabel = langDisplayName(langCode)
+            val uploader = chapters.firstNotNullOfOrNull { ch ->
+                ch.scanlator?.takeIf { it.isNotBlank() }
+            } ?: probe.name?.takeIf { it.isNotBlank() }
+
+            val label = if (!uploader.isNullOrBlank() && !uploader.equals(langLabel, ignoreCase = true)) {
+                "$langLabel • $uploader"
+            } else {
+                langLabel
+            }
+            comicId to label
+        }
+
+        val labelCounts = candidateLabels.values.groupingBy { it }.eachCount()
+        val finalLabels: Map<String, String> = candidateLabels.mapValues { (comicId, base) ->
+            if ((labelCounts[base] ?: 0) > 1) {
+                "$base · ${comicId.takeLast(4)}"
+            } else {
+                base
+            }
+        }
+
+        val allChapters = chaptersByComic
+            .flatMap { (comicId, _, chapters) ->
+                val label = finalLabels[comicId]!!
+                chapters.map { it.copy(branch = label, scanlator = label) }
+            }
+            .sortedWith(compareBy({ it.number }, { it.branch ?: "" }))
+
+        val primaryComicId = liveComics.first().key
+        val primaryComic = fetchComicNode(primaryComicId)
 
         manga.copy(
             title = resolved.title?.let { cleanTitle(it) } ?: manga.title,
             altTitles = resolved.altTitles.toSet(),
-            description = buildDescription(comic),
-            authors = (resolved.authors + comic.authorNames).toSet(),
-            tags = (resolved.genreIds + comic.genres).mapTo(mutableSetOf()) {
+            description = primaryComic?.let { buildDescription(it) } ?: "",
+            authors = (resolved.authors + (primaryComic?.authorNames ?: emptyList())).toSet(),
+            tags = (resolved.genreIds + (primaryComic?.genres ?: emptyList())).mapTo(mutableSetOf()) {
                 MangaTag(key = it, title = it.toTagCase(), source = source)
             },
-            state = comic.status().toMangaState(),
+            state = (primaryComic?.status() ?: resolved.status).toMangaState(),
             rating = resolved.voteAvg?.div(10f)?.coerceIn(0f, 1f) ?: RATING_UNKNOWN,
-            contentRating = (resolved.contentRating ?: comic.contentRating).toContentRating(),
-            coverUrl = (resolved.coverLocalUrl ?: comic.urlCover)?.toAbsolute() ?: manga.coverUrl,
-            chapters = chapters,
+            contentRating = (resolved.contentRating ?: primaryComic?.contentRating).toContentRating(),
+            coverUrl = (resolved.coverLocalUrl ?: primaryComic?.urlCover ?: resolved.coverUrl)?.toAbsolute()
+                ?: manga.coverUrl,
+            chapters = allChapters,
         )
     }
 
@@ -603,48 +680,6 @@ internal class XComic(context: MangaLoaderContext) :
         return fetched
     }
 
-    private suspend fun pickComic(ids: List<String>, filterApiLang: String?): Pair<String, ComicNode>? {
-        if (ids.isEmpty()) return null
-
-        val preferredLangs = buildList {
-            if (!filterApiLang.isNullOrBlank()) add(filterApiLang)
-            context.getPreferredLocales().mapNotNullTo(this) { it.toXComicLangCode() }
-            if ("en" !in this) add("en")
-        }.distinct()
-
-        val candidates = mutableListOf<Pair<String, ComicProbe>>()
-        val candidateChunks = ids.take(20).chunked(COMIC_PROBES_PER_TITLE)
-
-        for (chunk in candidateChunks) {
-            val probes = coroutineScope {
-                chunk.map { cid ->
-                    async {
-                        fetchComicProbe(cid)?.let { cid to it }
-                    }
-                }.awaitAll().filterNotNull()
-            }
-            candidates.addAll(probes.filter { (_, probe) -> probe.isLive() })
-
-            if (preferredLangs.isNotEmpty() && candidates.any { (_, probe) -> probe.translatedLanguage == preferredLangs.first() }) {
-                break
-            }
-        }
-
-        if (candidates.isEmpty()) {
-            val firstId = ids.first()
-            val node = fetchComicNode(firstId)?.takeIf { it.isLive() }
-            return node?.let { firstId to it }
-        }
-
-        val bestCid = preferredLangs.firstNotNullOfOrNull { lang ->
-            candidates.filter { (_, probe) -> probe.translatedLanguage == lang }
-                .maxByOrNull { (_, probe) -> probe.chapsNormal ?: 0 }
-        }?.first ?: candidates.maxByOrNull { (_, probe) -> probe.chapsNormal ?: 0 }?.first ?: candidates.first().first
-
-        val bestNode = fetchComicNode(bestCid) ?: return null
-        return bestCid to bestNode
-    }
-
     private fun JSONObject.toTitleNodeData(): TitleNodeData = TitleNodeData(
         id = strOrNull("id"),
         title = strOrNull("title"),
@@ -758,11 +793,6 @@ internal class XComic(context: MangaLoaderContext) :
         val urlCover: String?,
     ) : Liveable
 
-    private fun splitMangaUrl(url: String): Pair<String, String?> {
-        val i = url.indexOf(':')
-        return if (i < 0) url to null else url.substring(0, i) to url.substring(i + 1)
-    }
-
     private fun sortFor(order: SortOrder): String = when (order) {
         SortOrder.POPULARITY -> "field_follow"
         SortOrder.RATING -> "field_score"
@@ -831,8 +861,141 @@ internal class XComic(context: MangaLoaderContext) :
 
     private fun String.toMarkdownUrls(): String =
         replace(URL_REGEX) { "[${it.value}](${it.value})" }
+
+    private fun langDisplayName(code: String): String =
+        XCOMIC_LANGS.firstOrNull { it.second == code }?.first ?: code.uppercase()
+
+    private val XCOMIC_LANGS = listOf(
+        "English" to "en",
+        "French" to "fr",
+        "Portuguese" to "pt",
+        "Portuguese (BR)" to "pt_br",
+        "Spanish" to "es",
+        "Spanish (LA)" to "es_419",
+        "Korean" to "ko",
+        "Japanese" to "ja",
+        "Indonesian" to "id",
+        "Chinese" to "zh",
+        "Chinese (Traditional)" to "zh_hk",
+        "Russian" to "ru",
+        "German" to "de",
+        "Italian" to "it",
+        "Arabic" to "ar",
+        "Thai" to "th",
+        "Vietnamese" to "vi",
+        "Turkish" to "tr",
+        "Polish" to "pl",
+        "Ukrainian" to "uk",
+        "Filipino" to "fil",
+        "Abkhazian" to "ab",
+        "Afrikaans" to "af",
+        "Albanian" to "sq",
+        "Amharic" to "am",
+        "Armenian" to "hy",
+        "Azerbaijani" to "az",
+        "Belarusian" to "be",
+        "Bengali" to "bn",
+        "Bosnian" to "bs",
+        "Bulgarian" to "bg",
+        "Burmese" to "my",
+        "Cambodian" to "km",
+        "Catalan" to "ca",
+        "Cebuano" to "ceb",
+        "Croatian" to "hr",
+        "Czech" to "cs",
+        "Chuvash" to "cv",
+        "Danish" to "da",
+        "Dutch" to "nl",
+        "Estonian" to "et",
+        "Esperanto" to "eo",
+        "Basque" to "eu",
+        "Faroese" to "fo",
+        "Finnish" to "fi",
+        "Georgian" to "ka",
+        "Greek" to "el",
+        "Guarani" to "gn",
+        "Gujarati" to "gu",
+        "Haitian Creole" to "ht",
+        "Hausa" to "ha",
+        "Hebrew" to "he",
+        "Hindi" to "hi",
+        "Hungarian" to "hu",
+        "Icelandic" to "is",
+        "Igbo" to "ig",
+        "Irish" to "ga",
+        "Galician" to "gl",
+        "Javanese" to "jv",
+        "Kannada" to "kn",
+        "Kazakh" to "kk",
+        "Kurdish" to "ku",
+        "Kyrgyz" to "ky",
+        "Latin" to "la",
+        "Laothian" to "lo",
+        "Latvian" to "lv",
+        "Lithuanian" to "lt",
+        "Luxembourgish" to "lb",
+        "Macedonian" to "mk",
+        "Malagasy" to "mg",
+        "Malay" to "ms",
+        "Malayalam" to "ml",
+        "Maltese" to "mt",
+        "Maori" to "mi",
+        "Marathi" to "mr",
+        "Moldavian" to "mo",
+        "Mongolian" to "mn",
+        "Nepali" to "ne",
+        "Norwegian" to "no",
+        "Nyanja" to "ny",
+        "Pashto" to "ps",
+        "Persian" to "fa",
+        "Romanian" to "ro",
+        "Romansh" to "rm",
+        "Samoan" to "sm",
+        "Serbian" to "sr",
+        "Serbo-Croatian" to "sh",
+        "Siswati" to "ss",
+        "Sesotho" to "st",
+        "Shona" to "sn",
+        "Sindhi" to "sd",
+        "Sinhalese" to "si",
+        "Slovak" to "sk",
+        "Slovenian" to "sl",
+        "Somali" to "so",
+        "Swahili" to "sw",
+        "Swedish" to "sv",
+        "Tajik" to "tg",
+        "Tamil" to "ta",
+        "Telugu" to "te",
+        "Tigrinya" to "ti",
+        "Tonga" to "to",
+        "Turkmen" to "tk",
+        "Urdu" to "ur",
+        "Uzbek" to "uz",
+        "Yoruba" to "yo",
+        "Zulu" to "zu",
+        "Other" to "_t",
+    )
+
+    private fun Locale.toXComicLangCode(): String? {
+        if (this == Locale.ROOT) return null
+        return when {
+            language == "pt" && country.equals("BR", true) -> "pt_br"
+            language == "es" && country == "419" -> "es_419"
+            language == "zh" && (country.equals("HK", true) || country.equals("TW", true)) -> "zh_hk"
+            language == "other" -> "_t"
+            language.isBlank() -> null
+            else -> language
+        }
+    }
 }
 
+private fun xcomicCodeToLocale(code: String): Locale = when (code) {
+    "pt_br" -> Locale("pt", "BR")
+    "es_419" -> Locale("es", "419")
+    "zh_hk" -> Locale("zh", "HK")
+    "_t" -> Locale("other")
+    else -> Locale(code)
+}
 
 private val GENRE_TAGS: List<Pair<String, String>> by lazy {
     listOf(
@@ -994,143 +1157,4 @@ private val GENRE_TAGS: List<Pair<String, String>> by lazy {
         "Youkai" to "youkai",
         "Zombies" to "zombies",
     )
-}
-
-private val XCOMIC_LANGS: List<Pair<String, String>> by lazy {
-    listOf(
-        "English" to "en",
-        "French" to "fr",
-        "Portuguese" to "pt",
-        "Portuguese (BR)" to "pt_br",
-        "Spanish" to "es",
-        "Spanish (LA)" to "es_419",
-        "Korean" to "ko",
-        "Japanese" to "ja",
-        "Indonesian" to "id",
-        "Chinese" to "zh",
-        "Chinese (Traditional)" to "zh_hk",
-        "Russian" to "ru",
-        "German" to "de",
-        "Italian" to "it",
-        "Arabic" to "ar",
-        "Thai" to "th",
-        "Vietnamese" to "vi",
-        "Turkish" to "tr",
-        "Polish" to "pl",
-        "Ukrainian" to "uk",
-        "Filipino" to "fil",
-        "Abkhazian" to "ab",
-        "Afrikaans" to "af",
-        "Albanian" to "sq",
-        "Amharic" to "am",
-        "Armenian" to "hy",
-        "Azerbaijani" to "az",
-        "Belarusian" to "be",
-        "Bengali" to "bn",
-        "Bosnian" to "bs",
-        "Bulgarian" to "bg",
-        "Burmese" to "my",
-        "Cambodian" to "km",
-        "Catalan" to "ca",
-        "Cebuano" to "ceb",
-        "Croatian" to "hr",
-        "Czech" to "cs",
-        "Chuvash" to "cv",
-        "Danish" to "da",
-        "Dutch" to "nl",
-        "Estonian" to "et",
-        "Esperanto" to "eo",
-        "Basque" to "eu",
-        "Faroese" to "fo",
-        "Finnish" to "fi",
-        "Georgian" to "ka",
-        "Greek" to "el",
-        "Guarani" to "gn",
-        "Gujarati" to "gu",
-        "Haitian Creole" to "ht",
-        "Hausa" to "ha",
-        "Hebrew" to "he",
-        "Hindi" to "hi",
-        "Hungarian" to "hu",
-        "Icelandic" to "is",
-        "Igbo" to "ig",
-        "Irish" to "ga",
-        "Galician" to "gl",
-        "Javanese" to "jv",
-        "Kannada" to "kn",
-        "Kazakh" to "kk",
-        "Kurdish" to "ku",
-        "Kyrgyz" to "ky",
-        "Latin" to "la",
-        "Laothian" to "lo",
-        "Latvian" to "lv",
-        "Lithuanian" to "lt",
-        "Luxembourgish" to "lb",
-        "Macedonian" to "mk",
-        "Malagasy" to "mg",
-        "Malay" to "ms",
-        "Malayalam" to "ml",
-        "Maltese" to "mt",
-        "Maori" to "mi",
-        "Marathi" to "mr",
-        "Moldavian" to "mo",
-        "Mongolian" to "mn",
-        "Nepali" to "ne",
-        "Norwegian" to "no",
-        "Nyanja" to "ny",
-        "Pashto" to "ps",
-        "Persian" to "fa",
-        "Romanian" to "ro",
-        "Romansh" to "rm",
-        "Samoan" to "sm",
-        "Serbian" to "sr",
-        "Serbo-Croatian" to "sh",
-        "Siswati" to "ss",
-        "Sesotho" to "st",
-        "Shona" to "sn",
-        "Sindhi" to "sd",
-        "Sinhalese" to "si",
-        "Slovak" to "sk",
-        "Slovenian" to "sl",
-        "Somali" to "so",
-        "Swahili" to "sw",
-        "Swedish" to "sv",
-        "Tajik" to "tg",
-        "Tamil" to "ta",
-        "Telugu" to "te",
-        "Tigrinya" to "ti",
-        "Tonga" to "to",
-        "Turkmen" to "tk",
-        "Urdu" to "ur",
-        "Uzbek" to "uz",
-        "Yoruba" to "yo",
-        "Zulu" to "zu",
-        "Other" to "_t",
-    )
-}
-
-private val XCOMIC_LOCALES: Set<Locale> by lazy {
-    XCOMIC_LANGS
-        .map { (_, code) -> code.toXComicLocale() }
-        .toCollection(linkedSetOf())
-}
-
-private fun String.toXComicLocale(): Locale = when (this) {
-    "pt_br" -> Locale("pt", "BR")
-    "es_419" -> Locale("es", "419")
-    "zh_hk" -> Locale("zh", "HK")
-    "_t" -> Locale("other")
-    else -> Locale(this)
-}
-
-private fun Locale.toXComicLangCode(): String? {
-    if (this == Locale.ROOT) return null
-    return when {
-        language == "pt" && country.equals("BR", true) -> "pt_br"
-        language == "es" && country == "419" -> "es_419"
-        language == "zh" && (country.equals("HK", true) || country.equals("TW", true)) -> "zh_hk"
-        language == "other" -> "_t"
-        language.isBlank() -> null
-        else -> language
-    }
 }
