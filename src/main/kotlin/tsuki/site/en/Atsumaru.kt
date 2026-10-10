@@ -54,10 +54,10 @@ internal class Atsumaru(context: MangaLoaderContext) :
     }
 
     override val availableSortOrders: Set<SortOrder> = EnumSet.of(
-        SortOrder.POPULARITY,    // trending (views)
-        SortOrder.UPDATED,       // recently added (dateAdded)
-        SortOrder.ADDED,         // recently new added mangas
-        SortOrder.RELEVANCE,     // rising
+        SortOrder.POPULARITY,
+        SortOrder.UPDATED,
+        SortOrder.ADDED,
+        SortOrder.RELEVANCE,
         SortOrder.ALPHABETICAL,
         SortOrder.RATING,
     )
@@ -494,13 +494,17 @@ internal class Atsumaru(context: MangaLoaderContext) :
         }
     }
 
+    override suspend fun getPageUrl(page: MangaPage): String {
+        return page.url
+    }
+
     private fun JSONObject.toManga(): Manga {
         val id = getString("id")
         val title = optString("title").ifEmpty { optString("englishTitle", "Unknown") }
 
         val imageRaw: Any? = when {
             has("poster") -> get("poster")
-            has("image")  -> getString("image")
+            has("image") -> getString("image")
             else -> null
         }
 
