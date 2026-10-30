@@ -832,7 +832,6 @@ internal abstract class MadaraParser(
                 ?.selectFirstOrThrow("a")
                 ?.attrAsRelativeUrl("href")
 
-            // Site ignored the param — every page comes back identical.
             if (pageLastHref == lastAjaxPageHref) break
             lastAjaxPageHref = pageLastHref
 
