@@ -695,7 +695,6 @@ internal class Kagane(context: MangaLoaderContext) :
                 addPathSegment(chapterId)
                 addPathSegment("${page.pageUuid}.$ext")
                 addQueryParameter("token", accessToken)
-                addQueryParameter("is_datasaver", isDataSaver.toString())
             }.build().toString()
 
             MangaPage(
@@ -911,35 +910,43 @@ internal class Kagane(context: MangaLoaderContext) :
         val request = chain.request()
         val url = request.url
         val host = url.host
+        val hasToken = url.queryParameter("token") != null
+
         var requestBuilder = request.newBuilder()
             .removeHeader("Content-Encoding")
             .removeHeader("cf-connecting-ip")
-        if (host == domain || host.endsWith(".$domain")) {
+
+        if (host == domain || host.endsWith(".$domain") || hasToken) {
             requestBuilder = requestBuilder
                 .header("Origin", "https://$domain")
                 .header("Referer", "https://$domain/")
         }
-        val newRequest = requestBuilder.build()
 
+        if (hasToken) {
+            requestBuilder = requestBuilder.header(
+                "Accept",
+                "image/avif,image/webp,image/png,image/jpeg,image/*;q=0.9,*/*;q=0.8",
+            )
+        }
+
+        val newRequest = requestBuilder.build()
         var response = chain.proceed(newRequest)
 
-        if (url.queryParameterNames.contains("token") &&
-            (response.code == 401 || response.code == 403 || response.code == 507)
-        ) {
+        if (hasToken && (response.code == 401 || response.code == 403 || response.code == 507)) {
             response.close()
             val segments = url.pathSegments
-            /** /api/v2/books/page/[datasaver/]{chapterId}/{pageUuid}.{ext} */
-            val chapterId = if (segments.getOrNull(4) == "datasaver") {
-                segments.getOrNull(5)
+            /** Path: /api/v2/books/page/{datasaver/}?{chapterId}/{pageUuid}.{ext} */
+            val chapterId = if (segments.getOrNull(3) == "datasaver") {
+                segments.getOrNull(4)
             } else {
                 segments.getOrNull(4)
             }
             if (chapterId != null) {
                 runCatching { refreshAccessTokenBlocking(chapterId) }.onSuccess {
-                    val retryRequest = newRequest.newBuilder()
+                    val retry = newRequest.newBuilder()
                         .url(url.newBuilder().setQueryParameter("token", accessToken).build())
                         .build()
-                    response = chain.proceed(retryRequest)
+                    response = chain.proceed(retry)
                 }
             }
         }
