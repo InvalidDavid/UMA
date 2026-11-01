@@ -34,6 +34,8 @@ import java.util.EnumSet
 import java.util.Locale
 import java.util.TimeZone
 
+import tsuki.Broken
+@Broken("no time to fix this")
 @MangaSourceParser("TEMPLESCAN", "Temple Scan", "en", ContentType.HENTAI)
 internal class TempleScan(context: MangaLoaderContext) :
     PagedMangaParser(context, MangaParserSource.TEMPLESCAN, 20) {
