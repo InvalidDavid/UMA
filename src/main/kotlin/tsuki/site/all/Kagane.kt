@@ -54,7 +54,7 @@ import kotlinx.coroutines.sync.withLock
 internal class Kagane(context: MangaLoaderContext) :
     PagedMangaParser(context, MangaParserSource.KAGANE, pageSize = 35) {
 
-    override val configKeyDomain = ConfigKey.Domain("kagane.org", "kagane.cx", "kagane.moe", "kagane.net")
+    override val configKeyDomain = ConfigKey.Domain("kagane.moe")
     private val apiUrl = "https://$domain"
 
     private val dataSaverKey = ConfigKey.PreferredImageServer(
