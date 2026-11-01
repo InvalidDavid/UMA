@@ -43,6 +43,7 @@ private const val CHAPTER_PAGE_SIZE = 100
 private const val COMIC_PROBES_PER_TITLE = 5
 private const val DETAILS_CACHE_TTL_MS = 5 * 60_000L
 private const val DETAILS_CACHE_MAX_SIZE = 32
+private val DEFAULT_LANGS = listOf("en")
 
 private val ID_QUERY by lazy {
     Regex("^id\\s*:?\\s*([a-zA-Z0-9\\-_]+)\\s*$", RegexOption.IGNORE_CASE)
@@ -375,7 +376,7 @@ internal class XCOMIC(context: MangaLoaderContext) :
         types = url.csv("types"),
         demographics = url.csv("demographic"),
         contentRatings = url.csv("content_ratings"),
-        translatedLanguages = url.translatedLangs(),
+        translatedLanguages = url.translatedLangs().ifEmpty { DEFAULT_LANGS },
         genres = url.csv("genres_in"),
         excludedGenres = url.csv("genres_ex"),
         statuses = url.csv("status"),
@@ -389,7 +390,7 @@ internal class XCOMIC(context: MangaLoaderContext) :
         types = filter.types.mapNotNull { it.toApiType() },
         demographics = filter.demographics.mapNotNull { it.toApiDemo() },
         contentRatings = filter.contentRating.flatMap { it.toApiRatings() },
-        translatedLanguages = listOfNotNull(filter.locale?.toXComicLangCode()),
+        translatedLanguages = filter.locale?.toXComicLangCode()?.let(::listOf) ?: DEFAULT_LANGS,
         genres = filter.tags.map { it.key },
         excludedGenres = filter.tagsExclude.map { it.key },
         statuses = filter.states.mapNotNull { it.toApiStatus() },
