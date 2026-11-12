@@ -40,7 +40,7 @@ import java.util.Locale
 internal class VoraToon(context: MangaLoaderContext) :
     PagedMangaParser(context, MangaParserSource.VORATOON, 30) {
 
-    override val configKeyDomain = ConfigKey.Domain("13.voratoon.com", "voratoon.id", "voratoon.com")
+    override val configKeyDomain = ConfigKey.Domain("voratoon.co", "13.voratoon.com", "voratoon.id")
 
     override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
         super.onCreateConfig(keys)
