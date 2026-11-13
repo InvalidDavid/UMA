@@ -20,6 +20,7 @@ This is a living guide. If you find incorrect or missing information, open an [i
 - [Writing or updating a parser](#writing-or-updating-a-parser)
   - [Choose the right source package](#choose-the-right-source-package)
   - [Register a parser](#register-a-parser)
+  - [A very small beginner parser template](#a-very-small-beginner-parser-template)
   - [Parse a manga list](#parse-a-manga-list)
   - [Implement search and sorting](#implement-search-and-sorting)
   - [Load details and chapters](#load-details-and-chapters)
@@ -58,6 +59,8 @@ This is a living guide. If you find incorrect or missing information, open an [i
 - [License](#license)
 
 ## Prerequisites
+
+Before you start contributing to UMA, ensure you have the following:
 
 ### Required knowledge
 
@@ -172,6 +175,68 @@ internal class ExampleSource(context: MangaLoaderContext) :
 
 This is a shape example; constructors and annotation parameters must match the Tsuki version and project conventions in the current checkout. Keep source IDs stable because users' saved data can depend on them.
 
+### A very small beginner parser template
+
+If you are new to UMA, start with a tiny example that only does list loading and passes the required source registration. The example below is intentionally simple and shows the usual pattern:
+
+```kotlin
+package tsuki.site.en
+
+import tsuki.MangaLoaderContext
+import tsuki.MangaSourceParser
+import tsuki.core.PagedMangaParser
+import tsuki.model.Manga
+import tsuki.model.MangaListFilter
+import tsuki.model.MangaParserSource
+import tsuki.model.SortOrder
+import tsuki.util.attrAsRelativeUrlOrNull
+import tsuki.util.generateUid
+import tsuki.util.parseHtml
+import tsuki.util.toAbsoluteUrl
+import tsuki.util.urlBuilder
+
+@MangaSourceParser("EXAMPLE", "Example Source", "en")
+internal class ExampleSource(context: MangaLoaderContext) :
+    PagedMangaParser(context, MangaParserSource.EXAMPLE, pageSize = 20) {
+
+    override suspend fun getListPage(
+        page: Int,
+        order: SortOrder,
+        filter: MangaListFilter,
+    ): List<Manga> {
+        val url = urlBuilder()
+            .addPathSegment("catalog")
+            .addQueryParameter("page", page.toString())
+            .build()
+
+        val doc = webClient.httpGet(url).parseHtml()
+        return doc.select(".manga-item").mapNotNull { element ->
+            val link = element.selectFirst("a") ?: return@mapNotNull null
+            val href = link.attrAsRelativeUrlOrNull("href") ?: return@mapNotNull null
+            val title = link.text().takeIf { it.isNotBlank() } ?: return@mapNotNull null
+
+            Manga(
+                id = generateUid(href),
+                url = href,
+                publicUrl = href.toAbsoluteUrl(domain),
+                title = title,
+                source = source,
+            )
+        }
+    }
+}
+```
+
+A good beginner workflow is:
+
+1. Fetch the site homepage.
+2. Find one list item and inspect its anchor tag.
+3. Copy its relative path and title into a parser.
+4. Confirm the source returns the expected titles.
+5. Then add details, chapters, and page loading.
+
+If you do not know the site structure, do a quick browser inspection first and look for one `a[href]` inside a product card or manga card.
+
 ### Parse a manga list
 
 For paginated HTML sources, a `PagedMangaParser` commonly implements `getListPage(page, order, filter)`. Build a URL using the configured domain, request and parse the page, then map valid cards to `Manga` values. Validate required fields before constructing the model; a malformed card should not become an entry with an empty URL or title.
@@ -231,6 +296,8 @@ val url = builder.build()
 
 Do not build query strings by concatenating raw user input. When the site's API uses repeated parameters, call `addQueryParameter` for each value rather than joining them into one ambiguous string.
 
+A beginner debugging tip: if the site works in the browser but not in the parser, print the exact URL and compare it to the browser's network request. This catches missing query parameters and wrong order values very quickly.
+
 ### Load details and chapters
 
 `getDetails(manga)` should normally return `manga.copy(...)`, preserving the existing manga identity (`id`, `url`, and `source`) while filling in information fetched from the detail page. Use `mapChapters` for chapter collections where appropriate; see [Chapter mapping and chapter numbers](#chapter-mapping-and-chapter-numbers).
@@ -287,15 +354,47 @@ override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
 
 Some parsers need `getPageUrl(page)` to resolve a deferred image URL; others return direct URLs. Follow the source's existing approach and check the Tsuki API for the method contract.
 
+A beginner checklist for page loading:
+
+- Does the chapter page contain all image URLs?
+- Are image URLs relative or absolute?
+- Does the site lazy-load pages via JSON or a second request?
+- Are pages in the correct reading order?
+
 ### Add filters and declare capabilities
 
 Use `getFilterOptions()` to expose choices actually available on the site and `filterCapabilities` to describe which combinations the parser handles. A filter option describes what the user can choose; a capability describes what the parser can process. Both must agree with the request-building code.
 
 For example, do not set multiple-tag support if the site accepts only one genre, and do not claim search-with-filters support if a search query causes the parser to discard selected filters. Check `MangaListFilterCapabilities` in the Tsuki version resolved by the project; its properties vary between versions.
 
+Beginner example:
+
+```kotlin
+override val filterCapabilities: MangaListFilterCapabilities
+    get() = MangaListFilterCapabilities(
+        isSearchSupported = true,
+        isMultipleTagsSupported = true,
+        isTagsExclusionSupported = false,
+        isYearSupported = false,
+    )
+```
+
+If the site does not support year filtering, do not claim it. The app will otherwise create filters that always fail.
+
 ### Resolve website links
 
 Override the relevant `resolveLink` method when a source URL should open directly as a manga in the app. Parse and validate the host and path before fetching anything. Use the source's configured domain or incoming URL as appropriate; avoid hard-coded mirror hosts when the source supports configurable domains.
+
+A simple pattern looks like:
+
+```kotlin
+override suspend fun resolveLink(resolver: LinkResolver, link: HttpUrl): Manga? {
+    val slug = link.pathSegments.lastOrNull() ?: return null
+    return getDetailsImpl(slug)
+}
+```
+
+If the source is accessed through multiple domains or subdomains, always validate that the URL host matches the source, otherwise your parser may accidentally open a different site or a non-manga page.
 
 ## Utilities and helpers
 
@@ -321,6 +420,16 @@ val rawHtml = webClient.httpGet(pageUrl).parseRaw()
 
 Use the client and headers already used by the parser. Add custom headers only when the source needs them; reuse `getRequestHeaders()` or existing source helpers where practical. Do not log authorization headers or token values.
 
+Beginner example:
+
+```kotlin
+val response = webClient.httpGet("https://example.com/search?q=manga")
+val html = response.parseHtml()
+val title = html.selectFirst("h1")?.text()
+```
+
+That is the simplest possible request+parse flow. If the site pushes data via JSON instead of HTML, replace `parseHtml()` with `parseJson()`.
+
 #### URL building and conversion
 
 Useful Tsuki URL helpers include `urlBuilder()`, `toAbsoluteUrl(domain)`, and `toRelativeUrl(domain)`. `urlBuilder()` uses the parser's configured domain; builder methods safely encode path segments and query parameters.
@@ -338,6 +447,17 @@ val url = urlBuilder(subdomain = "api")
 val browserUrl = "/manga/example".toAbsoluteUrl(domain)
 val relativeUrl = browserUrl.toRelativeUrl(domain)
 ```
+
+Beginner example:
+
+```kotlin
+val url = urlBuilder()
+    .addPathSegment("search")
+    .addQueryParameter("q", "one punch")
+    .build()
+```
+
+This is usually cleaner than string concatenation and avoids broken URLs when a query contains special characters such as `?`, `&`, or spaces.
 
 Use `addPathSegment` for one path component and `addPathSegments` for slash-separated components. Avoid concatenating untrusted query values manually. Store URLs consistently with existing UMA parsers, usually relative URLs for parser-internal model fields and absolute URLs for browser-facing links. Some sources intentionally use IDs or other URI-like values instead of conventional paths; follow their established conventions.
 
@@ -363,6 +483,14 @@ val mangaPath = titleLink.attrAsRelativeUrlOrNull("href") ?: return@mapNotNull n
 val subtitle = card.selectFirst(".subtitle")?.textOrNull()
 ```
 
+Beginner example:
+
+```kotlin
+val title = doc.selectFirst("h1")?.text()
+val image = doc.selectFirst("img.cover")?.attr("src")
+val link = doc.selectFirst("a.series-link")?.attr("href")
+```
+
 Use nullable helpers when a missing value is expected. Use throwing helpers only where missing markup means the page cannot be parsed; descriptive parse failures are easier to diagnose than silently creating invalid models. `ownTextOrNull()` is useful when an element contains nested labels or icons whose text should not be included.
 
 #### Image source extraction
@@ -376,6 +504,13 @@ import tsuki.util.src
 val optionalCover = card.selectFirst("img")?.src()
 val pageImage = pageElement.selectFirst("img")?.requireSrc()
     ?: return emptyList()
+```
+
+Beginner example:
+
+```kotlin
+val cover = doc.selectFirst("img")?.src()
+val pageUrl = chapterDoc.selectFirst("img.reader-page")?.requireSrc()
 ```
 
 Use `src()` when the image may legitimately be absent, such as a missing optional cover; use `requireSrc()` for required reader pages. Check nearby code because `src()` may require an opt-in annotation in the version in use.
@@ -404,7 +539,21 @@ val chapters = elements.mapChapters(reversed = true) { index, element ->
 }
 ```
 
-Use `flatMapChapters` when one source row can produce more than one chapter. When mapping JSON, Tsuki also provides `JSONArray.mapChapters` in versions that include the API.
+Beginner example:
+
+```kotlin
+val chapterLinks = doc.select("a.chapter-link")
+val chapters = chapterLinks.mapChapters(reversed = true) { _, link ->
+    val href = link.attrAsRelativeUrlOrNull("href") ?: return@mapChapters null
+    MangaChapter(
+        id = generateUid(href),
+        url = href,
+        title = link.text(),
+        number = 1f,
+        source = source,
+    )
+}
+```
 
 UMA adds `String.extractChapterNumber()`. It extracts a number after common labels such as “Chapter”, “Ch.”, “Episode”, “Ep.”, and several translations; if no label is found, it uses the first number, and returns `0f` when no number is found.
 
@@ -440,6 +589,17 @@ return results.mapJSONNotNull { item ->
 }
 ```
 
+Beginner example:
+
+```kotlin
+val array = json.getJSONArray("items")
+for (i in 0 until array.length()) {
+    val item = array.getJSONObject(i)
+    val title = item.optString("title")
+    println(title)
+}
+```
+
 Use safe accessors for optional API fields and fail or skip entries with missing required identifiers. For larger or evolving API responses, deserialize only the fields needed and use the Kotlin serialization support configured in this project. Check actual helper names in the resolved Tsuki version before relying on them.
 
 #### String, date, and common parser helpers
@@ -464,6 +624,14 @@ val optionalDescription = rawDescription.nullIfEmpty()
 val buildId = html.findGroupValue(Regex("/_next/static/([^/]+)/"))
 ```
 
+Beginner example:
+
+```kotlin
+val cleaned = "  hello world  ".trim()
+val encoded = cleaned.urlEncoded()
+val maybeTitle = titleElement.text().nullIfEmpty()
+```
+
 For dates, follow current neighboring parsers and use the helper available in the resolved Tsuki version. Many existing UMA parsers use `parseSafe()` with a site-specific `SimpleDateFormat` and locale. Specify the timezone when the site defines one. Missing or unparseable dates should remain unknown (`0L`), not be replaced with a guessed date.
 
 #### Stable IDs and source-aware URLs
@@ -475,6 +643,13 @@ The `MangaParser` extensions also provide source-aware ID generation and `urlBui
 ```kotlin
 val mangaId = generateUid(mangaPath)
 val chapterId = generateUid(chapterPath)
+```
+
+Beginner example:
+
+```kotlin
+val id = generateUid("/manga/one-piece")
+println(id) // stable hash from the manga URL
 ```
 
 Tsuki model constructors change across releases. Follow the actual model declaration and current parsers for required fields. In this repository's pinned version, do not assume newer short `Manga(title, url, source, ...)` or `MangaChapter(title, url, number, source, ...)` constructors are available unless the dependency actually provides them.
@@ -520,6 +695,15 @@ val chapters = NextJsData.findLargestArray(html) { first ->
 val reader = NextJsData.findValue(html) { node ->
     node is JSONObject && node.has("pages")
 } as? JSONObject
+```
+
+Beginner example:
+
+```kotlin
+val pageHtml = webClient.httpGet("https://example.com/manga/test").parseRaw()
+val payloads = NextJsData.extractPayloads(pageHtml)
+val titleObj = NextJsData.findObjectInPayloads(payloads, "title", "slug")
+println(titleObj?.optString("title"))
 ```
 
 Use `findLargestArray` only when the candidate arrays share a known shape; the largest array is not automatically the correct one. A validator should check distinctive fields, not just common keys such as `id`.
@@ -580,6 +764,13 @@ val result: CatalogResponse = webClient.httpGet(apiUrl).parseAsProto()
 val requestBody = CatalogRequest(page = 1).toRequestBodyProto()
 ```
 
+Beginner example:
+
+```kotlin
+val bytes = webClient.httpGet("https://example.com/data").body.bytes()
+val dto = bytes.decodeProto<MyDto>()
+```
+
 Use the response overload to avoid buffering the entire message as a `ByteArray`. The transform overload can adapt a stream before decoding, for example when the service wraps the protobuf payload. The `tsuki.util.protobuf` package contains the streaming encoder/decoder implementation; treat those classes as internals and use the public extensions. MangaPlus is an in-repository example of `parseAsProto()`.
 
 #### Turnstile integration
@@ -611,6 +802,8 @@ val plaintext = AesGcmSiv.decrypt(
     aad = associatedData,
 )
 ```
+
+Beginner rule: if you are looking at this section, you are probably not writing a normal parser. Most source work is solved with HTML, JSON, and correct URL generation. Only use decryption helpers when a site truly requires it.
 
 `decrypt.Bytes` and `decrypt.SecretStream` are internal implementation details, not parser-facing utility APIs. Add or modify cryptographic behavior only when the format is understood and covered by tests. Never ship hard-coded private keys or secret sample data.
 
@@ -707,12 +900,23 @@ Keep the config identifier and exception `key` consistent. Do not log or commit 
 - Preserve existing manga fields if a detail request omits optional information.
 - Test selectors against current markup, not only saved examples.
 
+Beginner example:
+
+```kotlin
+val title = doc.selectFirst("h1")?.text() ?: return emptyList()
+val cover = doc.selectFirst("img.cover")?.attr("src")
+```
+
+If `h1` is missing, it is usually better to skip the item rather than returning a broken object with no title.
+
 ### Requests, retries, and rate
 
 - Be respectful of source servers: avoid redundant requests, uncontrolled concurrency, and aggressive retries.
 - Handle HTTP errors according to their meaning; do not convert every error into an empty result.
 - Use retries only when transient failure is plausible and keep retry counts bounded.
 - Prefer existing client configuration and source headers. Avoid hard-coding a user agent unless the source truly requires it.
+
+A common beginner mistake is calling the same page multiple times in a single detail fetch. If a site has a list page and a detail page, fetch them only once each and reuse the result.
 
 ### Credentials and sensitive information
 
@@ -733,6 +937,14 @@ Run relevant checks before submitting:
 ```
 
 If a test requires no network access, prefer a deterministic fixture or mock response. Avoid adding tests that depend on a live third-party website being available.
+
+A beginner-friendly validation loop is:
+
+1. Compile code.
+2. Add a source or fix.
+3. Open the app with local plugin installed.
+4. Check one list page, one manga detail page, and one chapter page.
+5. If it fails, inspect the URL or HTML and fix only the specific parse step.
 
 ### Build the installable plugin
 
@@ -765,6 +977,22 @@ For pull requests:
 4. Update this guide or the README when setup or contributor workflows change.
 5. Ensure new source parser code follows current UMA conventions and contains no hardcoded test credentials.
 
+A standard PR description can look like:
+
+```text
+## Summary
+Add parser support for Example Site.
+
+## What changed
+- implements manga list search and pagination
+- parses manga details and chapters
+- adds filter support for tags and status
+
+## Verification
+- ./gradlew compileKotlin
+- built plugin jar and tested in Usagi
+```
+
 ## Troubleshooting
 
 **Kotlin symbols are unresolved:** Check imports and the actual Tsuki version resolved by Gradle; sync or reimport the Gradle project and run `./gradlew compileKotlin`.
@@ -774,6 +1002,10 @@ For pull requests:
 **A parser is not registered:** Confirm its `@MangaSourceParser` annotation and `MangaParserSource` identifier, then rebuild so KSP can generate registration code.
 
 **A selector no longer matches:** Inspect the current website markup with browser developer tools and update the selector. Prefer stable semantic selectors over generated CSS class names.
+
+**The app shows a blank list or invalid title:** Usually this means the CSS selector or the generated URL is wrong. Print the final URL and inspect the element structure in the browser.
+
+**Search works in the browser but not in the parser:** Compare the browser's query parameters with the parser URL. The most common bugs are missing `q`, `page`, or wrong sort parameter names.
 
 ## License
 
