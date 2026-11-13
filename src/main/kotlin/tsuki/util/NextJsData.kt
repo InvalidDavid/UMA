@@ -2,12 +2,13 @@ package tsuki.util
 
 import org.json.JSONArray
 import org.json.JSONObject
+import org.json.JSONTokener
 import org.jsoup.Jsoup
 import java.util.Base64
 
 /**
  * Extracts embedded data from Next.js HTML pages and provides search helpers.
- * Supports both routing systems.
+ * Supports both routing systems and both response shapes.
  *
  * ## App Router (Next.js 13+)
  *
@@ -37,10 +38,14 @@ import java.util.Base64
  * ## Public API
  *
  * - [extractPayloads]   - all top-level JSON nodes
+ * - [extractRscPayloads] - same, from a raw `text/x-component` body
  * - [findValue]         - first node matching a predicate
  * - [findObject]        - first object with a key=value and required keys
+ * - [findObjectInPayloads] - same, over an already-parsed payload list
  * - [findArray]         - first non-empty array, optionally validating the head
  * - [findLargestArray]  - biggest matching array across all payloads
+ * - [findPage]          - first object with all required keys, plus text chunks
+ * - [findPageRsc]       - same, from a raw `text/x-component` body
  *
  * App Router is tried first; Pages Router is the fallback.
  */
@@ -61,6 +66,58 @@ object NextJsData {
             if (resolved.isNotEmpty()) return resolved
         }
         return extractNextDataPayloads(html)
+    }
+
+    /**
+     * Parses a raw RSC (React Server Components) flight body, as returned with
+     * `Content-Type: text/x-component` when the request carries `RSC: 1`.
+     *
+     * Flight-body counterpart to [extractPayloads]. Shares [parseRscRows] and
+     * [resolve]; only the "where do we find the flight stream" step differs.
+     */
+    fun extractRscPayloads(body: String): List<Any> {
+        val flight = parseRscRows(body)
+        if (flight.results.isEmpty()) return emptyList()
+        return flight.results.mapNotNull { item ->
+            resolve(item, flight.chunks, flight.models)
+        }
+    }
+
+    /**
+     * Finds the first object in [html] that has **all** of [keys], using
+     * Kotatsu-Redo-style byte-level row parsing.
+     *
+     * Returns the raw object (with `$`-references still intact) plus the text
+     * chunk cache, so callers can resolve text refs on demand via
+     * [FlightPage.text] — e.g. `synopsis: "$27"` → `page.text(data, "synopsis")`.
+     *
+     * Use this instead of [findValue] when:
+     * - You need to resolve text-chunk refs (`$<id>`) exactly; [findValue]
+     *   resolves everything, but the char-based [parseRscRows] can drift on
+     *   multi-byte text rows.
+     * - You want keys to be checked within a single row (faster than a full
+     *   graph walk for pages with many rows).
+     *
+     * All [keys] must appear in the **same row**. If a page splits them across
+     * rows, call [findPage] twice with one key each, or fall back to [findValue].
+     */
+    fun findPage(html: String, vararg keys: String): FlightPage? {
+        val stream = extractAppRouterStream(html) ?: return null
+        return parseFlightPage(stream, keys)
+    }
+
+    /** Raw flight-body variant of [findPage]. */
+    fun findPageRsc(body: String, vararg keys: String): FlightPage? =
+        parseFlightPage(body, keys)
+
+    /** Finds the first object in [payloads] that has every one of [keys]. */
+    fun findObjectInPayloads(payloads: List<Any>, vararg keys: String): JSONObject? {
+        for (payload in payloads) {
+            findValueIn(payload) { node ->
+                node is JSONObject && keys.all { node.has(it) }
+            }?.let { return it as JSONObject }
+        }
+        return null
     }
 
     /** Finds the first node anywhere in the payload graph that matches [predicate]. */
@@ -169,8 +226,20 @@ object NextJsData {
      * their payloads into one big stream, and parses that.
      */
     private fun extractAppRouter(html: String): FlightData {
+        val stream = extractAppRouterStream(html)
+            ?: return FlightData(emptyList(), emptyMap(), emptyMap())
+        return parseRscRows(stream)
+    }
+
+    /**
+     * Joins all `self.__next_f.push([...])` payloads into one flight stream
+     * (handles `[1, "text"]` and `[3, "base64"]`). Returns `null` if the page
+     * has no App Router flight data.
+     */
+    private fun extractAppRouterStream(html: String): String? {
         val doc = Jsoup.parse(html)
         val stream = StringBuilder()
+        var any = false
 
         for (script in doc.select("script:not([src])")) {
             val data = script.data()
@@ -191,9 +260,10 @@ object NextJsData {
                     val type = arr.optInt(0)
                     val content = arr.optString(1)
                     when (type) {
-                        1 -> stream.append(content) // plain text slice
+                        1 -> { stream.append(content); any = true }
                         3 -> runCatching {
-                            stream.append(String(Base64.getDecoder().decode(content), Charsets.UTF_8)) // base64-encoded bytes
+                            stream.append(String(Base64.getDecoder().decode(content), Charsets.UTF_8))
+                            any = true
                         }
                     }
                 } catch (_: Exception) {
@@ -201,7 +271,67 @@ object NextJsData {
             }
         }
 
-        return parseRscRows(stream.toString())
+        return if (any) stream.toString() else null
+    }
+
+    /**
+     * Byte-level flight parser (Kotatsu-Redo style).
+     *
+     * Reads `<hex-id>:` headers, decodes `T<hexLen>,<content>` text rows by
+     * exact UTF-8 byte count, and returns the first JSON row that contains
+     * every one of [keys] in a single object.
+     */
+    private fun parseFlightPage(body: String, keys: Array<out String>): FlightPage? {
+        val bytes = body.toByteArray(Charsets.UTF_8)
+        val texts = HashMap<String, String>()
+        var pos = 0
+
+        while (pos < bytes.size) {
+            val colon = bytes.indexOfByte(':'.code.toByte(), pos)
+            if (colon < 0) break
+
+            // Text row: <id>:T<hexLen>,<content>
+            if (bytes.getOrNull(colon + 1) == 'T'.code.toByte()) {
+                val comma = bytes.indexOfByte(','.code.toByte(), colon)
+                if (comma < 0) break
+                val length = String(bytes, colon + 2, comma - colon - 2).toIntOrNull(16)
+                if (length == null || comma + 1 + length > bytes.size) break
+                texts[String(bytes, pos, colon - pos, Charsets.UTF_8)] =
+                    String(bytes, comma + 1, length, Charsets.UTF_8)
+                pos = comma + 1 + length
+                continue
+            }
+
+            // JSON row: <id>:<json>\n
+            val end = bytes.indexOfByte('\n'.code.toByte(), colon)
+                .let { if (it < 0) bytes.size else it }
+            val row = String(bytes, colon + 1, end - colon - 1, Charsets.UTF_8)
+            pos = end + 1
+
+            // Cheap pre-filter: skip rows that don't even mention every key.
+            if (keys.any { "\"$it\":" !in row }) continue
+
+            val value = runCatching { JSONTokener(row).nextValue() }.getOrNull() ?: continue
+            findObjectByKeys(value, keys)?.let { return FlightPage(it, texts) }
+        }
+
+        return null
+    }
+
+    /** Recursive search for an object containing every one of [keys]. */
+    private fun findObjectByKeys(node: Any?, keys: Array<out String>): JSONObject? = when (node) {
+        is JSONObject -> if (keys.all(node::has)) node
+        else node.keys().asSequence()
+            .firstNotNullOfOrNull { findObjectByKeys(node.opt(it), keys) }
+        is JSONArray -> (0 until node.length())
+            .firstNotNullOfOrNull { findObjectByKeys(node.opt(it), keys) }
+        else -> null
+    }
+
+    /** Byte-level `indexOf`, negative if not found. */
+    private fun ByteArray.indexOfByte(byte: Byte, from: Int): Int {
+        for (i in from until size) if (this[i] == byte) return i
+        return -1
     }
 
     /**
@@ -211,6 +341,10 @@ object NextJsData {
      * Rows look roughly like:
      *   `<hex-id>:<json>`                  outlined model row
      *   `<hex-id>:T<hexLen>,<content>`     text chunk
+     *
+     * Note: this char-level parser is retained for backward compatibility. It
+     * can drift on long multi-byte text rows; prefer [findPage] for exact
+     * behavior.
      */
     private fun parseRscRows(body: String): FlightData {
         val chunks = mutableMapOf<String, String>()
@@ -523,7 +657,7 @@ object NextJsData {
      * position right after the closing `]`. Returns `(null, start)` if there's no
      * array at that spot, and `(null, end-of-input)` if the array never closes.
      *
-     * Used by [extractAppRouter] to find where each `self.__next_f.push([...])`
+     * Used by [extractAppRouterStream] to find where each `self.__next_f.push([...])`
      * argument ends, so we don't need a regex (the regex version blew up on
      * `DOT_MATCHES_ALL` with multi-megabyte scripts).
      */
@@ -556,4 +690,40 @@ object NextJsData {
         }
         return null to i
     }
+}
+
+/**
+ * A parsed Next.js flight page: the matched [JSONObject] plus the text-chunk
+ * cache needed to resolve `$<id>` text references.
+ *
+ * Produced by [NextJsData.findPage] and [NextJsData.findPageRsc]. The object's
+ * `$`-references are **not** pre-resolved — use [text] to pull them out on
+ * demand, which is what Voratoon-style `"synopsis":"$27"` payloads need.
+ */
+class FlightPage internal constructor(
+    val data: JSONObject,
+    private val texts: Map<String, String>,
+) {
+    /**
+     * Resolves [key] on [obj]. Handles:
+     * - `$$...` → strip the first `$` (escaped)
+     * - `$undefined` → `null`
+     * - `$<id>` → lookup in the text-chunk cache
+     * - any other value → returned as-is
+     *
+     * Returns `null` if the key is missing, blank, or the reference is
+     * unresolved.
+     */
+    fun text(obj: JSONObject, key: String): String? {
+        val value = obj.optString(key).takeIf { it.isNotBlank() } ?: return null
+        return when {
+            !value.startsWith("$") -> value
+            value.startsWith("$$") -> value.substring(1)
+            value == "\$undefined" -> null
+            else -> texts[value.substring(1)]?.takeIf { it.isNotBlank() }
+        }
+    }
+
+    /** Convenience: resolves [key] on [data]. */
+    fun text(key: String): String? = text(data, key)
 }
