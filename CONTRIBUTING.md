@@ -1,10 +1,10 @@
 # Contributing to UMA
 
-This guide provides practical instructions for contributing to UMA, adding and maintaining source parsers, and using the utilities available in the repository and its Tsuki dependency. It is intended for new contributors as well as people familiar with Kotlin parser projects.
+This guide explains how to contribute to UMA, add or maintain source parsers, use the utilities in UMA and Tsuki, and build and test your work. It is written for both first-time contributors and developers who want more detail about parser behavior and implementation choices.
 
-UMA is a Kotlin plugin for the Usagi App and compatible Kotatsu forks. Its parsers are built on the Tsuki library. Contributions are welcome for parser fixes and additions, build/test improvements, and documentation.
+UMA is a Kotlin plugin for the Usagi App and compatible Kotatsu forks. Its parsers use the Tsuki library. Contributions are welcome for parser fixes and additions, build/test improvements, and documentation.
 
-This is a living document. If you find incorrect or missing information, open an [issue](https://github.com/InvalidDavid/UMA/issues) or submit a pull request.
+This is a living guide. If you find incorrect or missing information, open an [issue](https://github.com/InvalidDavid/UMA/issues) or submit a pull request.
 
 ## Table of Contents
 
@@ -14,31 +14,45 @@ This is a living document. If you find incorrect or missing information, open an
   - [Clone and configure](#clone-and-configure)
 - [Project overview](#project-overview)
   - [Project layout](#project-layout)
+  - [Build and dependency configuration](#build-and-dependency-configuration)
   - [Architecture and parser types](#architecture-and-parser-types)
+  - [How a parser request flows](#how-a-parser-request-flows)
 - [Writing or updating a parser](#writing-or-updating-a-parser)
-  - [Parser organization and registration](#parser-organization-and-registration)
-  - [Listing and search](#listing-and-search)
-  - [Details and chapters](#details-and-chapters)
-  - [Chapter pages](#chapter-pages)
-  - [Filters and capabilities](#filters-and-capabilities)
+  - [Choose the right source package](#choose-the-right-source-package)
+  - [Register a parser](#register-a-parser)
+  - [Parse a manga list](#parse-a-manga-list)
+  - [Implement search and sorting](#implement-search-and-sorting)
+  - [Load details and chapters](#load-details-and-chapters)
+  - [Load chapter pages](#load-chapter-pages)
+  - [Add filters and declare capabilities](#add-filters-and-declare-capabilities)
+  - [Resolve website links](#resolve-website-links)
 - [Utilities and helpers](#utilities-and-helpers)
+  - [Choosing between Tsuki and UMA helpers](#choosing-between-tsuki-and-uma-helpers)
   - [Tsuki utilities](#tsuki-utilities)
-    - [HTTP requests and responses](#http-requests-and-responses)
+    - [HTTP requests and response lifetime](#http-requests-and-response-lifetime)
     - [URL building and conversion](#url-building-and-conversion)
-    - [HTML and Jsoup helpers](#html-and-jsoup-helpers)
-    - [Chapter mapping and number extraction](#chapter-mapping-and-number-extraction)
-    - [JSON helpers](#json-helpers)
-    - [String and date helpers](#string-and-date-helpers)
-    - [IDs and common model helpers](#ids-and-common-model-helpers)
+    - [HTML selection and URL attributes](#html-selection-and-url-attributes)
+    - [Image source extraction](#image-source-extraction)
+    - [Chapter mapping and chapter numbers](#chapter-mapping-and-chapter-numbers)
+    - [JSON parsing and collection mapping](#json-parsing-and-collection-mapping)
+    - [String, date, and common parser helpers](#string-date-and-common-parser-helpers)
+    - [Stable IDs and source-aware URLs](#stable-ids-and-source-aware-urls)
   - [UMA utilities](#uma-utilities)
-    - [Next.js data extraction](#nextjs-data-extraction)
+    - [Next.js and React Flight payloads](#nextjs-and-react-flight-payloads)
     - [Protocol Buffers](#protocol-buffers)
     - [Turnstile integration](#turnstile-integration)
-    - [Decryption helpers](#decryption-helpers)
+    - [Authenticated decryption primitives](#authenticated-decryption-primitives)
 - [History and favourites synchronization](#history-and-favourites-synchronization)
 - [Source configuration and required user input](#source-configuration-and-required-user-input)
-- [Code quality and testing](#code-quality-and-testing)
-- [Building the plugin](#building-the-plugin)
+- [Parser quality and reliability](#parser-quality-and-reliability)
+  - [URLs and identity](#urls-and-identity)
+  - [Missing data and parse errors](#missing-data-and-parse-errors)
+  - [Requests, retries, and rate](#requests-retries-and-rate)
+  - [Credentials and sensitive information](#credentials-and-sensitive-information)
+- [Testing and building](#testing-and-building)
+  - [Compile and test](#compile-and-test)
+  - [Build the installable plugin](#build-the-installable-plugin)
+  - [Test in a Usagi-compatible app](#test-in-a-usagi-compatible-app)
 - [Submitting changes](#submitting-changes)
 - [Troubleshooting](#troubleshooting)
 - [License](#license)
@@ -47,12 +61,12 @@ This is a living document. If you find incorrect or missing information, open an
 
 ### Required knowledge
 
-- Kotlin fundamentals, including collections and extension functions
+- Kotlin fundamentals, including collections, extension functions, and null safety
 - Basic HTTP request/response concepts
 - HTML structure, CSS selectors, and JSON
 - Basic Git usage
 
-Android UI development is not required for ordinary parser work. Familiarity with coroutines, OkHttp, and Jsoup is helpful.
+Android UI development is not required for ordinary parser work. Familiarity with coroutines, OkHttp, Jsoup, and Kotlin serialization is helpful.
 
 ### Tools
 
@@ -61,7 +75,7 @@ Android UI development is not required for ordinary parser work. Familiarity wit
 - Android SDK with Android build-tools installed for DEX packaging
 - Android Studio or IntelliJ IDEA (recommended)
 - A Usagi-compatible app for installing and testing the plugin
-- Browser developer tools and a JSON/HTML viewer (recommended)
+- Browser developer tools and an HTML/JSON viewer (recommended)
 
 ### Clone and configure
 
@@ -88,7 +102,7 @@ UMA/
 │   ├── parsers/          # Shared parser base classes
 │   ├── site/             # Source parsers, organized by language/region
 │   └── util/             # UMA-specific helpers and integrations
-│       ├── decrypt/      # Cryptographic primitives used by some sources
+│       ├── decrypt/      # Authenticated decryption primitives
 │       └── protobuf/     # Internal streaming protobuf implementation
 ├── plugins-ksp/          # KSP processor for parser registration
 ├── buildSrc/             # Custom Gradle tasks, including DEX packaging
@@ -102,43 +116,89 @@ UMA/
 
 Source implementations are under `src/main/kotlin/tsuki/site/`. Current language folders include `all`, `ar`, `de`, `en`, `es`, `fr`, `id`, `pt`, `ru`, `vi`, and `zh`. Shared parser implementations are under `tsuki/parsers/`; project-specific helpers are under `tsuki/util/`.
 
+### Build and dependency configuration
+
+The root build is configured in `build.gradle.kts`; included subprojects are configured from `settings.gradle.kts`. Dependency and plugin versions are managed in `gradle/libs.versions.toml`. The current catalog pins Kotlin 2.2.10 and Tsuki 1.0.5. Check this catalog before assuming an API is available: the UMA source tree may be using a newer Tsuki API in examples or discussions than the dependency currently resolved for compilation.
+
+`plugins-ksp` processes `@MangaSourceParser` annotations. `buildSrc` supplies the custom `buildJar`, `dexJar`, and report-generation tasks. Do not edit generated source or build output under `build/`.
+
 ### Architecture and parser types
 
-The project uses Tsuki parser base classes, KSP registration, and source-specific Kotlin implementations. Different base classes support different listing patterns. For example, `PagedMangaParser` provides pagination and delegates each page to `getListPage`; `SinglePageMangaParser` is suitable for sources without page-based listing. Shared UMA parser classes (such as Madara- or MangaReader-style parsers) are in `tsuki/parsers/`.
+UMA combines Tsuki parser base classes, KSP registration, shared source-family parsers, and individual source implementations. The base class controls how listings are requested and paginated; a concrete source class supplies the site's behavior.
 
-Choose a base class by inspecting current parsers with similar site behavior. Do not rely on old examples using `org.koitharu.kotatsu.parsers` as the active source package: UMA source implementations currently use `tsuki`.
+- **`PagedMangaParser`** is for listings divided into pages. It maps the app's offset to a page and calls `getListPage(page, order, filter)`.
+- **`SinglePageMangaParser`** is suitable when the source's listing is not conventionally paginated; inspect its current API before overriding methods.
+- **Shared UMA parsers** in `tsuki/parsers/` encapsulate common CMS/site behavior, such as Madara- and MangaReader-style sites. Extend one when it genuinely matches the source instead of duplicating its behavior.
+- **Other Tsuki base classes** may be available depending on the resolved dependency. Check the dependency API and examples in this checkout before selecting one.
+
+Use the actual method signatures in the checked-out and Gradle-resolved dependency; descriptions here are guidance, not a substitute for the API.
+
+### How a parser request flows
+
+A typical list request follows this path:
+
+1. The app asks the parser for a listing, search result, details, or pages.
+2. The parser constructs a source URL and makes a request through `webClient`.
+3. A Tsuki response helper parses HTML, JSON, raw text, or protobuf data.
+4. Parser code validates each item and maps it into `Manga`, `MangaChapter`, or `MangaPage` models.
+5. The app consumes those models; details and chapter data may be fetched later than the initial list.
+
+Keep the request, response parsing, and model mapping easy to follow. Use private helpers when they make a repeated or complicated mapping clearer.
 
 ## Writing or updating a parser
 
-### Parser organization and registration
+### Choose the right source package
 
-Put a parser in the appropriate directory under `src/main/kotlin/tsuki/site/`, usually grouped by language or region. For example:
+Place a parser under `src/main/kotlin/tsuki/site/<language>/`. Use `all` for a source intended for multiple languages. Keep a source with adult content in the repository's existing `nsfw` subdirectory pattern when appropriate. For example:
 
 ```text
 src/main/kotlin/tsuki/site/en/ExampleSource.kt
+src/main/kotlin/tsuki/site/all/WorldwideSource.kt
 ```
 
-Reuse an existing shared parser in `tsuki/parsers/` where its behavior fits. Register source implementations with `@MangaSourceParser` and use the matching `MangaParserSource` identifier. Match annotation arguments, package names, source IDs, and parser base-class usage to nearby current code. Keep source IDs stable because users' saved data can depend on them.
+Reuse an existing shared parser in `tsuki/parsers/` where its behavior fits. Do not copy old examples using `org.koitharu.kotatsu.parsers` as the active source package: UMA source implementations currently use `tsuki`.
 
-### Listing and search
+### Register a parser
 
-For paginated HTML sources, a `PagedMangaParser` commonly implements `getListPage(page, order, filter)`. Build a URL using the configured domain, request and parse the page, then map valid cards to `Manga` values. Adapt pagination, ordering, filters, and selectors to the website; do not claim support for options the parser ignores.
+Register source implementations with `@MangaSourceParser` and use the matching `MangaParserSource` identifier. Match annotation arguments, package names, source IDs, locale, and content type to nearby current code.
 
 ```kotlin
+@MangaSourceParser("EXAMPLESOURCE", "Example Source", "en")
+internal class ExampleSource(context: MangaLoaderContext) :
+    PagedMangaParser(context, MangaParserSource.EXAMPLESOURCE, pageSize = 20) {
+    // Implement the methods this source needs.
+}
+```
+
+This is a shape example; constructors and annotation parameters must match the Tsuki version and project conventions in the current checkout. Keep source IDs stable because users' saved data can depend on them.
+
+### Parse a manga list
+
+For paginated HTML sources, a `PagedMangaParser` commonly implements `getListPage(page, order, filter)`. Build a URL using the configured domain, request and parse the page, then map valid cards to `Manga` values. Validate required fields before constructing the model; a malformed card should not become an entry with an empty URL or title.
+
+```kotlin
+import tsuki.util.attrAsRelativeUrlOrNull
+import tsuki.util.parseHtml
+import tsuki.util.toAbsoluteUrl
+import tsuki.util.urlBuilder
+
 override suspend fun getListPage(
     page: Int,
     order: SortOrder,
     filter: MangaListFilter,
 ): List<Manga> {
-    val url = urlBuilder()
-        .addPathSegment("catalog")
-        .addQueryParameter("page", page.toString())
-        .apply {
-            filter.query?.takeIf(String::isNotBlank)?.let { addQueryParameter("q", it) }
+    val url = urlBuilder().apply {
+        addPathSegment("catalog")
+        addQueryParameter("page", page.toString())
+        filter.query?.takeIf(String::isNotBlank)?.let { addQueryParameter("q", it) }
+        when (order) {
+            SortOrder.POPULARITY -> addQueryParameter("sort", "popular")
+            SortOrder.UPDATED -> addQueryParameter("sort", "updated")
+            else -> Unit
         }
-        .build()
-    val document = webClient.httpGet(url).parseHtml()
+    }.build()
 
+    val document = webClient.httpGet(url).parseHtml()
     return document.select(".manga-card").mapNotNull { card ->
         val link = card.selectFirst("a") ?: return@mapNotNull null
         val href = link.attrAsRelativeUrlOrNull("href") ?: return@mapNotNull null
@@ -154,15 +214,32 @@ override suspend fun getListPage(
 }
 ```
 
-This is a pattern, not a drop-in implementation. Use the actual method signature required by the selected base class and the current Tsuki version.
+This is a pattern, not a drop-in implementation. Use the actual method signature required by the selected base class. Confirm whether the site's first page is zero- or one-based, what an empty result means, and how the source represents sort options. Do not claim support for filters the request ignores.
 
-### Details and chapters
+### Implement search and sorting
 
-`getDetails(manga)` should normally return `manga.copy(...)`, preserving the existing manga identity (`id`, `url`, and `source`) while filling in information fetched from the detail page. Use `mapChapters` for chapter collections where appropriate; see [Chapter mapping and number extraction](#chapter-mapping-and-number-extraction).
+In many paginated parsers, search and catalogue requests share `getListPage`; in other parsers, search has a dedicated method or endpoint. Check the base class. Map `filter.query`, tags, status, content type, years, and other fields only when the website supports them.
+
+URL builders encode query parameters safely:
+
+```kotlin
+val builder = urlBuilder().addPathSegment("search")
+filter.query?.takeIf(String::isNotBlank)?.let { builder.addQueryParameter("q", it) }
+filter.tags.forEach { tag -> builder.addQueryParameter("genre[]", tag.key) }
+val url = builder.build()
+```
+
+Do not build query strings by concatenating raw user input. When the site's API uses repeated parameters, call `addQueryParameter` for each value rather than joining them into one ambiguous string.
+
+### Load details and chapters
+
+`getDetails(manga)` should normally return `manga.copy(...)`, preserving the existing manga identity (`id`, `url`, and `source`) while filling in information fetched from the detail page. Use `mapChapters` for chapter collections where appropriate; see [Chapter mapping and chapter numbers](#chapter-mapping-and-chapter-numbers).
 
 ```kotlin
 import tsuki.util.extractChapterNumber
 import tsuki.util.mapChapters
+import tsuki.util.parseHtml
+import tsuki.util.toAbsoluteUrl
 
 override suspend fun getDetails(manga: Manga): Manga {
     val document = webClient.httpGet(manga.url.toAbsoluteUrl(domain)).parseHtml()
@@ -187,23 +264,54 @@ override suspend fun getDetails(manga: Manga): Manga {
 
 The example's model constructor shape must be checked against the Tsuki version resolved by this repository. Current UMA parsers often specify all required fields explicitly.
 
-### Chapter pages
+Details and chapters may be on separate pages or API endpoints. Fetch them concurrently only when the requests are independent and concurrency is reasonable for the source. Preserve existing metadata when a detail request omits it; do not overwrite known data with empty strings or fabricated values.
+
+### Load chapter pages
 
 `getPages(chapter)` should return pages in reading order. Give each page a stable ID, provide image URLs in the form expected by nearby parsers, and set `source = source`. Some sites require custom request headers or data from the chapter page before the image list can be parsed.
 
-### Filters and capabilities
+```kotlin
+override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
+    val document = webClient.httpGet(chapter.url.toAbsoluteUrl(domain)).parseHtml()
+    return document.select(".reader img").mapNotNull { image ->
+        val imageUrl = image.src() ?: return@mapNotNull null
+        MangaPage(
+            id = generateUid(imageUrl),
+            url = imageUrl,
+            preview = null,
+            source = source,
+        )
+    }
+}
+```
 
-Use `getFilterOptions()` to expose choices actually available on the site and `filterCapabilities` to describe which combinations the parser handles. Do not advertise multi-tag selection, year filtering, or search-with-filters unless requests correctly implement those behaviors. Check the `MangaListFilterCapabilities` declaration in the Tsuki version resolved by the project; its properties vary between versions.
+Some parsers need `getPageUrl(page)` to resolve a deferred image URL; others return direct URLs. Follow the source's existing approach and check the Tsuki API for the method contract.
+
+### Add filters and declare capabilities
+
+Use `getFilterOptions()` to expose choices actually available on the site and `filterCapabilities` to describe which combinations the parser handles. A filter option describes what the user can choose; a capability describes what the parser can process. Both must agree with the request-building code.
+
+For example, do not set multiple-tag support if the site accepts only one genre, and do not claim search-with-filters support if a search query causes the parser to discard selected filters. Check `MangaListFilterCapabilities` in the Tsuki version resolved by the project; its properties vary between versions.
+
+### Resolve website links
+
+Override the relevant `resolveLink` method when a source URL should open directly as a manga in the app. Parse and validate the host and path before fetching anything. Use the source's configured domain or incoming URL as appropriate; avoid hard-coded mirror hosts when the source supports configurable domains.
 
 ## Utilities and helpers
 
-There are two utility layers: shared Tsuki APIs in `tsuki.util` (and related packages), and project-specific helpers in UMA's `src/main/kotlin/tsuki/util/`. Import only what you use. The repository currently pins Tsuki `1.0.5` in `gradle/libs.versions.toml`; some newer APIs shown here may require a dependency update. Verify symbols against the resolved version and actual parser examples before adopting them.
+There are two utility layers: shared Tsuki APIs in `tsuki.util` (and related packages), and project-specific helpers in UMA's `src/main/kotlin/tsuki/util/`. Import only what you use. The repository currently pins Tsuki 1.0.5 in `gradle/libs.versions.toml`; some newer APIs shown here may require a dependency update. Verify symbols against the resolved version and actual parser examples before adopting them.
+
+### Choosing between Tsuki and UMA helpers
+
+Prefer a Tsuki helper when it already handles a common parser task such as URL construction, safe HTML selection, chapter mapping, JSON access, or response parsing. Use UMA helpers for the site-specific features they implement, such as Next.js payload extraction, a protobuf endpoint format, or an authenticated encryption format.
+
+The utility reference below covers the public helper surface used by UMA contributors. Files under `tsuki/util/decrypt/` and `tsuki/util/protobuf/` also contain low-level implementation code; those internals are not intended as general parser APIs.
 
 ### Tsuki utilities
 
-#### HTTP requests and responses
+#### HTTP requests and response lifetime
 
-UMA parsers commonly use `webClient.httpGet(...)`, `httpPost(...)`, `parseHtml()`, `parseJson()`, and `parseRaw()`. Use the response parsing helpers when they fit the response, and close raw responses after use. Avoid reading a response body more than once; response bodies are streams.
+UMA parsers commonly use `webClient.httpGet(...)`, `httpPost(...)`, `parseHtml()`, `parseJson()`, and `parseRaw()`. Use the response parsing helpers when they fit the response, and close raw responses after use. An HTTP response body is a one-shot stream: read it once, parse it, and do not try to consume it again.
 
 ```kotlin
 val document = webClient.httpGet(url).parseHtml()
@@ -211,7 +319,7 @@ val json = webClient.httpGet(apiUrl).parseJson()
 val rawHtml = webClient.httpGet(pageUrl).parseRaw()
 ```
 
-Use the client and headers already used by the parser. Add custom headers only when the source needs them, and do not log authentication values.
+Use the client and headers already used by the parser. Add custom headers only when the source needs them; reuse `getRequestHeaders()` or existing source helpers where practical. Do not log authorization headers or token values.
 
 #### URL building and conversion
 
@@ -219,43 +327,62 @@ Useful Tsuki URL helpers include `urlBuilder()`, `toAbsoluteUrl(domain)`, and `t
 
 ```kotlin
 import tsuki.util.toAbsoluteUrl
+import tsuki.util.toRelativeUrl
 import tsuki.util.urlBuilder
 
 val url = urlBuilder(subdomain = "api")
     .addPathSegments("v1/user/history")
     .addQueryParameter("page", "1")
     .build()
+
 val browserUrl = "/manga/example".toAbsoluteUrl(domain)
+val relativeUrl = browserUrl.toRelativeUrl(domain)
 ```
 
-Use `addPathSegment` for one path component and `addPathSegments` for slash-separated components. Avoid concatenating untrusted query values manually. Store URLs consistently with existing UMA parsers, usually relative URLs for parser-internal model fields and absolute URLs for browser-facing links.
+Use `addPathSegment` for one path component and `addPathSegments` for slash-separated components. Avoid concatenating untrusted query values manually. Store URLs consistently with existing UMA parsers, usually relative URLs for parser-internal model fields and absolute URLs for browser-facing links. Some sources intentionally use IDs or other URI-like values instead of conventional paths; follow their established conventions.
 
-#### HTML and Jsoup helpers
+#### HTML selection and URL attributes
 
 Common Tsuki Jsoup extensions include:
 
 - `selectFirstOrThrow(cssQuery)` / `selectOrThrow(cssQuery)` for required selections
+- `selectLast(cssQuery)` / `selectLastOrThrow(cssQuery)` for the last matching element
 - `attrOrNull(name)` / `attrOrThrow(name)` for optional or required attributes
 - `attrAsRelativeUrl(name)` / `attrAsRelativeUrlOrNull(name)` for relative links
 - `attrAsAbsoluteUrl(name)` / `attrAsAbsoluteUrlOrNull(name)` for absolute links
 - `textOrNull()` / `ownTextOrNull()` for optional text
-- `src()` / `requireSrc()` for common lazy-loaded image attributes
+- `requireElementById(id)` for a required ID-selected element
 
 ```kotlin
 import tsuki.util.attrAsRelativeUrlOrNull
-import tsuki.util.requireSrc
 import tsuki.util.selectFirstOrThrow
+import tsuki.util.textOrNull
 
 val titleLink = card.selectFirstOrThrow("a.title")
 val mangaPath = titleLink.attrAsRelativeUrlOrNull("href") ?: return@mapNotNull null
-val cover = card.selectFirst("img")?.requireSrc()
+val subtitle = card.selectFirst(".subtitle")?.textOrNull()
 ```
 
-Use nullable helpers when a missing value is expected. Use throwing helpers only where missing markup means the page cannot be parsed; descriptive parse failures are easier to diagnose than silently creating invalid models.
+Use nullable helpers when a missing value is expected. Use throwing helpers only where missing markup means the page cannot be parsed; descriptive parse failures are easier to diagnose than silently creating invalid models. `ownTextOrNull()` is useful when an element contains nested labels or icons whose text should not be included.
 
-#### Chapter mapping and number extraction
+#### Image source extraction
 
-Tsuki's `mapChapters` extension maps a collection to `MangaChapter` values, supports reversing the collection, skips null results, and deduplicates entries by ID. Its mapper receives an index that advances for accepted chapters.
+Sites frequently place images in lazy-loading attributes (`data-src`, `data-original`, and similar) rather than `src`. Tsuki's `Element.src()` checks common source attributes and resolves the result to an absolute URL. `requireSrc()` provides a required-value variant and fails with a parse error when there is no image URL.
+
+```kotlin
+import tsuki.util.requireSrc
+import tsuki.util.src
+
+val optionalCover = card.selectFirst("img")?.src()
+val pageImage = pageElement.selectFirst("img")?.requireSrc()
+    ?: return emptyList()
+```
+
+Use `src()` when the image may legitimately be absent, such as a missing optional cover; use `requireSrc()` for required reader pages. Check nearby code because `src()` may require an opt-in annotation in the version in use.
+
+#### Chapter mapping and chapter numbers
+
+Tsuki's `mapChapters` extension maps a collection to `MangaChapter` values, supports reversing the collection, skips null results, and deduplicates entries by chapter ID. Its mapper receives an index that advances for accepted chapters.
 
 ```kotlin
 import tsuki.util.mapChapters
@@ -277,17 +404,22 @@ val chapters = elements.mapChapters(reversed = true) { index, element ->
 }
 ```
 
-UMA adds `String.extractChapterNumber()`. It extracts numbers after common labels such as “Chapter”, “Ch.”, “Episode”, “Ep.”, and several translations; if no label is found, it uses the first number, and returns `0f` when no number is found.
+Use `flatMapChapters` when one source row can produce more than one chapter. When mapping JSON, Tsuki also provides `JSONArray.mapChapters` in versions that include the API.
+
+UMA adds `String.extractChapterNumber()`. It extracts a number after common labels such as “Chapter”, “Ch.”, “Episode”, “Ep.”, and several translations; if no label is found, it uses the first number, and returns `0f` when no number is found.
 
 ```kotlin
 import tsuki.util.extractChapterNumber
 
 val chapterNumber = "Chapter 12.5 - The visitor".extractChapterNumber() // 12.5f
+val unknownNumber = "Special extra".extractChapterNumber() // 0f
 ```
 
-#### JSON helpers
+This helper is intentionally heuristic. Sites with unusual numbering (volumes, seasons, ranges, or multiple numbers in titles) may need a source-specific parser.
 
-Tsuki has helpers in `tsuki.util.json`, including safe getters and collection mappers. Depending on the response and pinned dependency, useful methods include `getStringOrNull`, `getIntOrDefault`, `getFloatOrDefault`, `mapJSON`, `mapJSONNotNull`, and `mapJSONNotNullToSet`.
+#### JSON parsing and collection mapping
+
+Tsuki has helpers in `tsuki.util.json`, including safe getters and collection mappers. Depending on the response and pinned dependency, useful methods include `getStringOrNull`, `getIntOrDefault`, `getFloatOrDefault`, `getBooleanOrDefault`, `mapJSON`, `mapJSONIndexed`, `mapJSONNotNull`, and `mapJSONNotNullToSet`.
 
 ```kotlin
 import tsuki.util.json.getStringOrNull
@@ -308,54 +440,125 @@ return results.mapJSONNotNull { item ->
 }
 ```
 
-For larger or evolving API responses, deserialize only the fields needed and use the Kotlin serialization support configured in this project. Validate required IDs and titles rather than silently inventing them.
+Use safe accessors for optional API fields and fail or skip entries with missing required identifiers. For larger or evolving API responses, deserialize only the fields needed and use the Kotlin serialization support configured in this project. Check actual helper names in the resolved Tsuki version before relying on them.
 
-#### String and date helpers
+#### String, date, and common parser helpers
 
-Tsuki's `tsuki.util` includes helpers such as `urlEncoded()`, `urlDecode()`, `nullIfEmpty()`, `findGroupValue(regex)`, `toTitleCase(locale)`, and `nl2br()`. Use URL-builder methods for query parameters where possible, and use locale-aware helpers for translated text.
+Tsuki's `tsuki.util` includes helpers such as:
 
-For date parsing, follow current neighboring parsers and use the helper available in the resolved Tsuki version. Many existing UMA parsers use `parseSafe()` with a site-specific `SimpleDateFormat` and locale. Specify the timezone when the site defines one. Missing or unparseable dates should remain unknown (`0L`), not be replaced with a guessed date.
+- `urlEncoded()` / `urlDecode()` for form-style URL encoding and decoding
+- `nullIfEmpty()` / `ifNullOrEmpty { ... }` for empty strings
+- `find(regex)` / `findGroupValue(regex)` for concise regex extraction
+- `toTitleCase(locale)` for locale-aware display formatting
+- `nl2br()` for converting newline characters to HTML breaks
+- `parseSafe()` for safe parsing with the date format helpers used in UMA
+- `suspendLazy` utilities for caching suspend-loaded values where appropriate
 
-#### IDs and common model helpers
+```kotlin
+import tsuki.util.findGroupValue
+import tsuki.util.nullIfEmpty
+import tsuki.util.urlEncoded
+
+val encodedQuery = query.urlEncoded()
+val optionalDescription = rawDescription.nullIfEmpty()
+val buildId = html.findGroupValue(Regex("/_next/static/([^/]+)/"))
+```
+
+For dates, follow current neighboring parsers and use the helper available in the resolved Tsuki version. Many existing UMA parsers use `parseSafe()` with a site-specific `SimpleDateFormat` and locale. Specify the timezone when the site defines one. Missing or unparseable dates should remain unknown (`0L`), not be replaced with a guessed date.
+
+#### Stable IDs and source-aware URLs
 
 Use `generateUid(...)` for stable IDs. Current UMA code commonly calls `generateUid(relativeUrl)`; the explicit form `generateUid(source, relativeUrl)` is also available in Tsuki. Use a stable URL or source ID, not a random value or list index.
 
-Tsuki model constructors change across releases. Follow the actual model declaration and current parsers for required fields. In this repository's pinned version, do not assume the newer short `Manga(title, url, source, ...)` or `MangaChapter(title, url, number, source, ...)` constructors are available unless the dependency actually provides them.
+The `MangaParser` extensions also provide source-aware ID generation and `urlBuilder(subdomain?)`. `oneOrThrowIfMany()` helpers can validate that a filter contains no more than one selected value when the site only accepts one. These helpers are useful for enforcing parser assumptions instead of silently choosing an arbitrary filter.
+
+```kotlin
+val mangaId = generateUid(mangaPath)
+val chapterId = generateUid(chapterPath)
+```
+
+Tsuki model constructors change across releases. Follow the actual model declaration and current parsers for required fields. In this repository's pinned version, do not assume newer short `Manga(title, url, source, ...)` or `MangaChapter(title, url, number, source, ...)` constructors are available unless the dependency actually provides them.
 
 ### UMA utilities
 
-These are helpers implemented in UMA rather than general Tsuki APIs. Their sources are in `src/main/kotlin/tsuki/util/`. The `decrypt/` and `protobuf/` subpackages contain cryptographic or codec implementations; use public entry points rather than depending on internal implementation classes.
+These helpers are implemented in UMA rather than general Tsuki APIs. Their sources are in `src/main/kotlin/tsuki/util/`. The `decrypt/` and `protobuf/` subpackages contain cryptographic or codec implementations; use public entry points rather than depending on internal implementation classes.
 
-#### Next.js data extraction
+#### Next.js and React Flight payloads
 
-`NextJsData` extracts JSON payloads from Next.js Pages Router (`__NEXT_DATA__`) and App Router (React Flight) HTML. Its public operations are:
+`NextJsData` extracts data from both Next.js rendering paths:
 
-- `extractPayloads(html)`: return top-level parsed payloads.
-- `findValue(html, predicate)`: find the first matching node in the payload graph.
-- `findObject(html, key, value, vararg requiredKeys)`: find a JSON object with a matching key/value and required fields.
-- `findArray(html, validator?)`: find the first non-empty JSON array, optionally validating its first object.
-- `findLargestArray(html, validator?)`: find the largest matching non-empty array when the page contains several arrays of the same shape.
+- **Pages Router:** reads the `__NEXT_DATA__` script and exposes `props.pageProps` and the root JSON object.
+- **App Router:** joins inline `self.__next_f.push(...)` scripts, handles text and Base64 Flight chunks, parses outlined model rows, and resolves supported React Flight references such as `$<id>`, `$Q` maps, `$W` sets, dates, and lazy/promise references. Reference cycles are guarded; unresolved references are retained for inspection.
+- **Raw RSC response:** `extractRscPayloads(body)` and `findPageRsc(body, ...)` work with a raw `text/x-component` body (typically an RSC request using the `RSC: 1` header).
+- **Exact text-chunk lookup:** `findPage`/`findPageRsc` return a `FlightPage` containing a matched object and its text-chunk cache. Use `FlightPage.text(...)` for fields represented as `$<id>` text references.
+
+Public lookup methods:
+
+- `extractPayloads(html)`: all top-level parsed payloads; App Router is tried first and Pages Router is the fallback.
+- `extractRscPayloads(body)`: parsed payloads from a raw Flight body.
+- `findValue(html, predicate)`: first matching node anywhere in the parsed payload graph.
+- `findObject(html, key, value, vararg requiredKeys)`: first object matching a key/value and containing the required keys.
+- `findObjectInPayloads(payloads, vararg keys)`: first object with all requested keys in already-extracted payloads.
+- `findArray(html, validator?)`: first non-empty array, optionally validating its first object.
+- `findLargestArray(html, validator?)`: largest matching non-empty array; useful when a small recommendation array appears before the full chapter list.
+- `findPage(html, vararg keys)` / `findPageRsc(body, vararg keys)`: locate an object containing all requested keys in one Flight row and return its text chunks as a `FlightPage`.
+
+For ordinary JSON values or payloads with inlined fields, prefer `findValue` or `findObject`. For example:
 
 ```kotlin
 import org.json.JSONObject
 import tsuki.util.NextJsData
 
 val html = webClient.httpGet(pageUrl).parseRaw()
-val mangaData = NextJsData.findObject(html, "slug", slug, "title", "chapters")
+val manga = NextJsData.findObject(html, "slug", slug, "title", "chapters")
     ?: throw ParseException("Manga data not found", pageUrl)
-val chapterArray = NextJsData.findLargestArray(html) { first ->
+
+val chapters = NextJsData.findLargestArray(html) { first ->
     first.has("id") && first.has("number")
 }
-val readerData = NextJsData.findValue(html) { node ->
+
+val reader = NextJsData.findValue(html) { node ->
     node is JSONObject && node.has("pages")
 } as? JSONObject
 ```
 
-Use DOM selectors when the HTML is stable and sufficient. Next.js payload formats can change; validate values and retain a reasonable fallback when the source has one.
+Use `findLargestArray` only when the candidate arrays share a known shape; the largest array is not automatically the correct one. A validator should check distinctive fields, not just common keys such as `id`.
+
+Some App Router payloads put long text in Flight text chunks, for example `"synopsis":"$27"`. The general `extractPayloads` path resolves Flight references using a character-oriented row parser. For exact UTF-8 byte handling and lazy text lookup, use `findPage` or `findPageRsc`; these scan Flight rows by their encoded byte lengths and return `FlightPage`.
+
+```kotlin
+import tsuki.util.NextJsData
+
+val page = NextJsData.findPage(html, "slug", "title", "synopsis")
+    ?: throw ParseException("Manga Flight row not found", pageUrl)
+
+val slug = page.data.getString("slug")
+val title = page.data.getString("title")
+val synopsis = page.text("synopsis")
+```
+
+`FlightPage.text(key)` resolves plain strings, escaped `$$` values, `$undefined`, and `$<id>` text-chunk references. The overload `text(obj, key)` performs the same lookup on a nested object. It returns `null` for missing, blank, undefined, or unresolved values. `findPage` requires all requested keys to occur in the same JSON row; if a site splits fields across rows, use multiple lookups or `findValue` instead.
+
+For an already-parsed payload list, `findObjectInPayloads` avoids parsing the HTML a second time:
+
+```kotlin
+val payloads = NextJsData.extractPayloads(html)
+val manga = NextJsData.findObjectInPayloads(payloads, "slug", "title", "chapters")
+```
+
+The raw RSC body is not HTML, so use the raw-body methods for that response:
+
+```kotlin
+val body = webClient.httpGet(rscUrl, rscHeaders).parseRaw()
+val payloads = NextJsData.extractRscPayloads(body)
+val chapterPage = NextJsData.findPageRsc(body, "chapterId", "pages")
+```
+
+Next.js payload layouts can change. Validate extracted nodes and keep a DOM/API fallback when the source provides one. Do not dump whole account-specific payloads or credentials into logs.
 
 #### Protocol Buffers
 
-UMA's `tsuki.util.Protobuf` helpers use Kotlin serialization Protobuf and a shared `protoInstance`. Public helpers cover byte arrays and streaming sources/sinks, OkHttp response parsing, request-body encoding, and Base64 strings:
+UMA's `tsuki.util.Protobuf` helpers use Kotlin serialization Protobuf and a shared `protoInstance`. They support byte arrays, streaming Okio sources/sinks, OkHttp response parsing, request-body encoding, and Base64 strings:
 
 - `ByteArray.decodeProto<T>()`, `T.encodeProto()`
 - `BufferedSource.decodeProto<T>(byteCount = -1L)`, `BufferedSink.encodeProto(value, encodeDefaults = false)`
@@ -370,36 +573,37 @@ import tsuki.util.toRequestBodyProto
 @Serializable
 class CatalogRequest(val page: Int)
 
-// Parse a protobuf HTTP response (the helper closes the response).
+// Parses the response and closes its body.
 val result: CatalogResponse = webClient.httpGet(apiUrl).parseAsProto()
 
-// Encode a serializable request DTO for a protobuf endpoint.
+// Creates an application/protobuf RequestBody.
 val requestBody = CatalogRequest(page = 1).toRequestBodyProto()
 ```
 
-The repository also has a `tsuki.util.protobuf` package containing the streaming encoder/decoder implementation. Treat those implementation classes as internals; use the extensions above. MangaPlus is an in-repository example of `parseAsProto()`.
+Use the response overload to avoid buffering the entire message as a `ByteArray`. The transform overload can adapt a stream before decoding, for example when the service wraps the protobuf payload. The `tsuki.util.protobuf` package contains the streaming encoder/decoder implementation; treat those classes as internals and use the public extensions. MangaPlus is an in-repository example of `parseAsProto()`.
 
 #### Turnstile integration
 
-UMA provides `getTurnstileToken(context, url, siteKey, action?, cData?, theme, timeoutMs)` in `tsuki.util`. It is a source-specific integration for a site that explicitly requires Turnstile. It can fail on timeouts, widget errors, or challenges requiring interactive input. Respect the website's terms and access controls; do not use this helper to evade a site's protections or access restrictions. Prefer the site's supported access method and do not add it unless the source's authorized flow requires it.
+UMA provides `getTurnstileToken(context, url, siteKey, action?, cData?, theme, timeoutMs)` in `tsuki.util`. It is a source-specific integration for a site whose documented access flow requires Turnstile. It can fail on timeouts, widget errors, or challenges requiring interactive input.
 
-#### Decryption helpers
+Prefer a site's supported access method and follow its terms and access controls. Do not use this helper to evade a site's protections or access restrictions. Do not add it unless the source's authorized flow requires it. See existing usage in the ProComic parser for how a source passes an obtained token to its own request.
 
-UMA's `tsuki.util.decrypt` package contains public primitives for source formats that require authenticated decryption. Only use the primitive matching the site's documented/wire format; the key, nonce, tag, associated data, and payload layout must come from the source protocol. Never invent cryptographic parameters or disable authentication checks.
+#### Authenticated decryption primitives
 
-- `AesSiv.decrypt(key, ciphertext, vararg aad)` — AES-SIV; ciphertext format is tag followed by encrypted content.
-- `AesGcmSiv.decrypt(key, nonce, ciphertext, aad = emptyByteArray())` — AES-GCM-SIV; ciphertext contains the authentication tag at the end.
-- `ChaCha20Poly1305.decrypt(key, nonce, ct, tag, aad)` — IETF ChaCha20-Poly1305.
-- `ChaCha20Poly1305.xdecrypt(key, nonce, ct, tag, aad)` — XChaCha20-Poly1305.
+UMA's `tsuki.util.decrypt` package contains public primitives for source formats that require authenticated decryption. Use only the primitive matching the site's documented or observed wire format. The key, nonce, tag, associated data, and payload layout must come from the source protocol; authentication failures should be surfaced, not ignored.
+
+- `AesSiv.decrypt(key, ciphertext, vararg aad)` — AES-SIV; the ciphertext starts with the 16-byte synthetic IV/tag, followed by encrypted content.
+- `AesGcmSiv.decrypt(key, nonce, ciphertext, aad = emptyByteArray())` — AES-GCM-SIV; the ciphertext ends with its 16-byte tag.
+- `ChaCha20Poly1305.decrypt(key, nonce, ct, tag, aad)` — IETF ChaCha20-Poly1305; ciphertext and tag are separate inputs.
+- `ChaCha20Poly1305.xdecrypt(key, nonce, ct, tag, aad)` — XChaCha20-Poly1305; uses a 24-byte nonce.
 - `Ece.decrypt(payload, ikm)` — RFC 8188 `aes128gcm` payload decryption.
 - `Ece.hkdf(ikm, salt, info, length, algorithm)` — HKDF key derivation.
-- `Ece.publicKeyToRaw(publicKey)` and `Ece.rawToPublicKey(raw)` — P-256 uncompressed public-key conversion.
-
-A minimal example of the shape only (supply protocol-derived values; do not use placeholder keys in production):
+- `Ece.publicKeyToRaw(publicKey)` / `Ece.rawToPublicKey(raw)` — P-256 uncompressed public-key conversion.
 
 ```kotlin
 import tsuki.util.decrypt.AesGcmSiv
 
+// Values must be parsed or derived according to the source protocol.
 val plaintext = AesGcmSiv.decrypt(
     key = keyBytes,
     nonce = nonceBytes,
@@ -408,13 +612,13 @@ val plaintext = AesGcmSiv.decrypt(
 )
 ```
 
-`decrypt.Bytes` and `decrypt.SecretStream` are internal implementation details, not parser-facing utility APIs. Add or modify cryptographic behavior only when the format is understood and covered by tests.
+`decrypt.Bytes` and `decrypt.SecretStream` are internal implementation details, not parser-facing utility APIs. Add or modify cryptographic behavior only when the format is understood and covered by tests. Never ship hard-coded private keys or secret sample data.
 
 ## History and favourites synchronization
 
 Some sites expose a user's reading history or favourites. If both the site and the Tsuki version used by UMA support sync, advertise the capability and override the appropriate methods. Return `Manga` records containing the information the site provides; some services only provide a title, URL, and chapter name/number, and the app can reconcile partial metadata with local records.
 
-The following shows the newer API shape from Tsuki. Check that the resolved dependency contains `isSyncSupported`, `getHistoryList()`, and `getFavouritesList()` before using it. UMA currently declares Tsuki `1.0.5` in `gradle/libs.versions.toml`, so newer APIs may require a dependency update.
+The following shows the newer API shape from Tsuki. Check that the resolved dependency contains `isSyncSupported`, `getHistoryList()`, and `getFavouritesList()` before using it. UMA currently declares Tsuki 1.0.5 in `gradle/libs.versions.toml`, so newer APIs may require a dependency update.
 
 ```kotlin
 override val filterCapabilities: MangaListFilterCapabilities
@@ -486,15 +690,40 @@ override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
 
 Keep the config identifier and exception `key` consistent. Do not log or commit credentials, and do not send them to unrelated hosts.
 
-## Code quality and testing
+## Parser quality and reliability
 
-- Keep changes focused and follow formatting and patterns in nearby Kotlin files.
+### URLs and identity
+
+- Use configured domains and URL helpers rather than scattering hard-coded hosts through request code.
+- Keep manga and chapter URLs consistent with nearby parsers and the app's expected model conventions.
+- Generate stable IDs from a source URL or source ID. Do not use random IDs or list positions.
+- Preserve source identity by setting `source = source` on models.
+
+### Missing data and parse errors
+
 - Parse only data the source actually provides; preserve unknown values as unknown.
-- Use stable IDs and consistent URL forms.
-- Handle missing or changed site markup deliberately. Skip invalid optional records and report useful parse errors for required elements.
-- Be respectful of source servers: avoid unnecessary requests, uncontrolled concurrency, or aggressive retry loops.
-- Do not advertise capabilities that are not implemented.
-- Do not include account data, cookies, or credentials in logs or pull requests.
+- Skip malformed optional list entries with `mapNotNull` or `mapChapters`.
+- Use clear parse errors for required elements or attributes; avoid returning a plausible-looking but invalid manga.
+- Preserve existing manga fields if a detail request omits optional information.
+- Test selectors against current markup, not only saved examples.
+
+### Requests, retries, and rate
+
+- Be respectful of source servers: avoid redundant requests, uncontrolled concurrency, and aggressive retries.
+- Handle HTTP errors according to their meaning; do not convert every error into an empty result.
+- Use retries only when transient failure is plausible and keep retry counts bounded.
+- Prefer existing client configuration and source headers. Avoid hard-coding a user agent unless the source truly requires it.
+
+### Credentials and sensitive information
+
+- Do not commit credentials, tokens, cookies, private API responses, or personal account data.
+- Do not print secrets to logs or exception messages.
+- Send credentials only to the intended source endpoint over HTTPS.
+- Do not use parser helpers to bypass access controls or a site's terms.
+
+## Testing and building
+
+### Compile and test
 
 Run relevant checks before submitting:
 
@@ -503,9 +732,9 @@ Run relevant checks before submitting:
 ./gradlew test
 ```
 
-If you change DEX packaging or need to verify the installable artifact, also run `./gradlew buildJar` with Android SDK build-tools installed.
+If a test requires no network access, prefer a deterministic fixture or mock response. Avoid adding tests that depend on a live third-party website being available.
 
-## Building the plugin
+### Build the installable plugin
 
 Use the checked-in wrapper:
 
@@ -518,7 +747,11 @@ chmod +x gradlew
 .\gradlew.bat buildJar
 ```
 
-`buildJar` runs the custom DEX packaging task and creates `build/libs/uma.jar`. It requires an Android SDK. The regular `jar` task produces `build/libs/raw.jar` but does not DEX the plugin. The release workflow builds the installable artifact from source changes on `master`; CodeQL compiles Kotlin as part of analysis.
+`buildJar` runs the custom DEX packaging task and creates `build/libs/uma.jar`. It requires an Android SDK with build-tools. The regular `jar` task produces `build/libs/raw.jar` but does not DEX the plugin. The release workflow builds the installable artifact from source changes on `master`; CodeQL compiles Kotlin as part of analysis.
+
+### Test in a Usagi-compatible app
+
+When possible, install the generated `build/libs/uma.jar` using the plugin management flow documented in [README.md](README.md). Verify the behavior affected by your change: for example, list and search results, detail fields, chapter ordering, page URLs, filters, or sync. Do not report device testing if you only compiled locally.
 
 ## Submitting changes
 
