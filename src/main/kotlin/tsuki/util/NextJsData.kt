@@ -152,7 +152,7 @@ object NextJsData {
     } as? JSONArray
 
     /**
-     * Finds the **largest** non-empty array across every payload, optionally
+     * Finds the largest non-empty array across every payload, optionally
      * validating the first element.
      *
      * Use this instead of [findArray] when a page can embed several arrays of
@@ -181,8 +181,8 @@ object NextJsData {
 
     /**
      * Depth-first walk over [node] calling [action] for every array whose first
-     * element passes [validator] (or every non-empty array when [validator] is
-     * `null`). Descends through [JSONObject] values and [JSONArray] elements —
+     * element passes [validator] (or every non-empty array when [validator] is [null]).
+     * Descends through [JSONObject] values and [JSONArray] elements,
      * same traversal rules as [findValueIn], so the `JSONArray`-only invariant
      * still holds.
      */
@@ -275,7 +275,7 @@ object NextJsData {
     }
 
     /**
-     * Byte-level flight parser (Kotatsu-Redo style).
+     * Byte-level flight parser.
      *
      * Reads `<hex-id>:` headers, decodes `T<hexLen>,<content>` text rows by
      * exact UTF-8 byte count, and returns the first JSON row that contains
@@ -343,7 +343,7 @@ object NextJsData {
      *   `<hex-id>:T<hexLen>,<content>`     text chunk
      *
      * Note: this char-level parser is retained for backward compatibility. It
-     * can drift on long multi-byte text rows; prefer [findPage] for exact
+     * can drift on long multi-byte text rows, prefer [findPage] for exact
      * behavior.
      */
     private fun parseRscRows(body: String): FlightData {
