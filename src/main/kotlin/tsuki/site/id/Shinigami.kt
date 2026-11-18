@@ -22,6 +22,7 @@ import tsuki.util.generateUid
 import tsuki.util.json.getIntOrDefault
 import tsuki.util.json.getStringOrNull
 import tsuki.util.json.mapJSON
+import tsuki.util.json.mapJSONNotNull
 import tsuki.util.json.mapJSONToSet
 import tsuki.util.oneOrThrowIfMany
 import tsuki.util.parseJson
@@ -234,26 +235,55 @@ internal class Shinigami(context: MangaLoaderContext) :
     }
 
     private suspend fun getChapters(mangaId: String): List<MangaChapter> {
-        val url = "https://$apiSuffix/chapter/$mangaId/list?page_size=3000"
-        val json = webClient.httpGet(url, getApiHeaders()).parseJson()
-        val data = json.getJSONArray("data")
+        val chapters = ArrayList<MangaChapter>()
+        val seenIds = HashSet<String>()
+        val seenCursors = HashSet<String>()
+        var cursor: String? = null
 
-        return data.mapJSON { jo ->
-            val chapterId = jo.getString("chapter_id")
-            val number = jo.getDouble("chapter_number")
+        while (true) {
+            val url = buildString {
+                append("https://")
+                append(apiSuffix)
+                append("/chapter/")
+                append(mangaId)
+                append("/list?limit=2000")
+                if (cursor != null) {
+                    append("&cursor=")
+                    append(cursor.urlEncoded())
+                }
+            }
+            val json = webClient.httpGet(url, getApiHeaders()).parseJson()
+            val data = json.optJSONArray("data") ?: break
+            if (data.length() == 0) break
 
-            MangaChapter(
-                id = generateUid(chapterId),
-                title = "Chapter ${number.toFloat().toString().removeSuffix(".0")}",
-                number = number.toFloat(),
-                url = "/chapter/detail/$chapterId",
-                scanlator = null,
-                uploadDate = jo.getString("release_date").parseDate(),
-                branch = null,
-                source = source,
-                volume = 0,
+            chapters.addAll(
+                data.mapJSONNotNull { jo ->
+                    val chapterId = jo.getStringOrNull("chapter_id") ?: return@mapJSONNotNull null
+                    if (!seenIds.add(chapterId)) return@mapJSONNotNull null
+                    val number = jo.optDouble("chapter_number", 0.0)
+
+                    MangaChapter(
+                        id = generateUid(chapterId),
+                        title = "Chapter ${number.toFloat().toString().removeSuffix(".0")}",
+                        number = number.toFloat(),
+                        url = "/chapter/detail/$chapterId",
+                        scanlator = null,
+                        uploadDate = jo.getStringOrNull("release_date")?.parseDate() ?: 0L,
+                        branch = null,
+                        source = source,
+                        volume = 0,
+                    )
+                }
             )
-        }.reversed()
+
+            val meta = json.optJSONObject("meta")
+            if (meta?.optBoolean("has_next") != true) break
+            val nextCursor = meta.getStringOrNull("next_cursor")
+            if (nextCursor.isNullOrEmpty() || !seenCursors.add(nextCursor)) break
+            cursor = nextCursor
+        }
+
+        return chapters.reversed()
     }
 
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
