@@ -97,7 +97,7 @@ internal class Shinigami(context: MangaLoaderContext) :
             append(apiSuffix)
             append("/manga/list")
             append("?page=").append(page)
-            append("&page_size=").append(pageSize)
+            append("&limit=").append(pageSize)
 
             append("&sort=")
             append(
