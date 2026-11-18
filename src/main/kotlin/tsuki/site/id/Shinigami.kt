@@ -38,8 +38,8 @@ import java.util.TimeZone
 internal class Shinigami(context: MangaLoaderContext) :
     PagedMangaParser(context, MangaParserSource.SHINIGAMI, 30) {
 
-    override val configKeyDomain = ConfigKey.Domain("g.shinigami.asia")
-    private val apiSuffix = "api.shngm.io/v1"
+    override val configKeyDomain = ConfigKey.Domain("s1.shinigami.mx")
+    private val apiSuffix = "api.shinigami.io/v1"
 
     override fun onCreateConfig(keys: MutableCollection<ConfigKey<*>>) {
         super.onCreateConfig(keys)
