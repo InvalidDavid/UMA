@@ -267,8 +267,9 @@ internal class Komiku(context: MangaLoaderContext) :
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
         val fullUrl = chapter.url.toAbsoluteUrl(domain)
         val doc = webClient.httpGet(fullUrl).parseHtml()
-        return doc.select(selectPage).mapIndexed { _, img ->
-            val src = img.attr("abs:src")
+        return doc.select(selectPage).mapNotNull { img ->
+            val src = img.attr("abs:data-src").ifEmpty { img.attr("abs:src") }
+            if (src.isBlank()) return@mapNotNull null
             MangaPage(
                 id = generateUid(src),
                 url = src,
